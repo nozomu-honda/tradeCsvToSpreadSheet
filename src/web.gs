@@ -1,5 +1,5 @@
 function doGet(e) {
-  const template = HtmlService.createTemplateFromFile('src/Index');
+  const template = HtmlService.createTemplateFromFile('Index');
   template.initialCsvUrl = (e && e.parameter && e.parameter.csvUrl) ? e.parameter.csvUrl : '';
   return template.evaluate().setTitle('CSVから4シート生成');
 }
