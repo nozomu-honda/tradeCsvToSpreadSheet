@@ -72,9 +72,9 @@ function styleSheet_(sheet, headers, rowCount) {
     const range = sheet.getRange(2, i + 1, rowCount - 1, 1);
 
     if (currencyLike.has(h)) {
-      range.setNumberFormat('#,##0;[Red]-#,##0;');
+      range.setNumberFormat('#,##0;[Red]-#,##0;0');
     } else if (qtyLike.has(h)) {
-      range.setNumberFormat('#,##0;[Red]-#,##0;');
+      range.setNumberFormat('#,##0;[Red]-#,##0;0');
     } else if (h === 'レート') {
       range.setNumberFormat('#,##0.00');
     }
