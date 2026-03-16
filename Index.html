@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+      body {
+        font-family: system-ui, -apple-system, sans-serif;
+        max-width: 760px;
+        margin: 32px auto;
+        padding: 0 16px;
+        line-height: 1.6;
+      }
+      input, button {
+        font-size: 16px;
+        padding: 10px 12px;
+      }
+      input[type="text"] {
+        width: 100%;
+        box-sizing: border-box;
+      }
+      button {
+        margin-top: 12px;
+        cursor: pointer;
+      }
+      .card {
+        border: 1px solid #ddd;
+        border-radius: 12px;
+        padding: 20px;
+      }
+      .muted {
+        color: #666;
+        font-size: 14px;
+      }
+      .ok {
+        color: #0b8043;
+        white-space: pre-wrap;
+      }
+      .err {
+        color: #d93025;
+        white-space: pre-wrap;
+      }
+      .row {
+        margin-top: 14px;
+      }
+      .sep {
+        margin: 18px 0;
+        text-align: center;
+        color: #888;
+      }
+      a {
+        word-break: break-all;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h2>CSVから4シート生成</h2>
+      <p class="muted">
+        CSVリンク、またはローカルCSVアップロードのどちらかで実行できます。
+      </p>
+
+      <div class="row">
+        <label for="csvUrl">CSVリンク</label>
+        <input id="csvUrl" type="text" value="<?= initialCsvUrl ?>" placeholder="https://..." />
+      </div>
+
+      <div class="sep">または</div>
+
+      <div class="row">
+        <label for="csvFile">ローカルCSVファイル</label>
+        <input id="csvFile" type="file" accept=".csv,text/csv" />
+      </div>
+
+      <div class="row">
+        <button onclick="run()">実行</button>
+      </div>
+
+      <div id="status" class="row muted"></div>
+      <pre id="result" class="row"></pre>
+      <div id="linkArea" class="row"></div>
+    </div>
+
+    <script>
+      async function run() {
+        const csvUrl = document.getElementById('csvUrl').value.trim();
+        const fileInput = document.getElementById('csvFile');
+        const file = fileInput.files && fileInput.files[0] ? fileInput.files[0] : null;
+
+        const status = document.getElementById('status');
+        const result = document.getElementById('result');
+        const linkArea = document.getElementById('linkArea');
+
+        result.className = '';
+        result.textContent = '';
+        linkArea.innerHTML = '';
+
+        if (!csvUrl && !file) {
+          result.className = 'err';
+          result.textContent = 'CSVリンクかCSVファイルのどちらかを指定してください。';
+          return;
+        }
+
+        if (csvUrl && file) {
+          result.className = 'err';
+          result.textContent = 'CSVリンクとCSVファイルは同時に指定せず、どちらか一方にしてください。';
+          return;
+        }
+
+        status.textContent = '実行中...';
+
+        try {
+          let payload;
+
+          if (file) {
+            const uploadedCsvText = await readFileAsTextWithFallback(file);
+            payload = {
+              csvUrl: '',
+              uploadedCsvText: uploadedCsvText,
+              uploadedFileName: file.name
+            };
+          } else {
+            payload = {
+              csvUrl: csvUrl,
+              uploadedCsvText: '',
+              uploadedFileName: ''
+            };
+          }
+
+          google.script.run
+            .withSuccessHandler(function(res) {
+              status.textContent = '';
+              result.className = 'ok';
+              result.textContent =
+                '完了しました。\n\n' +
+                '入力方法: ' + (res.inputType === 'upload' ? 'アップロード' : 'リンク') + '\n' +
+                'スプレッドシート名: ' + res.spreadsheetName + '\n' +
+                '元データシート: ' + res.sourceSheetName + '\n' +
+                '全件数: ' + res.counts.all + '\n' +
+                '国内取引: ' + res.counts.domestic + '\n' +
+                '外国取引: ' + res.counts.foreign + '\n' +
+                '金銭残高（円）: ' + res.counts.cashJpy + '\n' +
+                '金銭残高（ドル）: ' + res.counts.cashUsd;
+
+              const a = document.createElement('a');
+              a.href = res.spreadsheetUrl;
+              a.target = '_blank';
+              a.rel = 'noopener noreferrer';
+              a.textContent = '作成したスプレッドシートを開く';
+              linkArea.appendChild(a);
+            })
+            .withFailureHandler(function(err) {
+              status.textContent = '';
+              result.className = 'err';
+              result.textContent = err && err.message ? err.message : String(err);
+            })
+            .runFromWebApp(payload);
+        } catch (e) {
+          status.textContent = '';
+          result.className = 'err';
+          result.textContent = e && e.message ? e.message : String(e);
+        }
+      }
+
+      async function readFileAsTextWithFallback(file) {
+        const utf8 = await readFileAsText(file, 'utf-8');
+        if (!utf8.includes('�')) {
+          return utf8;
+        }
+
+        try {
+          const sjis = await readFileAsText(file, 'shift-jis');
+          return sjis;
+        } catch (e) {
+          return utf8;
+        }
+      }
+
+      function readFileAsText(file, encoding) {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = function() {
+            resolve(reader.result);
+          };
+          reader.onerror = function() {
+            reject(new Error('ファイルの読み込みに失敗しました。'));
+          };
+          reader.readAsText(file, encoding);
+        });
+      }
+    </script>
+  </body>
+</html>
