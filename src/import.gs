@@ -34,6 +34,7 @@ function createSpreadsheetFromCsvText_(csvText, sourceName, normalizedUrl) {
 
 function buildOutputSheetsFromSourceSheet_(ss, sourceSheet) {
   const records = readInputRecords_(sourceSheet);
+  const alerts = [];
 
   const domestic = records
     .filter(r => ['株式', '投信'].includes(r['商品']))
@@ -54,8 +55,8 @@ function buildOutputSheetsFromSourceSheet_(ss, sourceSheet) {
     .filter(r => normalizeCurrency_(r['決済通貨']) === 'USD')
     .sort(sortCashRows_);
 
-  writeSheet_(ss, CONFIG.OUTPUT_DOMESTIC, TRADE_HEADERS, buildTradeRows_(domestic), true);
-  writeSheet_(ss, CONFIG.OUTPUT_FOREIGN, TRADE_HEADERS, buildTradeRows_(foreign), true);
+  writeSheet_(ss, CONFIG.OUTPUT_DOMESTIC, TRADE_HEADERS, buildTradeRows_(domestic, alerts), true);
+  writeSheet_(ss, CONFIG.OUTPUT_FOREIGN, TRADE_HEADERS, buildTradeRows_(foreign, alerts), true);
   writeSheet_(ss, CONFIG.OUTPUT_CASH_JPY, CASH_HEADERS, buildCashRows_(cashJpy), false);
   writeSheet_(ss, CONFIG.OUTPUT_CASH_USD, CASH_HEADERS, buildCashRows_(cashUsd), false);
 
@@ -65,6 +66,7 @@ function buildOutputSheetsFromSourceSheet_(ss, sourceSheet) {
     spreadsheetUrl: ss.getUrl(),
     spreadsheetName: ss.getName(),
     sourceSheetName: sourceSheet.getName(),
+    alerts,
     counts: {
       all: records.length,
       domestic: domestic.length,

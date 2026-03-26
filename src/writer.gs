@@ -1,4 +1,11 @@
 function writeSheet_(ss, sheetName, headers, rows, isTradeSheet) {
+  let actualHeaders = headers.slice();
+  let valuesRows = rows;
+
+  if (isTradeSheet) {
+    actualHeaders = headers.concat(['__highlight_symbol__']);
+  }
+
   let sheet = ss.getSheetByName(sheetName);
   if (!sheet) {
     sheet = ss.insertSheet(sheetName);
@@ -6,10 +13,10 @@ function writeSheet_(ss, sheetName, headers, rows, isTradeSheet) {
     sheet.clear();
   }
 
-  const values = [headers, ...rows];
-  sheet.getRange(1, 1, values.length, headers.length).setValues(values);
+  const values = [actualHeaders, ...valuesRows];
+  sheet.getRange(1, 1, values.length, actualHeaders.length).setValues(values);
 
-  styleSheet_(sheet, headers, values.length);
+  styleSheet_(sheet, actualHeaders, values.length);
   sheet.setFrozenRows(1);
 
   if (values.length > 1) {
@@ -17,17 +24,33 @@ function writeSheet_(ss, sheetName, headers, rows, isTradeSheet) {
   }
 
   if (isTradeSheet && rows.length > 0) {
-    const col = headers.indexOf('保有数') + 1;
-    const range = sheet.getRange(2, col, rows.length, 1);
-    const rule = SpreadsheetApp.newConditionalFormatRule()
+    const holdingCol = actualHeaders.indexOf('保有数') + 1;
+    const symbolCol = actualHeaders.indexOf('銘柄名') + 1;
+    const helperCol = actualHeaders.indexOf('__highlight_symbol__') + 1;
+
+    const zeroRule = SpreadsheetApp.newConditionalFormatRule()
       .whenNumberEqualTo(0)
       .setFontColor('#d93025')
-      .setRanges([range])
+      .setRanges([sheet.getRange(2, holdingCol, rows.length, 1)])
       .build();
-    sheet.setConditionalFormatRules([rule]);
+
+    const positiveHoldingLastTradeRule = SpreadsheetApp.newConditionalFormatRule()
+      .whenFormulaSatisfied(`=$${columnToLetter_(helperCol)}2="YES"`)
+      .setBackground('#d9f0ff')
+      .setRanges([sheet.getRange(2, symbolCol, rows.length, 1)])
+      .build();
+
+    sheet.setConditionalFormatRules([zeroRule, positiveHoldingLastTradeRule]);
   }
 
-  const filterRange = sheet.getRange(1, 1, Math.max(values.length, 2), headers.length);
+  hideColumnsByName_(sheet, actualHeaders, sheetName);
+
+  const helperIndex = actualHeaders.indexOf('__highlight_symbol__');
+  if (helperIndex >= 0) {
+    sheet.hideColumns(helperIndex + 1);
+  }
+
+  const filterRange = sheet.getRange(1, 1, Math.max(values.length, 2), actualHeaders.length);
   if (sheet.getFilter()) {
     sheet.getFilter().remove();
   }
@@ -56,12 +79,13 @@ function styleSheet_(sheet, headers, rowCount) {
     if (['保有数', '手数料の消費税額', '平均取得単価', '手数料抜き売値', '取得価格', '売却損益', '簿価', '銘柄ごとの残高', 'FX2の期末簿価', '残高', '月次残高'].includes(h)) {
       width = 140;
     }
+    if (h === '__highlight_symbol__') width = 40;
     sheet.setColumnWidth(i + 1, width);
   });
 
   const currencyLike = new Set([
     '単価', '受渡金額/決済損益', '手数料（税込）', '売買損益（円）',
-    '手数料の消費税額', '平均取得単価', '手数料抜き売値', '取得価格', '売却損益',
+    '手数料の消費税額', '手数料抜き売値', '取得価格', '売却損益',
     '簿価', '銘柄ごとの残高', '残高', '月次残高'
   ]);
 
@@ -75,8 +99,26 @@ function styleSheet_(sheet, headers, rowCount) {
       range.setNumberFormat('#,##0;[Red]-#,##0;0');
     } else if (qtyLike.has(h)) {
       range.setNumberFormat('#,##0;[Red]-#,##0;0');
+    } else if (h === '平均取得単価') {
+      // 内部では小数保持、表示は整数
+      range.setNumberFormat('#,##0;[Red]-#,##0;0');
     } else if (h === 'レート') {
       range.setNumberFormat('#,##0.00');
+    }
+  });
+}
+
+function hideColumnsByName_(sheet, headers, sheetName) {
+  const hideMap = {
+    '国内取引': ['摘要', '発行通貨', 'レート', '決済通貨'],
+    '外国取引': ['摘要']
+  };
+
+  const targetNames = hideMap[sheetName] || [];
+  targetNames.forEach(name => {
+    const idx = headers.indexOf(name);
+    if (idx >= 0) {
+      sheet.hideColumns(idx + 1);
     }
   });
 }

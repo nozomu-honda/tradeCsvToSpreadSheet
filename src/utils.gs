@@ -83,3 +83,19 @@ function hasCsvLikeHeader_(text) {
   const head = String(text).slice(0, 3000);
   return head.includes('約定日') || head.includes('受渡日') || head.includes('取引区分');
 }
+
+function columnToLetter_(column) {
+  let temp = '';
+  let letter = '';
+  while (column > 0) {
+    temp = (column - 1) % 26;
+    letter = String.fromCharCode(temp + 65) + letter;
+    column = (column - temp - 1) / 26;
+  }
+  return letter;
+}
+
+function formatDateForAlert_(dateValue) {
+  if (!(dateValue instanceof Date)) return '(日付なし)';
+  return Utilities.formatDate(dateValue, Session.getScriptTimeZone() || 'Asia/Tokyo', 'yyyy/MM/dd');
+}
