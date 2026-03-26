@@ -131,6 +131,12 @@
             .withSuccessHandler(function(res) {
               status.textContent = '';
               result.className = 'ok';
+
+              let alertText = '';
+              if (res.alerts && res.alerts.length > 0) {
+                alertText = '\n\nアラート:\n- ' + res.alerts.join('\n- ');
+              }
+
               result.textContent =
                 '完了しました。\n\n' +
                 '入力方法: ' + (res.inputType === 'upload' ? 'アップロード' : 'リンク') + '\n' +
@@ -140,7 +146,8 @@
                 '国内取引: ' + res.counts.domestic + '\n' +
                 '外国取引: ' + res.counts.foreign + '\n' +
                 '金銭残高（円）: ' + res.counts.cashJpy + '\n' +
-                '金銭残高（ドル）: ' + res.counts.cashUsd;
+                '金銭残高（ドル）: ' + res.counts.cashUsd +
+                alertText;
 
               const a = document.createElement('a');
               a.href = res.spreadsheetUrl;
