@@ -33,6 +33,13 @@ function normalizeCurrency_(v) {
   return s;
 }
 
+function normalizeZero_(value) {
+  if (value === '' || value === null || value === undefined) return value;
+  if (Object.is(value, -0)) return 0;
+  if (Math.abs(value) < 1e-9) return 0;
+  return value;
+}
+
 function toNumber_(v) {
   if (v === '' || v === null || v === undefined) return 0;
   if (typeof v === 'number') return v;

@@ -114,6 +114,8 @@ function buildTradeRows_(records, alerts) {
       );
     }
 
+    bookValue = normalizeZero_(bookValue);
+
     // 銘柄ごとの残高（内部では小数のまま保持）
     let symbolBalance = prevBalance;
     if (['現物買付', '現物再投', '現物売却', '現物買取', '現物募集'].includes(tx)) {
@@ -125,6 +127,8 @@ function buildTradeRows_(records, alerts) {
         `銘柄ごとの残高: 対象外の取引区分: ${tx || '(空欄)'} / 銘柄名: ${symbol || '(空欄)'} / 受渡日: ${formatDateForAlert_(r['受渡日'])}`
       );
     }
+
+    symbolBalance = normalizeZero_(symbolBalance);
 
     // 平均取得単価
     if (['現物買付', '現物再投', '現物募集'].includes(tx) && holding > 0) {
@@ -141,10 +145,16 @@ function buildTradeRows_(records, alerts) {
       );
     }
 
+    avgUnitPrice = normalizeZero_(avgUnitPrice);
+
     // 売却損益
     if (sellNet !== '' && acquisitionPrice !== '') {
       realizedGain = sellNet - acquisitionPrice;
     }
+
+    realizedGain = normalizeZero_(realizedGain);
+    acquisitionPrice = normalizeZero_(acquisitionPrice);
+    sellNet = normalizeZero_(sellNet);
 
     const lastTradeOfSymbol =
       index === records.length - 1 ||
@@ -208,6 +218,7 @@ function buildCashRows_(records) {
     }
 
     runningBalance += delta;
+    runningBalance = normalizeZero_(runningBalance);
 
     const monthEndBalance =
       !next || !sameYearMonth_(r['受渡日'], next['受渡日']) ? runningBalance : '';
