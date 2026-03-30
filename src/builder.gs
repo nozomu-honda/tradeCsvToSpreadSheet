@@ -78,26 +78,29 @@ function buildTradeRows_(records, alerts) {
       }
     }
 
-    // 簿価
+    // 簿価（内部でも整数で保持）
     if (['現物買付', '現物再投', '現物募集'].includes(tx)) {
       const tax = feeTax === '' ? 0 : feeTax;
+      let rawBookValue = '';
 
       if (settlementCurrency && settlementCurrency !== 'JPY') {
         if (rate && rate !== 0) {
-          bookValue = amount * rate - tax * rate;
+          rawBookValue = amount * rate - tax * rate;
         } else {
           alerts.push(
             `簿価: レート未入力: ${symbol || '(空欄)'} / 受渡日: ${formatDateForAlert_(r['受渡日'])} / 決済通貨: ${settlementCurrency}`
           );
-          bookValue = amount - tax;
+          rawBookValue = amount - tax;
         }
       } else {
-        bookValue = amount - tax;
+        rawBookValue = amount - tax;
       }
+
+      bookValue = Math.round(rawBookValue);
 
     } else if (['現物売却', '現物買取'].includes(tx)) {
       if (acquisitionPrice !== '') {
-        bookValue = -acquisitionPrice;
+        bookValue = Math.round(-acquisitionPrice);
       } else {
         bookValue = '';
         alerts.push(
