@@ -5,6 +5,7 @@
  * - builder.gs の計算ロジック確認
  * - utils.gs の補助ロジック確認
  * - writer.gs の表示/非表示/条件付き書式確認
+ * - import.gs の入力アラート確認
  *
  * 実行方法:
  * - Apps Script エディタで runSmokeTests または runAllTests を実行
@@ -26,6 +27,13 @@ function runSmokeTests() {
     test_bookValue_usesAcquisitionPrice_,
     test_sellWithoutAvg_addsAlert_,
     test_sortTradeRows_usesPriority_,
+    test_stockConversionBuy_updatesHoldingAndAvg_,
+    test_forcedRedemptionSell_updatesHoldingAndBookValue_,
+    test_redemption_tradeRowAndCashRow_,
+    test_collectInputAlerts_supportedForeignBond_,
+    test_collectInputAlerts_supportedProductAndCurrency_doNothing_,
+    test_collectInputAlerts_unsupportedProduct_,
+    test_collectInputAlerts_unsupportedSettlementCurrency_,
     test_holdingZero_and_balanceZero_,
     test_lastTradeHighlightFlag_,
     test_buildCashRows_runningBalance_,
@@ -38,7 +46,7 @@ function runSmokeTests() {
 /**
  * フルテスト
  *
- * builder / utils / writer をまとめて確認する。
+ * builder / utils / writer / import をまとめて確認する。
  * writer 系では一時スプレッドシートを作成する。
  */
 function runAllTests() {
@@ -47,6 +55,13 @@ function runAllTests() {
     test_bookValue_usesAcquisitionPrice_,
     test_sellWithoutAvg_addsAlert_,
     test_sortTradeRows_usesPriority_,
+    test_stockConversionBuy_updatesHoldingAndAvg_,
+    test_forcedRedemptionSell_updatesHoldingAndBookValue_,
+    test_redemption_tradeRowAndCashRow_,
+    test_collectInputAlerts_supportedForeignBond_,
+    test_collectInputAlerts_supportedProductAndCurrency_doNothing_,
+    test_collectInputAlerts_unsupportedProduct_,
+    test_collectInputAlerts_unsupportedSettlementCurrency_,
     test_holdingZero_and_balanceZero_,
     test_lastTradeHighlightFlag_,
     test_buildCashRows_runningBalance_,
@@ -88,13 +103,9 @@ function runSelectedTests_(tests, label) {
 }
 
 /* =========================================================
- * builder.gs / utils.gs のテスト
+ * builder.gs / utils.gs / import.gs のテスト
  * ========================================================= */
 
-/**
- * 平均取得単価は内部では小数保持されることを確認する。
- * 表示時の整数化は writer.gs の書式で行う前提。
- */
 function test_averageUnitPrice_keepsDecimal_() {
   const alerts = [];
   const records = [
@@ -119,11 +130,6 @@ function test_averageUnitPrice_keepsDecimal_() {
   assertEquals_(0, alerts.length, '不要なアラートは出ないこと');
 }
 
-/**
- * 売却時の簿価は acquisitionPrice を基準に
- * bookValue = -acquisitionPrice
- * になっていることを確認する。
- */
 function test_bookValue_usesAcquisitionPrice_() {
   const alerts = [];
   const records = [
@@ -161,10 +167,6 @@ function test_bookValue_usesAcquisitionPrice_() {
   assertEquals_(0, alerts.length, '不要なアラートは出ないこと');
 }
 
-/**
- * 買付がないまま売却した場合、
- * 「対象外」ではなく「平均取得単価が未計算」アラートになることを確認する。
- */
 function test_sellWithoutAvg_addsAlert_() {
   const alerts = [];
   const records = [
@@ -196,19 +198,19 @@ function test_sellWithoutAvg_addsAlert_() {
   );
 }
 
-/**
- * sortTradeRows_ が compareTradePriority_ を使った並び順になっていることを確認する。
- */
 function test_sortTradeRows_usesPriority_() {
   const records = [
-    makeTradeRecord_({ 銘柄名: 'CCC', 取引区分: '入金（分配金）', 約定日: '2026/04/01', 受渡日: '2026/04/01' }),
-    makeTradeRecord_({ 銘柄名: 'CCC', 取引区分: '現物売却',       約定日: '2026/04/01', 受渡日: '2026/04/01' }),
-    makeTradeRecord_({ 銘柄名: 'CCC', 取引区分: '現物募集',       約定日: '2026/04/01', 受渡日: '2026/04/01' }),
-    makeTradeRecord_({ 銘柄名: 'CCC', 取引区分: '現物買付',       約定日: '2026/04/01', 受渡日: '2026/04/01' }),
-    makeTradeRecord_({ 銘柄名: 'CCC', 取引区分: '現物再投',       約定日: '2026/04/01', 受渡日: '2026/04/01' }),
-    makeTradeRecord_({ 銘柄名: 'CCC', 取引区分: '現物買取',       約定日: '2026/04/01', 受渡日: '2026/04/01' }),
-    makeTradeRecord_({ 銘柄名: 'CCC', 取引区分: '入庫（増減資）', 約定日: '2026/04/01', 受渡日: '2026/04/01' }),
-    makeTradeRecord_({ 銘柄名: 'CCC', 取引区分: '入金（配当金）', 約定日: '2026/04/01', 受渡日: '2026/04/01' }),
+    makeTradeRecord_({ 銘柄名: 'CCC', 取引区分: '入金（分配金）',   約定日: '2026/04/01', 受渡日: '2026/04/01' }),
+    makeTradeRecord_({ 銘柄名: 'CCC', 取引区分: '現物売却',         約定日: '2026/04/01', 受渡日: '2026/04/01' }),
+    makeTradeRecord_({ 銘柄名: 'CCC', 取引区分: '現物募集',         約定日: '2026/04/01', 受渡日: '2026/04/01' }),
+    makeTradeRecord_({ 銘柄名: 'CCC', 取引区分: '現物買付',         約定日: '2026/04/01', 受渡日: '2026/04/01' }),
+    makeTradeRecord_({ 銘柄名: 'CCC', 取引区分: '現物再投',         約定日: '2026/04/01', 受渡日: '2026/04/01' }),
+    makeTradeRecord_({ 銘柄名: 'CCC', 取引区分: '現物買取',         約定日: '2026/04/01', 受渡日: '2026/04/01' }),
+    makeTradeRecord_({ 銘柄名: 'CCC', 取引区分: '株転換取得（買）', 約定日: '2026/04/01', 受渡日: '2026/04/01' }),
+    makeTradeRecord_({ 銘柄名: 'CCC', 取引区分: '入庫（増減資）',   約定日: '2026/04/01', 受渡日: '2026/04/01' }),
+    makeTradeRecord_({ 銘柄名: 'CCC', 取引区分: '強制償還（売）',   約定日: '2026/04/01', 受渡日: '2026/04/01' }),
+    makeTradeRecord_({ 銘柄名: 'CCC', 取引区分: '償還',             約定日: '2026/04/01', 受渡日: '2026/04/01' }),
+    makeTradeRecord_({ 銘柄名: 'CCC', 取引区分: '入金（配当金）',   約定日: '2026/04/01', 受渡日: '2026/04/01' }),
   ];
 
   const sorted = records.slice().sort(sortTradeRows_);
@@ -217,9 +219,12 @@ function test_sortTradeRows_usesPriority_() {
     '現物買付',
     '現物再投',
     '現物募集',
+    '株転換取得（買）',
     '入庫（増減資）',
     '現物売却',
     '現物買取',
+    '強制償還（売）',
+    '償還',
     '入金（配当金）',
     '入金（分配金）',
   ];
@@ -227,10 +232,189 @@ function test_sortTradeRows_usesPriority_() {
   assertArrayEquals_(expected, actual, '取引区分優先順位ソート');
 }
 
-/**
- * 全売却後に保有数と銘柄ごとの残高が 0 になることを確認する。
- * 1 / -1 のようなズレ再発監視用。
- */
+function test_stockConversionBuy_updatesHoldingAndAvg_() {
+  const alerts = [];
+  const records = [
+    makeTradeRecord_({
+      銘柄名: 'SCB',
+      商品: '株式',
+      取引区分: '現物買付',
+      数量: 2,
+      受渡金額_決済損益: 200,
+      手数料税込: 0,
+      約定日: '2026/04/01',
+      受渡日: '2026/04/01',
+      決済通貨: 'JPY'
+    }),
+    makeTradeRecord_({
+      銘柄名: 'SCB',
+      商品: '株式',
+      取引区分: '株転換取得（買）',
+      数量: 1,
+      受渡金額_決済損益: 150,
+      手数料税込: 0,
+      約定日: '2026/04/02',
+      受渡日: '2026/04/02',
+      決済通貨: 'JPY'
+    }),
+  ];
+
+  const rows = buildTradeRows_(records, alerts);
+  const row = rows[1];
+
+  assertEquals_(3, getTradeRowValue_(row, '保有数'), '株転換取得（買）で保有数が増える');
+  assertEquals_(150, getTradeRowValue_(row, '簿価'), '株転換取得（買）の簿価');
+  assertEquals_(200, getTradeRowValue_(row, '銘柄ごとの残高'), '株転換取得（買）は銘柄ごとの残高を動かさない');
+  assertApproxEquals_((200 + 150) / 3, getTradeRowValue_(row, '平均取得単価'), 1e-9, '株転換取得（買）は平均取得単価の対象');
+  assertEquals_(0, alerts.length, '不要なアラートは出ないこと');
+}
+
+function test_forcedRedemptionSell_updatesHoldingAndBookValue_() {
+  const alerts = [];
+  const records = [
+    makeTradeRecord_({
+      銘柄名: 'FRS',
+      商品: '株式',
+      取引区分: '現物買付',
+      数量: 3,
+      受渡金額_決済損益: 300,
+      手数料税込: 0,
+      約定日: '2026/04/01',
+      受渡日: '2026/04/01',
+      決済通貨: 'JPY'
+    }),
+    makeTradeRecord_({
+      銘柄名: 'FRS',
+      商品: '株式',
+      取引区分: '強制償還（売）',
+      数量: 1,
+      受渡金額_決済損益: 120,
+      手数料税込: 0,
+      約定日: '2026/04/02',
+      受渡日: '2026/04/02',
+      決済通貨: 'JPY'
+    }),
+  ];
+
+  const rows = buildTradeRows_(records, alerts);
+  const row = rows[1];
+
+  assertEquals_(2, getTradeRowValue_(row, '保有数'), '強制償還（売）で保有数が減る');
+  assertEquals_(-120, getTradeRowValue_(row, '簿価'), '強制償還（売）の簿価');
+  assertEquals_(300, getTradeRowValue_(row, '銘柄ごとの残高'), '強制償還（売）は銘柄ごとの残高を動かさない');
+  assertEquals_('', getTradeRowValue_(row, '平均取得単価'), '強制償還（売）は平均取得単価を再計算しない');
+  assertEquals_(0, alerts.length, '不要なアラートは出ないこと');
+}
+
+function test_redemption_tradeRowAndCashRow_() {
+  const alerts = [];
+  const records = [
+    makeTradeRecord_({
+      銘柄名: 'RED',
+      商品: '外債',
+      取引区分: '償還',
+      数量: 0,
+      受渡金額_決済損益: 500,
+      手数料税込: 0,
+      約定日: '2026/04/10',
+      受渡日: '2026/04/10',
+      決済通貨: 'USD'
+    }),
+  ];
+
+  const tradeRows = buildTradeRows_(records, alerts);
+  const tradeRow = tradeRows[0];
+  const cashRows = buildCashRows_(records);
+
+  assertEquals_(0, getTradeRowValue_(tradeRow, '保有数'), '償還は保有数を動かさない');
+  assertEquals_('', getTradeRowValue_(tradeRow, '簿価'), '償還は簿価なし');
+  assertEquals_('', getTradeRowValue_(tradeRow, '平均取得単価'), '償還は平均取得単価なし');
+  assertEquals_(500, cashRows[0][16], '償還は金銭残高を増やす');
+  assertEquals_(500, cashRows[0][17], '償還が月末最終行なら月次残高に入る');
+  assertEquals_(0, alerts.length, '不要なアラートは出ないこと');
+}
+
+function test_collectInputAlerts_supportedForeignBond_() {
+  const alerts = [];
+  const records = [
+    makeTradeRecord_({
+      銘柄名: 'BOND',
+      商品: '外債',
+      取引区分: '償還',
+      決済通貨: 'USD',
+      受渡金額_決済損益: 100
+    }),
+  ];
+
+  collectInputAlerts_(records, alerts);
+
+  assertEquals_(0, alerts.length, '外債/USD は未対応アラート対象ではない');
+}
+
+function test_collectInputAlerts_unsupportedProduct_() {
+  const alerts = [];
+  const records = [
+    makeTradeRecord_({
+      銘柄名: 'ETFTEST',
+      商品: 'ETF',
+      取引区分: '現物買付',
+      決済通貨: 'JPY',
+      受渡金額_決済損益: 100
+    }),
+  ];
+
+  collectInputAlerts_(records, alerts);
+
+  assertTrue_(
+    alerts.some(function(x) { return x.indexOf('商品: 未対応の商品') >= 0; }),
+    '未対応商品アラートが出ること'
+  );
+}
+
+function test_collectInputAlerts_unsupportedSettlementCurrency_() {
+  const alerts = [];
+  const records = [
+    makeTradeRecord_({
+      銘柄名: 'EURTEST',
+      商品: '外債',
+      取引区分: '償還',
+      決済通貨: 'EUR',
+      受渡金額_決済損益: 100
+    }),
+  ];
+
+  collectInputAlerts_(records, alerts);
+
+  assertTrue_(
+    alerts.some(function(x) { return x.indexOf('決済通貨: 未対応の決済通貨') >= 0; }),
+    '未対応決済通貨アラートが出ること'
+  );
+}
+
+function test_collectInputAlerts_supportedProductAndCurrency_doNothing_() {
+  const alerts = [];
+  const records = [
+    makeTradeRecord_({
+      銘柄名: 'OKTEST',
+      商品: '株式',
+      取引区分: '現物買付',
+      決済通貨: 'JPY',
+      受渡金額_決済損益: 100
+    }),
+    makeTradeRecord_({
+      銘柄名: 'OKBOND',
+      商品: '外債',
+      取引区分: '償還',
+      決済通貨: 'USD',
+      受渡金額_決済損益: 100
+    }),
+  ];
+
+  collectInputAlerts_(records, alerts);
+
+  assertEquals_(0, alerts.length, '対応済み商品/決済通貨ではアラートなし');
+}
+
 function test_holdingZero_and_balanceZero_() {
   const alerts = [];
   const records = [
@@ -272,10 +456,6 @@ function test_holdingZero_and_balanceZero_() {
   assertEquals_(0, normalizeZero_(getTradeRowValue_(lastRow, '銘柄ごとの残高')), '最終残高は0');
 }
 
-/**
- * 同一銘柄の最後の取引で、かつ保有数が正の場合だけ
- * helper列に YES が入ることを確認する。
- */
 function test_lastTradeHighlightFlag_() {
   const alerts = [];
   const records = [
@@ -309,9 +489,6 @@ function test_lastTradeHighlightFlag_() {
   assertTrue_(getTradeRowValue_(lastRow, '保有数') > 0, '最後の行の保有数は正');
 }
 
-/**
- * 金銭残高シートの残高/月次残高の累積計算を確認する。
- */
 function test_buildCashRows_runningBalance_() {
   const records = [
     makeTradeRecord_({
@@ -349,9 +526,6 @@ function test_buildCashRows_runningBalance_() {
   assertEquals_(-750, rows[2][17], '5月最終行の月次残高');
 }
 
-/**
- * -0 や極小誤差を 0 に寄せるユーティリティ確認。
- */
 function test_normalizeZero_() {
   assertEquals_(0, normalizeZero_(-0), '-0 を 0 に正規化');
   assertEquals_(0, normalizeZero_(1e-12), '極小正数を 0 に正規化');
@@ -363,10 +537,6 @@ function test_normalizeZero_() {
  * writer.gs のテスト
  * ========================================================= */
 
-/**
- * 国内取引シートの非表示列が仕様通りであることを確認する。
- * あわせて helper 列も非表示になることを確認する。
- */
 function test_writeSheet_domesticHiddenColumns_() {
   withTempSpreadsheet_(function(ss) {
     const rows = [
@@ -391,9 +561,6 @@ function test_writeSheet_domesticHiddenColumns_() {
   });
 }
 
-/**
- * 外国取引シートでは摘要のみ非表示で、他は表示のままであることを確認する。
- */
 function test_writeSheet_foreignHiddenColumns_() {
   withTempSpreadsheet_(function(ss) {
     const rows = [
@@ -418,11 +585,6 @@ function test_writeSheet_foreignHiddenColumns_() {
   });
 }
 
-/**
- * 取引シートの条件付き書式が想定どおり作られていることを確認する。
- * - 保有数 = 0 の赤字ルール
- * - helper = YES の銘柄名水色ルール
- */
 function test_writeSheet_tradeConditionalFormatRules_() {
   withTempSpreadsheet_(function(ss) {
     const rows = [
@@ -480,10 +642,6 @@ function test_writeSheet_tradeConditionalFormatRules_() {
   });
 }
 
-/**
- * 平均取得単価の表示書式が「整数表示」になっていることを確認する。
- * 内部値は小数保持、見た目だけ整数という仕様の確認。
- */
 function test_writeSheet_averageUnitPriceNumberFormat_() {
   withTempSpreadsheet_(function(ss) {
     const rows = [
@@ -509,10 +667,6 @@ function test_writeSheet_averageUnitPriceNumberFormat_() {
  * テスト補助関数
  * ========================================================= */
 
-/**
- * builder テスト用の標準レコードを作る。
- * 実CSV読み込み後の形に寄せている。
- */
 function makeTradeRecord_(params) {
   return {
     約定日: parseDate_(params.約定日 || '2026/04/01'),
@@ -534,10 +688,6 @@ function makeTradeRecord_(params) {
   };
 }
 
-/**
- * writer テスト用の 1 行分データを作る。
- * writeSheet_ にそのまま渡せる配列形式。
- */
 function buildTradeRowForWriterTest_(params) {
   const row = new Array(TRADE_HEADERS.length + 1).fill('');
 
@@ -571,9 +721,6 @@ function buildTradeRowForWriterTest_(params) {
   return row;
 }
 
-/**
- * 行配列の指定ヘッダー位置へ値を入れる。
- */
 function setTradeRowValue_(row, headerName, value) {
   const idx = TRADE_HEADERS.indexOf(headerName);
   if (idx < 0) {
@@ -582,9 +729,6 @@ function setTradeRowValue_(row, headerName, value) {
   row[idx] = value;
 }
 
-/**
- * 行配列から指定ヘッダーの値を取得する。
- */
 function getTradeRowValue_(row, headerName) {
   const idx = TRADE_HEADERS.indexOf(headerName);
   if (idx < 0) {
@@ -593,17 +737,10 @@ function getTradeRowValue_(row, headerName) {
   return row[idx];
 }
 
-/**
- * helper 列の値を取得する。
- * writer.gs では actualHeaders の末尾に付加される。
- */
 function getTradeHelperValue_(row) {
   return row[TRADE_HEADERS.length];
 }
 
-/**
- * ヘッダー名から 1-based の列番号を返す。
- */
 function getColumnIndexByHeader_(headers, headerName) {
   const idx = headers.indexOf(headerName);
   if (idx < 0) {
@@ -612,10 +749,6 @@ function getColumnIndexByHeader_(headers, headerName) {
   return idx + 1;
 }
 
-/**
- * 一時スプレッドシートを作成してコールバックへ渡す。
- * 終了後はゴミ箱へ移動する。
- */
 function withTempSpreadsheet_(fn) {
   const ss = SpreadsheetApp.create('test_' + Utilities.getUuid());
   try {
@@ -629,10 +762,6 @@ function withTempSpreadsheet_(fn) {
   }
 }
 
-/**
- * undefined のときだけ fallback を使う。
- * 0 や空文字を正しく通したいので || は使わない。
- */
 function defaultValue_(value, fallback) {
   return value === undefined ? fallback : value;
 }
