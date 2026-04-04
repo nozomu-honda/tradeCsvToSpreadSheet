@@ -509,7 +509,7 @@ function test_buildCashRows_runningBalance_() {
     }),
     makeTradeRecord_({
       銘柄名: 'FFF',
-      取引区分: '入金（振込）',
+      取引区分: '入金',
       受渡金額_決済損益: 200,
       約定日: '2026/05/01',
       受渡日: '2026/05/01',
