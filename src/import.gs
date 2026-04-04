@@ -36,12 +36,14 @@ function buildOutputSheetsFromSourceSheet_(ss, sourceSheet) {
   const records = readInputRecords_(sourceSheet);
   const alerts = [];
 
+  collectInputAlerts_(records, alerts);
+
   const domestic = records
     .filter(r => ['株式', '投信'].includes(r['商品']))
     .sort(sortTradeRows_);
 
   const foreign = records
-    .filter(r => r['商品'] === '外株')
+    .filter(r => ['外株', '外債'].includes(r['商品']))
     .sort(sortTradeRows_);
 
   const cashJpy = records
@@ -75,6 +77,30 @@ function buildOutputSheetsFromSourceSheet_(ss, sourceSheet) {
       cashUsd: cashUsd.length,
     }
   };
+}
+
+function collectInputAlerts_(records, alerts) {
+  const supportedProducts = ['株式', '投信', '外株', '外債', '現金'];
+  const supportedSettlementCurrencies = ['', 'JPY', 'USD'];
+
+  records.forEach(r => {
+    const product = text_(r['商品']);
+    const settlementCurrency = normalizeCurrency_(r['決済通貨']);
+    const tx = text_(r['取引区分']);
+    const symbol = text_(r['銘柄名']);
+
+    if (!supportedProducts.includes(product)) {
+      alerts.push(
+        `商品: 未対応の商品: ${product || '(空欄)'} / 取引区分: ${tx || '(空欄)'} / 銘柄名: ${symbol || '(空欄)'} / 受渡日: ${formatDateForAlert_(r['受渡日'])}`
+      );
+    }
+
+    if (!supportedSettlementCurrencies.includes(settlementCurrency)) {
+      alerts.push(
+        `決済通貨: 未対応の決済通貨: ${settlementCurrency || '(空欄)'} / 取引区分: ${tx || '(空欄)'} / 銘柄名: ${symbol || '(空欄)'} / 受渡日: ${formatDateForAlert_(r['受渡日'])}`
+      );
+    }
+  });
 }
 
 function normalizeCsvUrl_(url) {

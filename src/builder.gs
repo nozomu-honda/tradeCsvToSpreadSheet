@@ -32,11 +32,11 @@ function buildTradeRows_(records, alerts) {
 
     // 保有数
     let holdingDelta = 0;
-    if (['現物買付', '現物再投', '入庫（増減資）', '現物募集'].includes(tx)) {
+    if (['現物買付', '現物再投', '入庫（増減資）', '現物募集', '株転換取得（買）'].includes(tx)) {
       holdingDelta = qty;
-    } else if (['現物売却', '現物買取'].includes(tx)) {
+    } else if (['現物売却', '現物買取', '強制償還（売）'].includes(tx)) {
       holdingDelta = -qty;
-    } else if (['入金（配当金）', '入金（分配金）'].includes(tx)) {
+    } else if (['入金（利金）', '入金（配当金）', '入金（分配金）', '償還'].includes(tx)) {
       holdingDelta = 0;
     } else {
       alerts.push(
@@ -78,7 +78,7 @@ function buildTradeRows_(records, alerts) {
       }
     }
 
-    // 簿価（小数のまま保持）
+    // 簿価
     if (['現物買付', '現物再投', '現物募集'].includes(tx)) {
       const tax = feeTax === '' ? 0 : feeTax;
 
@@ -95,6 +95,20 @@ function buildTradeRows_(records, alerts) {
         bookValue = amount - tax;
       }
 
+    } else if (tx === '株転換取得（買）') {
+      if (settlementCurrency && settlementCurrency !== 'JPY') {
+        if (rate && rate !== 0) {
+          bookValue = amount * rate;
+        } else {
+          alerts.push(
+            `簿価: レート未入力: ${symbol || '(空欄)'} / 受渡日: ${formatDateForAlert_(r['受渡日'])} / 決済通貨: ${settlementCurrency}`
+          );
+          bookValue = amount;
+        }
+      } else {
+        bookValue = amount;
+      }
+
     } else if (['現物売却', '現物買取'].includes(tx)) {
       if (acquisitionPrice !== '') {
         bookValue = -acquisitionPrice;
@@ -105,7 +119,10 @@ function buildTradeRows_(records, alerts) {
         );
       }
 
-    } else if (['入庫（増減資）', '入金（配当金）', '入金（分配金）'].includes(tx)) {
+    } else if (tx === '強制償還（売）') {
+      bookValue = amount * -1;
+
+    } else if (['入庫（増減資）', '入金（利金）', '入金（配当金）', '入金（分配金）', '償還'].includes(tx)) {
       bookValue = '';
 
     } else {
@@ -116,11 +133,11 @@ function buildTradeRows_(records, alerts) {
 
     bookValue = normalizeZero_(bookValue);
 
-    // 銘柄ごとの残高（内部では小数のまま保持）
+    // 銘柄ごとの残高
     let symbolBalance = prevBalance;
     if (['現物買付', '現物再投', '現物売却', '現物買取', '現物募集'].includes(tx)) {
       symbolBalance = prevBalance + (bookValue === '' ? 0 : bookValue);
-    } else if (['入庫（増減資）', '入金（配当金）', '入金（分配金）'].includes(tx)) {
+    } else if (['株転換取得（買）', '強制償還（売）', '入庫（増減資）', '入金（利金）', '入金（配当金）', '入金（分配金）', '償還'].includes(tx)) {
       symbolBalance = prevBalance;
     } else {
       alerts.push(
@@ -131,13 +148,13 @@ function buildTradeRows_(records, alerts) {
     symbolBalance = normalizeZero_(symbolBalance);
 
     // 平均取得単価
-    if (['現物買付', '現物再投', '現物募集'].includes(tx) && holding > 0) {
+    if (['現物買付', '現物再投', '現物募集', '株転換取得（買）'].includes(tx) && holding > 0) {
       if (prevBalance > 0) {
         avgUnitPrice = (prevBalance + (bookValue === '' ? 0 : bookValue)) / holding;
       } else {
         avgUnitPrice = (bookValue === '' ? 0 : bookValue) / holding;
       }
-    } else if (['現物売却', '現物買取', '入庫（増減資）', '入金（配当金）', '入金（分配金）'].includes(tx)) {
+    } else if (['現物売却', '現物買取', '入庫（増減資）', '強制償還（売）', '入金（利金）', '入金（配当金）', '入金（分配金）', '償還'].includes(tx)) {
       avgUnitPrice = '';
     } else {
       alerts.push(
@@ -213,7 +230,7 @@ function buildCashRows_(records) {
     let delta = 0;
     if (['現物買付', '現物再投', '出金（振込）', '現物募集'].includes(tx)) {
       delta = -amount;
-    } else if (['現物売却', '入金（利金）', '入金（配当金）', '償還', '入金（振込）'].includes(tx)) {
+    } else if (['現物売却', '入金（利金）', '入金（配当金）', '償還', '入金'].includes(tx)) {
       delta = amount;
     }
 
@@ -267,11 +284,14 @@ function compareTradePriority_(a, b) {
     '現物買付': 1,
     '現物再投': 2,
     '現物募集': 3,
-    '入庫（増減資）': 4,
-    '現物売却': 5,
-    '現物買取': 6,
-    '入金（配当金）': 7,
-    '入金（分配金）': 8
+    '株転換取得（買）': 4,
+    '入庫（増減資）': 5,
+    '現物売却': 6,
+    '現物買取': 7,
+    '強制償還（売）': 8,
+    '償還': 9,
+    '入金（配当金）': 10,
+    '入金（分配金）': 11
   };
 
   const pa = priority[a] || 999;
