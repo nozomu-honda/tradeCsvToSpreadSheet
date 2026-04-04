@@ -80,7 +80,7 @@ function buildOutputSheetsFromSourceSheet_(ss, sourceSheet) {
 }
 
 function collectInputAlerts_(records, alerts) {
-  const supportedProducts = ['株式', '投信', '外株', '外債'];
+  const supportedProducts = ['株式', '投信', '外株', '外債', '現金'];
   const supportedSettlementCurrencies = ['', 'JPY', 'USD'];
 
   records.forEach(r => {
