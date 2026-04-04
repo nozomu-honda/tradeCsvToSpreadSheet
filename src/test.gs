@@ -7,7 +7,7 @@
  * - writer.gs の表示/非表示/条件付き書式確認
  *
  * 実行方法:
- * - Apps Script エディタで runSmokeTests_ または runAllTests_ を実行
+ * - Apps Script エディタで runSmokeTests または runAllTests を実行
  *
  * 注意:
  * - writer 系テストでは一時スプレッドシートを作成する
@@ -20,7 +20,7 @@
  *
  * writer.gs の一時スプレッドシート生成系を除いた、普段使い向け。
  */
-function runSmokeTests_() {
+function runSmokeTests() {
   const tests = [
     test_averageUnitPrice_keepsDecimal_,
     test_bookValue_usesAcquisitionPrice_,
@@ -41,7 +41,7 @@ function runSmokeTests_() {
  * builder / utils / writer をまとめて確認する。
  * writer 系では一時スプレッドシートを作成する。
  */
-function runAllTests_() {
+function runAllTests() {
   const tests = [
     test_averageUnitPrice_keepsDecimal_,
     test_bookValue_usesAcquisitionPrice_,
@@ -67,7 +67,7 @@ function runSelectedTests_(tests, label) {
   const results = [];
   let failed = 0;
 
-  tests.forEach(fn => {
+  tests.forEach(function(fn) {
     try {
       fn();
       results.push('OK  ' + fn.name);
@@ -187,11 +187,11 @@ function test_sellWithoutAvg_addsAlert_() {
   assertEquals_('', getTradeRowValue_(sellRow, '取得価格'), '取得価格は空欄');
   assertEquals_('', getTradeRowValue_(sellRow, '簿価'), '簿価は空欄');
   assertTrue_(
-    alerts.some(x => x.indexOf('簿価: 平均取得単価が未計算') >= 0),
+    alerts.some(function(x) { return x.indexOf('簿価: 平均取得単価が未計算') >= 0; }),
     '平均取得単価未計算アラートが出ること'
   );
   assertTrue_(
-    !alerts.some(x => x.indexOf('簿価: 対象外の取引区分') >= 0),
+    !alerts.some(function(x) { return x.indexOf('簿価: 対象外の取引区分') >= 0; }),
     '対象外アラートではないこと'
   );
 }
@@ -212,7 +212,7 @@ function test_sortTradeRows_usesPriority_() {
   ];
 
   const sorted = records.slice().sort(sortTradeRows_);
-  const actual = sorted.map(r => r['取引区分']);
+  const actual = sorted.map(function(r) { return r['取引区分']; });
   const expected = [
     '現物買付',
     '現物再投',
@@ -558,14 +558,14 @@ function buildTradeRowForWriterTest_(params) {
   setTradeRowValue_(row, '決済通貨', params.決済通貨 || 'JPY');
   setTradeRowValue_(row, '売買損益（円）', defaultValue_(params.売買損益円, 0));
   setTradeRowValue_(row, '保有数', defaultValue_(params.保有数, 0));
-  setTradeRowValue_(row, '手数料の消費税額', defaultValue_(params.手数料の消費税額, ''));
-  setTradeRowValue_(row, '平均取得単価', defaultValue_(params.平均取得単価, ''));
-  setTradeRowValue_(row, '手数料抜き売値', defaultValue_(params.手数料抜き売値, ''));
-  setTradeRowValue_(row, '取得価格', defaultValue_(params.取得価格, ''));
-  setTradeRowValue_(row, '売却損益', defaultValue_(params.売却損益, ''));
-  setTradeRowValue_(row, '簿価', defaultValue_(params.簿価, ''));
-  setTradeRowValue_(row, '銘柄ごとの残高', defaultValue_(params.銘柄ごとの残高, ''));
-  setTradeRowValue_(row, 'FX2の期末簿価', defaultValue_(params.FX2の期末簿価, ''));
+  setTradeRowValue_(row, '手数料の消費税額', defaultValue_(params['手数料の消費税額'], ''));
+  setTradeRowValue_(row, '平均取得単価', defaultValue_(params['平均取得単価'], ''));
+  setTradeRowValue_(row, '手数料抜き売値', defaultValue_(params['手数料抜き売値'], ''));
+  setTradeRowValue_(row, '取得価格', defaultValue_(params['取得価格'], ''));
+  setTradeRowValue_(row, '売却損益', defaultValue_(params['売却損益'], ''));
+  setTradeRowValue_(row, '簿価', defaultValue_(params['簿価'], ''));
+  setTradeRowValue_(row, '銘柄ごとの残高', defaultValue_(params['銘柄ごとの残高'], ''));
+  setTradeRowValue_(row, 'FX2の期末簿価', defaultValue_(params['FX2の期末簿価'], ''));
 
   row[TRADE_HEADERS.length] = params.helper || '';
   return row;
