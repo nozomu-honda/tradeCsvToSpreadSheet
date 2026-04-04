@@ -8,6 +8,16 @@ function createSpreadsheetFromCsvUrl_(csvUrl) {
   return createSpreadsheetFromCsvText_(csvText, 'link.csv', normalizedUrl);
 }
 
+function createSpreadsheetFromCsvUrlUsingDb_(csvUrl) {
+  if (!csvUrl) {
+    throw new Error('CSVリンクを入力してください。');
+  }
+
+  const normalizedUrl = normalizeCsvUrl_(csvUrl);
+  const csvText = fetchCsvText_(normalizedUrl);
+  return createSpreadsheetFromCsvTextUsingDb_(csvText, 'link.csv', normalizedUrl);
+}
+
 function createSpreadsheetFromCsvText_(csvText, sourceName, normalizedUrl) {
   if (!csvText || String(csvText).trim() === '') {
     throw new Error('CSVの内容が空です。');
@@ -29,6 +39,55 @@ function createSpreadsheetFromCsvText_(csvText, sourceName, normalizedUrl) {
   result.inputType = normalizedUrl ? 'url' : 'upload';
   result.normalizedUrl = normalizedUrl || '';
   result.sourceName = sourceName || '';
+  return result;
+}
+
+function createSpreadsheetFromCsvTextUsingDb_(csvText, sourceName, normalizedUrl) {
+  if (!csvText || String(csvText).trim() === '') {
+    throw new Error('CSVの内容が空です。');
+  }
+
+  const rows = parseCsvWithFallback_(csvText);
+  if (!rows || rows.length === 0) {
+    throw new Error('CSVを読み込めませんでした。');
+  }
+
+  const paddedRows = padRows_(rows);
+
+  const ss = SpreadsheetApp.create(buildSpreadsheetName_(sourceName));
+  const sourceSheet = ss.getSheets()[0];
+  sourceSheet.setName(CONFIG.SOURCE_SHEET_NAME);
+  sourceSheet.getRange(1, 1, paddedRows.length, paddedRows[0].length).setValues(paddedRows);
+
+  const records = readInputRecords_(sourceSheet);
+
+  const inputAlerts = [];
+  collectInputAlerts_(records, inputAlerts);
+
+  const dbAppendResult = appendRecordsToDb_(records, {
+    sourceName: sourceName || '',
+    inputType: normalizedUrl ? 'url' : 'upload',
+    normalizedUrl: normalizedUrl || '',
+    alertCount: inputAlerts.length,
+  });
+
+  const dbRecords = readDbRecords_();
+  const result = buildOutputSheetsFromDbRecords_(ss, dbRecords);
+
+  result.inputType = normalizedUrl ? 'url' : 'upload';
+  result.normalizedUrl = normalizedUrl || '';
+  result.sourceName = sourceName || '';
+  result.sourceSheetName = sourceSheet.getName();
+
+  result.db = {
+    dbSpreadsheetId: dbAppendResult.dbSpreadsheetId,
+    dbSpreadsheetUrl: dbAppendResult.dbSpreadsheetUrl,
+    importId: dbAppendResult.importId,
+    rowCount: dbAppendResult.rowCount,
+    insertedCount: dbAppendResult.insertedCount,
+    skippedCount: dbAppendResult.skippedCount,
+  };
+
   return result;
 }
 
