@@ -290,15 +290,15 @@ function compareTradePriority_(a, b) {
     '現物買取': 7,
     '強制償還（売）': 8,
     '償還': 9,
-    '入金（配当金）': 10,
-    '入金（分配金）': 11
+    '入金（利金）': 10,
+    '入金（配当金）': 11,
+    '入金（分配金）': 12
   };
 
   const pa = priority[a] || 999;
   const pb = priority[b] || 999;
   return pa - pb;
 }
-
 function makeBlankTradeRow_() {
   return new Array(TRADE_HEADERS.length + 1).fill('');
 }
