@@ -36,7 +36,7 @@ function buildTradeRows_(records, alerts) {
       holdingDelta = qty;
     } else if (['現物売却', '現物買取', '強制償還（売）'].includes(tx)) {
       holdingDelta = -qty;
-    } else if (['入金（配当金）', '入金（分配金）', '償還'].includes(tx)) {
+    } else if (['入金（利金）', '入金（配当金）', '入金（分配金）', '償還'].includes(tx)) {
       holdingDelta = 0;
     } else {
       alerts.push(
@@ -78,7 +78,7 @@ function buildTradeRows_(records, alerts) {
       }
     }
 
-    // 簿価（小数のまま保持）
+    // 簿価
     if (['現物買付', '現物再投', '現物募集'].includes(tx)) {
       const tax = feeTax === '' ? 0 : feeTax;
 
@@ -122,7 +122,7 @@ function buildTradeRows_(records, alerts) {
     } else if (tx === '強制償還（売）') {
       bookValue = amount * -1;
 
-    } else if (['入庫（増減資）', '入金（配当金）', '入金（分配金）', '償還'].includes(tx)) {
+    } else if (['入庫（増減資）', '入金（利金）', '入金（配当金）', '入金（分配金）', '償還'].includes(tx)) {
       bookValue = '';
 
     } else {
@@ -133,11 +133,11 @@ function buildTradeRows_(records, alerts) {
 
     bookValue = normalizeZero_(bookValue);
 
-    // 銘柄ごとの残高（内部では小数のまま保持）
+    // 銘柄ごとの残高
     let symbolBalance = prevBalance;
     if (['現物買付', '現物再投', '現物売却', '現物買取', '現物募集'].includes(tx)) {
       symbolBalance = prevBalance + (bookValue === '' ? 0 : bookValue);
-    } else if (['株転換取得（買）', '強制償還（売）', '入庫（増減資）', '入金（配当金）', '入金（分配金）', '償還'].includes(tx)) {
+    } else if (['株転換取得（買）', '強制償還（売）', '入庫（増減資）', '入金（利金）', '入金（配当金）', '入金（分配金）', '償還'].includes(tx)) {
       symbolBalance = prevBalance;
     } else {
       alerts.push(
@@ -154,7 +154,7 @@ function buildTradeRows_(records, alerts) {
       } else {
         avgUnitPrice = (bookValue === '' ? 0 : bookValue) / holding;
       }
-    } else if (['現物売却', '現物買取', '入庫（増減資）', '強制償還（売）', '入金（配当金）', '入金（分配金）', '償還'].includes(tx)) {
+    } else if (['現物売却', '現物買取', '入庫（増減資）', '強制償還（売）', '入金（利金）', '入金（配当金）', '入金（分配金）', '償還'].includes(tx)) {
       avgUnitPrice = '';
     } else {
       alerts.push(
@@ -230,7 +230,7 @@ function buildCashRows_(records) {
     let delta = 0;
     if (['現物買付', '現物再投', '出金（振込）', '現物募集'].includes(tx)) {
       delta = -amount;
-    } else if (['現物売却', '入金（利金）', '入金（配当金）', '償還', '入金（振込）'].includes(tx)) {
+    } else if (['現物売却', '入金（利金）', '入金（配当金）', '償還', '入金'].includes(tx)) {
       delta = amount;
     }
 
