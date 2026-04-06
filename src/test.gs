@@ -19,6 +19,10 @@ function runSmokeTests() {
     test_lastTradeHighlightFlag_,
     test_buildCashRows_runningBalance_,
     test_normalizeZero_,
+    test_buildRowHash_sameRecord_sameHash_,
+    test_buildRowHash_differentRecord_differentHash_,
+    test_normalizeRecordForDb_setsMetadata_,
+    test_dbRecordToRow_mapsHeaders_,
   ];
   return runSelectedTests_(tests, '軽い確認テスト');
 }
@@ -41,6 +45,10 @@ function runAllTests() {
     test_lastTradeHighlightFlag_,
     test_buildCashRows_runningBalance_,
     test_normalizeZero_,
+    test_buildRowHash_sameRecord_sameHash_,
+    test_buildRowHash_differentRecord_differentHash_,
+    test_normalizeRecordForDb_setsMetadata_,
+    test_dbRecordToRow_mapsHeaders_,
     test_writeSheet_domesticHiddenColumns_,
     test_writeSheet_foreignHiddenColumns_,
     test_writeSheet_tradeConditionalFormatRules_,
@@ -270,6 +278,134 @@ function test_normalizeZero_() {
   assertEquals_(0, normalizeZero_(-1e-12), '極小負数を 0 に正規化');
   assertEquals_('', normalizeZero_(''), '空文字はそのまま');
 }
+
+
+function test_buildRowHash_sameRecord_sameHash_() {
+  const record = makeTradeRecord_({
+    約定日: '2026/04/01',
+    受渡日: '2026/04/02',
+    商品: '株式',
+    銘柄コード: '1234',
+    銘柄名: 'TEST株',
+    取引区分: '現物買付',
+    数量: 10,
+    単価: 100,
+    受渡金額_決済損益: 1000,
+    手数料税込: 0,
+    決済通貨: 'JPY',
+  });
+
+  const hash1 = buildRowHash_(record);
+  const hash2 = buildRowHash_(record);
+
+  assertEquals_(hash1, hash2, '同じレコードは同じrowHashになる');
+  assertTrue_(!!hash1, 'rowHash が空でないこと');
+}
+
+function test_buildRowHash_differentRecord_differentHash_() {
+  const record1 = makeTradeRecord_({
+    約定日: '2026/04/01',
+    受渡日: '2026/04/02',
+    商品: '株式',
+    銘柄コード: '1234',
+    銘柄名: 'TEST株',
+    取引区分: '現物買付',
+    数量: 10,
+    単価: 100,
+    受渡金額_決済損益: 1000,
+    手数料税込: 0,
+    決済通貨: 'JPY',
+  });
+
+  const record2 = makeTradeRecord_({
+    約定日: '2026/04/01',
+    受渡日: '2026/04/02',
+    商品: '株式',
+    銘柄コード: '1234',
+    銘柄名: 'TEST株',
+    取引区分: '現物買付',
+    数量: 11,
+    単価: 100,
+    受渡金額_決済損益: 1100,
+    手数料税込: 0,
+    決済通貨: 'JPY',
+  });
+
+  const hash1 = buildRowHash_(record1);
+  const hash2 = buildRowHash_(record2);
+
+  assertTrue_(hash1 !== hash2, '異なるレコードは異なるrowHashになる');
+}
+
+function test_normalizeRecordForDb_setsMetadata_() {
+  const now = new Date('2026-04-04T12:34:56Z');
+  const record = makeTradeRecord_({
+    約定日: '2026/04/01',
+    受渡日: '2026/04/02',
+    商品: '外債',
+    銘柄コード: 'US0001',
+    銘柄名: 'TEST債券',
+    取引区分: '償還',
+    数量: 0,
+    単価: 0,
+    受渡金額_決済損益: 500,
+    手数料税込: 0,
+    決済通貨: 'USD',
+  });
+
+  const dbRecord = normalizeRecordForDb_(record, {
+    importId: 'import_test',
+    sourceName: 'sample.csv',
+    sourceRowNo: 7,
+    now: now,
+  });
+
+  assertEquals_('import_test', dbRecord.importId, 'importId が入る');
+  assertEquals_('sample.csv', dbRecord.sourceName, 'sourceName が入る');
+  assertEquals_(7, dbRecord.sourceRowNo, 'sourceRowNo が入る');
+  assertTrue_(!!dbRecord.recordId, 'recordId が入る');
+  assertTrue_(!!dbRecord.rowHash, 'rowHash が入る');
+  assertEquals_(true, dbRecord.isActive, 'isActive は true');
+  assertEquals_('外債', dbRecord['商品'], '商品が保持される');
+  assertEquals_('USD', dbRecord['決済通貨'], '決済通貨が正規化される');
+  assertEquals_(500, dbRecord['受渡金額/決済損益'], '金額が保持される');
+  assertEquals_(now.getTime(), dbRecord.createdAt.getTime(), 'createdAt が入る');
+  assertEquals_(now.getTime(), dbRecord.updatedAt.getTime(), 'updatedAt が入る');
+}
+
+function test_dbRecordToRow_mapsHeaders_() {
+  const now = new Date('2026-04-04T12:34:56Z');
+  const record = makeTradeRecord_({
+    約定日: '2026/04/01',
+    受渡日: '2026/04/02',
+    商品: '株式',
+    銘柄コード: '1234',
+    銘柄名: 'TEST株',
+    取引区分: '現物買付',
+    数量: 10,
+    単価: 100,
+    受渡金額_決済損益: 1000,
+    手数料税込: 0,
+    決済通貨: 'JPY',
+  });
+
+  const dbRecord = normalizeRecordForDb_(record, {
+    importId: 'import_test',
+    sourceName: 'sample.csv',
+    sourceRowNo: 3,
+    now: now,
+  });
+
+  const row = dbRecordToRow_(dbRecord);
+
+  assertEquals_(DB_HEADERS.length, row.length, 'DB行の列数はDB_HEADERSと一致');
+  assertEquals_(dbRecord.recordId, row[DB_HEADERS.indexOf('recordId')], 'recordId の位置');
+  assertEquals_('import_test', row[DB_HEADERS.indexOf('importId')], 'importId の位置');
+  assertEquals_('sample.csv', row[DB_HEADERS.indexOf('sourceName')], 'sourceName の位置');
+  assertEquals_('TEST株', row[DB_HEADERS.indexOf('銘柄名')], '銘柄名 の位置');
+  assertEquals_(1000, row[DB_HEADERS.indexOf('受渡金額/決済損益')], '金額 の位置');
+}
+
 
 function test_writeSheet_domesticHiddenColumns_() {
   withTempSpreadsheet_(function(ss) {

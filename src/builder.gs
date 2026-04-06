@@ -299,7 +299,6 @@ function compareTradePriority_(a, b) {
   const pb = priority[b] || 999;
   return pa - pb;
 }
-
 function makeBlankTradeRow_() {
   return new Array(TRADE_HEADERS.length + 1).fill('');
 }

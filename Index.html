@@ -48,6 +48,9 @@
         text-align: center;
         color: #888;
       }
+      .link-block {
+        margin-top: 10px;
+      }
       a {
         word-break: break-all;
       }
@@ -137,24 +140,34 @@
                 alertText = '\n\nアラート:\n- ' + res.alerts.join('\n- ');
               }
 
+              let dbText = '';
+              if (res.db) {
+                dbText =
+                  '\n\nDB取込結果:\n' +
+                  '取込ID: ' + (res.db.importId || '') + '\n' +
+                  '読込件数: ' + (res.db.rowCount || 0) + '\n' +
+                  '追加件数: ' + (res.db.insertedCount || 0) + '\n' +
+                  'スキップ件数: ' + (res.db.skippedCount || 0);
+              }
+
               result.textContent =
                 '完了しました。\n\n' +
                 '入力方法: ' + (res.inputType === 'upload' ? 'アップロード' : 'リンク') + '\n' +
                 'スプレッドシート名: ' + res.spreadsheetName + '\n' +
-                '元データシート: ' + res.sourceSheetName + '\n' +
+                '元データシート: ' + (res.sourceSheetName || '') + '\n' +
                 '全件数: ' + res.counts.all + '\n' +
                 '国内取引: ' + res.counts.domestic + '\n' +
                 '外国取引: ' + res.counts.foreign + '\n' +
                 '金銭残高（円）: ' + res.counts.cashJpy + '\n' +
                 '金銭残高（ドル）: ' + res.counts.cashUsd +
+                dbText +
                 alertText;
 
-              const a = document.createElement('a');
-              a.href = res.spreadsheetUrl;
-              a.target = '_blank';
-              a.rel = 'noopener noreferrer';
-              a.textContent = '作成したスプレッドシートを開く';
-              linkArea.appendChild(a);
+              appendLink(linkArea, res.spreadsheetUrl, '作成したスプレッドシートを開く');
+
+              if (res.db && res.db.dbSpreadsheetUrl) {
+                appendLink(linkArea, res.db.dbSpreadsheetUrl, '取引DBを開く');
+              }
             })
             .withFailureHandler(function(err) {
               status.textContent = '';
@@ -167,6 +180,20 @@
           result.className = 'err';
           result.textContent = e && e.message ? e.message : String(e);
         }
+      }
+
+      function appendLink(container, href, text) {
+        const div = document.createElement('div');
+        div.className = 'link-block';
+
+        const a = document.createElement('a');
+        a.href = href;
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        a.textContent = text;
+
+        div.appendChild(a);
+        container.appendChild(div);
       }
 
       async function readFileAsTextWithFallback(file) {
