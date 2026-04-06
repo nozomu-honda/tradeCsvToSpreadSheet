@@ -124,6 +124,40 @@ function test_sortTradeRows_usesPriority_() {
   assertArrayEquals_(expected, actual, '取引区分優先順位ソート');
 }
 
+function test_stockConversionBuy_updatesHoldingAndAvg_() {
+  const alerts = [];
+  const rows = buildTradeRows_([
+    makeTradeRecord_({
+      銘柄名: 'SCB',
+      商品: '株式',
+      取引区分: '現物買付',
+      数量: 2,
+      受渡金額_決済損益: 200,
+      手数料税込: 0,
+      約定日: '2026/04/01',
+      受渡日: '2026/04/01',
+      決済通貨: 'JPY'
+    }),
+    makeTradeRecord_({
+      銘柄名: 'SCB',
+      商品: '株式',
+      取引区分: '株転換取得（買）',
+      数量: 1,
+      受渡金額_決済損益: 150,
+      手数料税込: 0,
+      約定日: '2026/04/02',
+      受渡日: '2026/04/02',
+      決済通貨: 'JPY'
+    })
+  ], alerts);
+  const row = rows[1];
+  assertEquals_(3, getTradeRowValue_(row, '保有数'), '株転換取得（買）で保有数が増える');
+  assertEquals_(150, getTradeRowValue_(row, '簿価'), '株転換取得（買）の簿価');
+  assertEquals_(200, getTradeRowValue_(row, '銘柄ごとの残高'), '株転換取得（買）は銘柄ごとの残高を動かさない');
+  assertApproxEquals_((200 + 150) / 3, getTradeRowValue_(row, '平均取得単価'), 1e-9, '株転換取得（買）は平均取得単価の対象');
+  assertEquals_(0, alerts.length, '不要なアラートは出ないこと');
+}
+
 function test_forcedRedemptionSell_updatesHoldingAndBookValue_() {
   const alerts = [];
   const rows = buildTradeRows_([
