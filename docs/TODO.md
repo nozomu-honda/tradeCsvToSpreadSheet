@@ -14,7 +14,7 @@
 
 ## 現在の目的
 
-取引履歴CSVを入力として、新しい Google スプレッドシートを作成し、以下のシートを安定して生成する。
+`feature/use-db` ブランチで、取引履歴CSVをDBへ蓄積し、そのDB全体を正本として以下のシートを安定して生成する。
 
 - 国内取引
 - 外国取引
@@ -24,18 +24,22 @@
 
 特に以下を重視する。
 
+- DBへの重複登録防止
+- 別CSV追加時の再生成整合性
 - 平均取得単価の計算精度
 - 簿価の計算基準の統一
 - 銘柄ごとの残高のズレ防止
 - 表示ルールと内部保持ルールの分離
-- テストを回しながら安全に修正できる状態を作る
+- テストを回しながら安全に修正できる状態を保つ
 
 ---
 
 ## 現在の最優先
 
-- 計算ロジックの安定化
-- 実CSVでの確認
+- DB運用の仕上げ
+- 実CSVでの重複排除確認
+- 実CSVでの追加蓄積確認
+- Webアプリ結果画面の見える化
 - `runSmokeTests` / `runAllTests` による検証運用
 
 ---
@@ -47,9 +51,11 @@
 
 ### 計算ルール
 - 平均取得単価は内部小数保持、表示整数
-- 簿価(現物売却・現物買取)は `acquisitionPrice` を使う
+- 簿価（現物売却・現物買取・強制償還（売））は `acquisitionPrice` を使う
 - `bookValue = -acquisitionPrice`
-- 現物売却 / 現物買取で平均取得単価が無い場合は「対象外」ではなく「平均取得単価が未計算」とアラート
+- 強制償還（売）の `手数料抜き売値` は `受渡金額/決済損益`
+- 償還は「一つ前の保有数が0かどうか」で分岐する
+- 現物売却 / 現物買取 / 強制償還（売） / 償還 で平均取得単価が無い場合は「対象外」ではなく「平均取得単価が未計算」とアラート
 - 平均取得単価そのものを先に丸めて別計算に使わない
 
 ### 並び順
@@ -75,6 +81,15 @@
 ### ユーティリティ
 - `normalizeZero_` は `utils.gs` に入れる
 
+### DB運用
+- DB本体は `取引DB`
+- 取込履歴は `取込履歴`
+- 重複判定は `rowHash` ベース
+- `rowHash` はファイル名ではなく取引内容から作る
+- 別CSVでも同じ取引ならスキップ対象になる
+- Webアプリ入口は DB フローに接続済み
+- URL入力 / CSVアップロードのどちらでも DB へ追加してから4シートを再生成する
+
 ---
 
 ## 対象ファイル
@@ -87,20 +102,27 @@
 - `src/parser.gs`
 - `src/config.gs`
 - `src/web.gs`
+- `src/db.gs`
+- `src/db_config.gs`
 
 ### テスト
 - `src/test.gs`
+
+### 画面
+- `Index.html`
 
 ---
 
 ## 現在の状況
 
-- 最新コード前提で `builder.gs / writer.gs / utils.gs` は確認済み
-- `test.gs` は追加済み
-- 実行入口関数は末尾 `_` なしに変更済み
-- Apps Script エディタから以下を実行可能
-  - `runSmokeTests`
-  - `runAllTests`
+- `develop` の最新変更は `feature/use-db` に取り込み済み
+- `builder.gs` は 4/6 の最新仕様反映済み
+- `test.gs` は `develop` 最新テスト + DBテストに整理済み
+- `db.gs` / `db_config.gs` は共有DB対応済み
+- `web.gs` / `import.gs` は DBフローへ接続済み
+- Webアプリから実際にCSVを追加できることは確認済み
+- 同一CSV再投入時の重複スキップ確認は実施しやすい状態
+- 結果画面で DB 取込件数 / 追加件数 / スキップ件数 / DBリンク を表示する改善版あり
 - PR時の自動テスト導入は保留中
 
 ---
@@ -109,11 +131,23 @@
 
 ### 普段の確認
 - 実行関数: `runSmokeTests`
-- 用途: builder / utils 中心の軽い確認
+- 用途: builder / utils / import / db の軽い確認
 
 ### 仕上げ確認
 - 実行関数: `runAllTests`
-- 用途: builder / utils / writer をまとめて確認
+- 用途: builder / utils / writer / import / db をまとめて確認
+
+### DB運用確認
+- 同じCSVを再投入する
+  - `insertedCount = 0`
+  - `skippedCount = rowCount`
+  を確認する
+- 一部重複を含む別CSVを投入する
+  - `insertedCount > 0`
+  - `skippedCount > 0`
+  を確認する
+- `取引DB` の行数が想定どおり増えるか確認する
+- `取込履歴` の最新行で取込結果を確認する
 
 ### 注意
 - writer系テストでは一時スプレッドシートを作る
@@ -125,19 +159,23 @@
 ## 次にやること
 
 ### 最優先
-- [ ] 実CSVで `runSmokeTests` を回す
-- [ ] 落ちた箇所だけ最小修正する
-- [ ] 修正後に再度 `runSmokeTests` を回す
-- [ ] 最後に `runAllTests` を回す
+- [ ] 同じCSVを再投入して、`insertedCount = 0` / `skippedCount = rowCount` を確認する
+- [ ] 一部重複を含む別CSVを投入して、`insertedCount` と `skippedCount` が両方立つことを確認する
+- [ ] `取引DB` と `取込履歴` を実データで目視確認する
+- [ ] `runSmokeTests`
+- [ ] `runAllTests`
 
 ### その次
-- [ ] Webアプリ経由で実CSVを流して4シートを生成する
-- [ ] 生成結果を目視確認する
-- [ ] テストでは拾えないズレがないか確認する
+- [ ] 結果画面の改善版 `Index.html` を正式反映する
+- [ ] 結果画面に DB URL / 追加件数 / スキップ件数 が常に見える状態にする
+- [ ] DB重複判定対象列（`rowHash` の項目）を最終確認する
+- [ ] `feature/use-db` 用の運用手順を簡単にメモ化する
 
-### 完了後
+### その後
+- [ ] `docs/spec.md` / `docs/trade-rules.md` と DB運用の整合を最終確認する
 - [ ] commit
 - [ ] push
+- [ ] 必要なら PR 用の説明文を作る
 
 ---
 
@@ -149,6 +187,10 @@
 - [ ] 全売却後の次の取引で古い平均取得単価を拾わないか
 - [ ] 並び順が仕様どおり維持されているか
 - [ ] writer 側の条件付き書式が仕様どおりか
+- [ ] 別CSV追加時に意図しない重複登録が起きないか
+- [ ] 別CSV追加時に本来入るべき新規行までスキップしていないか
+- [ ] 共有DB運用で権限エラーが起きないか
+- [ ] 結果画面と実際の `取込履歴` の件数が一致するか
 
 ---
 
@@ -165,6 +207,7 @@
 - Apps Script API 経由のCI実行
 - writer系テストの無理な自動化
 - 大きな仕様変更
+- DBスキーマの大幅変更
 
 ---
 
@@ -176,6 +219,7 @@
 - 1回の修正ごとに `runSmokeTests` を回す
 - 最後に `runAllTests` を回す
 - 問題が再現しないなら無理に予防修正を入れない
+- `feature/use-db` の作業は `develop` の軽微修正と混同しない
 
 ---
 
@@ -186,6 +230,8 @@
 - 部分差し替えで `{}` を壊しやすい
 - writer テストは権限承認が必要
 - テストだけ通って実CSVでズレることがある
+- `develop` と `feature/use-db` の `test.gs` が競合しやすい
+- Webアプリ画面で件数が見えていても、`取込履歴` 側で最終確認した方が安全
 
 ---
 
@@ -195,21 +241,28 @@
 この案件の続きです。
 
 GASで「取引履歴CSVから4シートを生成するWebアプリ」を作っています。
+現在は feature/use-db ブランチで、CSVをDBに蓄積し、そのDB全体から4シートを再生成する方式を進めています。
 
 最新コード前提で、以下のファイルを確認しながら進めてください。
 - src/builder.gs
 - src/writer.gs
-- src/utils.gs
+- src.utils.gs
+- src/import.gs
+- src/web.gs
+- src/db.gs
+- src/db_config.gs
 - src/test.gs
+- Index.html
 - docs/spec.md
 - docs/trade-rules.md
 - docs/TODO.md
 
 重要仕様:
 - 平均取得単価は内部小数保持、表示整数
-- 簿価(現物売却・現物買取)は acquisitionPrice を使う
+- 簿価(現物売却・現物買取・強制償還（売）)は acquisitionPrice を使う
 - bookValue = -acquisitionPrice
-- 現物売却 / 現物買取で平均取得単価が無い場合は「対象外」ではなく「平均取得単価が未計算」とアラート
+- 強制償還（売）の手数料抜き売値は 受渡金額/決済損益
+- 償還は一つ前の保有数が0かどうかで分岐
 - 取引シートは 商品 → 銘柄名 → 受渡日 → 約定日 → 取引区分優先順位 で昇順ソート
 - compareTradePriority_ を使う
 - 保有数0は赤字
@@ -218,18 +271,25 @@ GASで「取引履歴CSVから4シートを生成するWebアプリ」を作っ�
 - 外国取引の非表示列: 摘要
 - normalizeZero_ は utils.gs に入れる
 
+DB運用の前提:
+- 重複判定は rowHash ベース
+- 別CSVでも同じ取引ならスキップ対象
+- Webアプリ入口は DB フローに接続済み
+- URL入力 / CSVアップロードのどちらでも DB に追加してから4シートを再生成する
+
 現在の状況:
-- test.gs は追加済み
-- runSmokeTests / runAllTests は実行可能
-- PR自動テスト導入は保留
-- まずは実CSVでの確認と、落ちた箇所の最小修正を優先したい
+- develop の変更は feature/use-db に取り込み済み
+- WebアプリからCSV追加は確認済み
+- 次は、同じCSV再投入時の skippedCount 確認と、一部重複を含む別CSVで insertedCount / skippedCount の両立確認を進めたい
+- 変更差分はできるだけ小さくしたい
 
 今回やりたいこと:
-- 実CSVで runSmokeTests を回して、落ちた箇所だけ直したい
-- 変更差分はできるだけ小さくしたい
-- 必要なら builder.gs / writer.gs / utils.gs を修正したい
+- DB運用の最終確認
+- 必要なら Index.html / db.gs / test.gs を最小修正
+- 必要なら docs/TODO.md も更新
 
 触らないもの:
 - PR自動テスト導入
 - core.gs への大規模切り出し
 - 大きな仕様変更
+```

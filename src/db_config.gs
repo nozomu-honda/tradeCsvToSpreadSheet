@@ -23,7 +23,7 @@ const DB_CONFIG = {
    * 例:
    * DB_SPREADSHEET_ID: '1AbCdEfGhIjKlMnOpQrStUvWxYz'
    */
-  DB_SPREADSHEET_ID: '',
+  DB_SPREADSHEET_ID: '1XqCr8PpcENcx_-krJV1jRKb5_yU9tVBVXvEtypCSLGY',
 
   /**
    * DB本体となるスプレッドシート名
