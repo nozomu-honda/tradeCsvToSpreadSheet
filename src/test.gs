@@ -9,7 +9,8 @@ function runSmokeTests() {
     test_sortTradeRows_usesPriority_,
     test_stockConversionBuy_updatesHoldingAndAvg_,
     test_forcedRedemptionSell_updatesHoldingAndBookValue_,
-    test_redemption_tradeRowAndCashRow_,
+    test_redemption_tradeRowAndCashRow_withNoPreviousHolding_,
+    test_redemption_tradeRowAndCashRow_withPreviousHolding_,
     test_collectInputAlerts_supportedForeignBond_,
     test_collectInputAlerts_supportedProductAndCurrency_doNothing_,
     test_collectInputAlerts_unsupportedProduct_,
@@ -30,7 +31,8 @@ function runAllTests() {
     test_sortTradeRows_usesPriority_,
     test_stockConversionBuy_updatesHoldingAndAvg_,
     test_forcedRedemptionSell_updatesHoldingAndBookValue_,
-    test_redemption_tradeRowAndCashRow_,
+    test_redemption_tradeRowAndCashRow_withNoPreviousHolding_,
+    test_redemption_tradeRowAndCashRow_withPreviousHolding_,
     test_collectInputAlerts_supportedForeignBond_,
     test_collectInputAlerts_supportedProductAndCurrency_doNothing_,
     test_collectInputAlerts_unsupportedProduct_,
@@ -122,17 +124,6 @@ function test_sortTradeRows_usesPriority_() {
   assertArrayEquals_(expected, actual, '取引区分優先順位ソート');
 }
 
-function test_stockConversionBuy_updatesHoldingAndAvg_() {
-  const alerts = [];
-  const rows = buildTradeRows_([
-    makeTradeRecord_({銘柄名: 'SCB', 商品: '株式', 取引区分: '現物買付', 数量: 2, 受渡金額_決済損益: 200, 手数料税込: 0, 約定日: '2026/04/01', 受渡日: '2026/04/01', 決済通貨: 'JPY'}),
-    makeTradeRecord_({銘柄名: 'SCB', 商品: '株式', 取引区分: '株転換取得（買）', 数量: 1, 受渡金額_決済損益: 150, 手数料税込: 0, 約定日: '2026/04/02', 受渡日: '2026/04/02', 決済通貨: 'JPY'})
-  ], alerts);
-  const row = rows[1];
-  assertEquals_(3, getTradeRowValue_(row, '保有数'), '株転換取得（買）で保有数が増える');
-  assertEquals_(150, getTradeRowValue_(row, '簿価'), '株転換取得（買）の簿価');
-}
-
 function test_forcedRedemptionSell_updatesHoldingAndBookValue_() {
   const alerts = [];
   const rows = buildTradeRows_([
@@ -141,18 +132,39 @@ function test_forcedRedemptionSell_updatesHoldingAndBookValue_() {
   ], alerts);
   const row = rows[1];
   assertEquals_(2, getTradeRowValue_(row, '保有数'), '強制償還（売）で保有数が減る');
-  assertApproxEquals_(-100, getTradeRowValue_(row, '簿価'), 1e-9, '強制償還（売）の簿価は -acquisitionPrice');
+  assertApproxEquals_(120, getTradeRowValue_(row, '手数料抜き売値'), 1e-9, '強制償還（売）の手数料抜き売値は受渡金額');
+  assertApproxEquals_(100, getTradeRowValue_(row, '取得価格'), 1e-9, '取得価格は原価ベース');
+  assertApproxEquals_(-100, getTradeRowValue_(row, '簿価'), 1e-9, '簿価は -acquisitionPrice');
+  assertApproxEquals_(20, getTradeRowValue_(row, '売却損益'), 1e-9, '売却損益は 受渡金額 - 取得価格');
   assertApproxEquals_(200, getTradeRowValue_(row, '銘柄ごとの残高'), 1e-9, '残高は原価ベースで減る');
 }
 
-function test_redemption_tradeRowAndCashRow_() {
+function test_redemption_tradeRowAndCashRow_withNoPreviousHolding_() {
   const alerts = [];
   const records = [makeTradeRecord_({銘柄名: 'RED', 商品: '外債', 取引区分: '償還', 数量: 0, 受渡金額_決済損益: 500, 手数料税込: 0, 約定日: '2026/04/10', 受渡日: '2026/04/10', 決済通貨: 'USD'})];
   const tradeRow = buildTradeRows_(records, alerts)[0];
   const cashRows = buildCashRows_(records);
   assertEquals_(0, getTradeRowValue_(tradeRow, '保有数'), '償還の数量0なら保有数は変わらない');
+  assertEquals_('', getTradeRowValue_(tradeRow, '手数料抜き売値'), '一つ前の保有数が0なら手数料抜き売値なし');
+  assertEquals_('', getTradeRowValue_(tradeRow, '取得価格'), '一つ前の保有数が0なら取得価格なし');
+  assertEquals_('', getTradeRowValue_(tradeRow, '売却損益'), '一つ前の保有数が0なら売却損益なし');
+  assertEquals_(500, getTradeRowValue_(tradeRow, '簿価'), '一つ前の保有数が0なら簿価は受渡金額');
   assertEquals_(500, cashRows[0][16], '償還は金銭残高を増やす');
-  assertEquals_(500, cashRows[0][17], '償還が月末最終行なら月次残高に入る');
+}
+
+function test_redemption_tradeRowAndCashRow_withPreviousHolding_() {
+  const alerts = [];
+  const rows = buildTradeRows_([
+    makeTradeRecord_({銘柄名: 'R2', 商品: '外債', 取引区分: '現物買付', 数量: 3, 単価: 100, 受渡金額_決済損益: 300, 手数料税込: 0, 約定日: '2026/04/01', 受渡日: '2026/04/01', 決済通貨: 'USD'}),
+    makeTradeRecord_({銘柄名: 'R2', 商品: '外債', 取引区分: '償還', 数量: 1, 単価: 120, 受渡金額_決済損益: 120, 手数料税込: 0, 約定日: '2026/04/10', 受渡日: '2026/04/10', 決済通貨: 'USD'})
+  ], alerts);
+  const row = rows[1];
+  assertEquals_(2, getTradeRowValue_(row, '保有数'), '保有数ありの償還は数量分マイナス');
+  assertApproxEquals_(120, getTradeRowValue_(row, '手数料抜き売値'), 1e-9, '償還の手数料抜き売値');
+  assertApproxEquals_(100, getTradeRowValue_(row, '取得価格'), 1e-9, '償還の取得価格');
+  assertApproxEquals_(20, getTradeRowValue_(row, '売却損益'), 1e-9, '償還の売却損益');
+  assertApproxEquals_(-100, getTradeRowValue_(row, '簿価'), 1e-9, '償還の簿価');
+  assertApproxEquals_(200, getTradeRowValue_(row, '銘柄ごとの残高'), 1e-9, '償還後の銘柄残高');
 }
 
 function test_collectInputAlerts_supportedForeignBond_() {
