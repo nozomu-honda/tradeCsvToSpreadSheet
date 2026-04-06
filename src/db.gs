@@ -1,4 +1,13 @@
 function getOrCreateDbSpreadsheet_() {
+  // 共有DBのスプレッドシートIDが指定されている場合は、それを最優先で使う
+  if (DB_CONFIG.DB_SPREADSHEET_ID) {
+    const shared = SpreadsheetApp.openById(DB_CONFIG.DB_SPREADSHEET_ID);
+    getOrCreateDbSheet_(shared, DB_CONFIG.SHEET_TRANSACTIONS, DB_HEADERS);
+    getOrCreateDbSheet_(shared, DB_CONFIG.SHEET_IMPORT_LOGS, IMPORT_LOG_HEADERS);
+    return shared;
+  }
+
+  // ID固定がない場合は従来どおり、名前検索 → なければ新規作成
   const existing = findDbSpreadsheet_();
   if (existing) {
     getOrCreateDbSheet_(existing, DB_CONFIG.SHEET_TRANSACTIONS, DB_HEADERS);

@@ -13,7 +13,22 @@
  */
 const DB_CONFIG = {
   /**
+   * 共有DBとして固定利用したいスプレッドシートID
+   *
+   * 使い方:
+   * - 共有用DBを手で1つ作成し、そのスプレッドシートIDをここに入れる
+   * - 値が入っている場合は、そのDBを全員で共通利用する
+   * - 空欄の場合は、従来どおり Drive 上で名前検索し、無ければ新規作成する
+   *
+   * 例:
+   * DB_SPREADSHEET_ID: '1AbCdEfGhIjKlMnOpQrStUvWxYz'
+   */
+  DB_SPREADSHEET_ID: '',
+
+  /**
    * DB本体となるスプレッドシート名
+   *
+   * DB_SPREADSHEET_ID が空欄のときだけ、
    * Drive上でこの名前のSpreadsheetを探し、
    * あればそれを使い、なければ新規作成する。
    */
