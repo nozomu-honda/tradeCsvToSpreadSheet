@@ -39,8 +39,6 @@ function buildTradeRows_(records, alerts) {
       holdingDelta = prevHolding === 0 ? 0 : -qty;
     } else if (['入金（利金）', '入金（配当金）', '入金（分配金）'].includes(tx)) {
       holdingDelta = 0;
-    } else {
-      alerts.push(`保有数: 対象外の取引区分: ${tx || '(空欄)'} / 銘柄名: ${symbol || '(空欄)'} / 受渡日: ${formatDateForAlert_(r['受渡日'])}`);
     }
 
     const holding = prevHolding + holdingDelta;
@@ -127,11 +125,8 @@ function buildTradeRows_(records, alerts) {
         alerts.push(`簿価: 平均取得単価が未計算: ${symbol || '(空欄)'} / 受渡日: ${formatDateForAlert_(r['受渡日'])} / 取引区分: ${tx}`);
       }
 
-    } else if (['入庫（増減資）', '入金（利金）', '入金（配当金）', '入金（分配金）'].includes(tx)) {
-      bookValue = '';
-
     } else {
-      alerts.push(`簿価: 対象外の取引区分: ${tx || '(空欄)'} / 銘柄名: ${symbol || '(空欄)'} / 受渡日: ${formatDateForAlert_(r['受渡日'])}`);
+      bookValue = '';
     }
 
     bookValue = normalizeZero_(bookValue);
@@ -143,8 +138,6 @@ function buildTradeRows_(records, alerts) {
       symbolBalance = prevHolding === 0 ? prevBalance : prevBalance + (bookValue === '' ? 0 : bookValue);
     } else if (['株転換取得（買）', '入庫（増減資）', '入金（利金）', '入金（配当金）', '入金（分配金）'].includes(tx)) {
       symbolBalance = prevBalance;
-    } else {
-      alerts.push(`銘柄ごとの残高: 対象外の取引区分: ${tx || '(空欄)'} / 銘柄名: ${symbol || '(空欄)'} / 受渡日: ${formatDateForAlert_(r['受渡日'])}`);
     }
 
     symbolBalance = normalizeZero_(symbolBalance);
@@ -157,8 +150,6 @@ function buildTradeRows_(records, alerts) {
       }
     } else if (['現物売却', '現物買取', '入庫（増減資）', '強制償還（売）', '償還', '入金（利金）', '入金（配当金）', '入金（分配金）'].includes(tx)) {
       avgUnitPrice = '';
-    } else {
-      alerts.push(`平均取得単価: 対象外の取引区分: ${tx || '(空欄)'} / 銘柄名: ${symbol || '(空欄)'} / 受渡日: ${formatDateForAlert_(r['受渡日'])}`);
     }
 
     avgUnitPrice = normalizeZero_(avgUnitPrice);

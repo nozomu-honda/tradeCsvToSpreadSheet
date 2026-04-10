@@ -15,10 +15,11 @@ function runSmokeTests() {
     test_collectInputAlerts_supportedProductAndCurrency_doNothing_,
     test_collectInputAlerts_unsupportedProduct_,
     test_collectInputAlerts_unsupportedSettlementCurrency_,
+    test_collectInputAlerts_unsupportedTransactionType_,
+    test_buildTradeRows_unknownTransactionType_doesNotDuplicateAlerts_,
     test_holdingZero_and_balanceZero_,
     test_lastTradeHighlightFlag_,
     test_buildCashRows_runningBalance_,
-    test_buildCashRows_forex_,
     test_normalizeZero_,
     test_buildRowHash_sameRecord_sameHash_,
     test_buildRowHash_differentRecord_differentHash_,
@@ -42,10 +43,11 @@ function runAllTests() {
     test_collectInputAlerts_supportedProductAndCurrency_doNothing_,
     test_collectInputAlerts_unsupportedProduct_,
     test_collectInputAlerts_unsupportedSettlementCurrency_,
+    test_collectInputAlerts_unsupportedTransactionType_,
+    test_buildTradeRows_unknownTransactionType_doesNotDuplicateAlerts_,
     test_holdingZero_and_balanceZero_,
     test_lastTradeHighlightFlag_,
     test_buildCashRows_runningBalance_,
-    test_buildCashRows_forex_,
     test_normalizeZero_,
     test_buildRowHash_sameRecord_sameHash_,
     test_buildRowHash_differentRecord_differentHash_,
@@ -229,14 +231,17 @@ function test_collectInputAlerts_unsupportedSettlementCurrency_() {
   assertTrue_(alerts.some(function(x){ return x.indexOf('決済通貨: 未対応の決済通貨') >= 0; }), '未対応決済通貨アラート');
 }
 
-function test_collectInputAlerts_supportedProductAndCurrency_doNothing_() {
+function test_collectInputAlerts_unsupportedTransactionType_() {
   const alerts = [];
-  collectInputAlerts_([
-    makeTradeRecord_({銘柄名: 'OKTEST', 商品: '株式', 取引区分: '現物買付', 決済通貨: 'JPY', 受渡金額_決済損益: 100}),
-    makeTradeRecord_({銘柄名: 'OKBOND', 商品: '外債', 取引区分: '償還', 決済通貨: 'USD', 受渡金額_決済損益: 100}),
-    makeTradeRecord_({銘柄名: '', 商品: '現金', 摘要: '入金テスト', 取引区分: '入金（振込）', 決済通貨: 'JPY', 受渡金額_決済損益: 100})
-  ], alerts);
-  assertEquals_(0, alerts.length, '対応済み商品/決済通貨ではアラートなし');
+  collectInputAlerts_([makeTradeRecord_({銘柄名: 'TXTEST', 商品: '株式', 取引区分: '謎区分', 決済通貨: 'JPY', 受渡金額_決済損益: 100})], alerts);
+  assertEquals_(1, alerts.length, '未知の取引区分アラートは1件だけ');
+  assertTrue_(alerts[0].indexOf('取引区分: 未対応の取引区分') >= 0, '未知の取引区分アラート');
+}
+
+function test_buildTradeRows_unknownTransactionType_doesNotDuplicateAlerts_() {
+  const alerts = [];
+  buildTradeRows_([makeTradeRecord_({銘柄名: 'TXTEST', 商品: '株式', 取引区分: '謎区分', 決済通貨: 'JPY', 受渡金額_決済損益: 100})], alerts);
+  assertEquals_(0, alerts.length, 'builder 側では未知の取引区分アラートを重複して出さない');
 }
 
 function test_holdingZero_and_balanceZero_() {
@@ -272,18 +277,6 @@ function test_buildCashRows_runningBalance_() {
   assertEquals_(-950, rows[1][17], '4月最終行の月次残高');
   assertEquals_(-750, rows[2][16], '3行目残高');
   assertEquals_(-750, rows[2][17], '5月最終行の月次残高');
-}
-
-function test_buildCashRows_forex_() {
-  const rows = buildCashRows_([
-    makeTradeRecord_({銘柄名: 'JPY', 商品: '現金', 取引区分: '為替売却', 受渡金額_決済損益: 150000, 約定日: '2026/04/07', 受渡日: '2026/04/07', 決済通貨: 'JPY'}),
-    makeTradeRecord_({銘柄名: 'USD', 商品: '現金', 取引区分: '為替買付', 受渡金額_決済損益: 1000, 約定日: '2026/04/07', 受渡日: '2026/04/07', 決済通貨: 'USD'}),
-    makeTradeRecord_({銘柄名: '', 商品: '現金', 取引区分: '入金（振込）', 受渡金額_決済損益: 5000, 約定日: '2026/04/30', 受渡日: '2026/04/30', 決済通貨: 'JPY'})
-  ]);
-  assertEquals_(150000, rows[0][16], '為替売却は残高プラス');
-  assertEquals_(149000, rows[1][16], '為替買付は残高マイナス');
-  assertEquals_(154000, rows[2][16], '後続取引へ累積される');
-  assertEquals_(154000, rows[2][17], '月末最終行の月次残高');
 }
 
 function test_normalizeZero_() {

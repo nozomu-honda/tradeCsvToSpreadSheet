@@ -157,6 +157,24 @@ function buildOutputSheetsFromSourceSheet_(ss, sourceSheet) {
 function collectInputAlerts_(records, alerts) {
   const supportedProducts = ['株式', '投信', '外株', '外債', '現金'];
   const supportedSettlementCurrencies = ['', 'JPY', 'USD'];
+  const supportedTransactionTypes = [
+    '現物買付',
+    '現物再投',
+    '現物募集',
+    '株転換取得（買）',
+    '入庫（増減資）',
+    '現物売却',
+    '現物買取',
+    '強制償還（売）',
+    '償還',
+    '入金（利金）',
+    '入金（配当金）',
+    '入金（分配金）',
+    '入金（振込）',
+    '出金（振込）',
+    '為替売却',
+    '為替買付'
+  ];
 
   records.forEach(function(r) {
     const product = text_(r['商品']);
@@ -173,6 +191,12 @@ function collectInputAlerts_(records, alerts) {
     if (!supportedSettlementCurrencies.includes(settlementCurrency)) {
       alerts.push(
         `決済通貨: 未対応の決済通貨: ${settlementCurrency || '(空欄)'} / 取引区分: ${tx || '(空欄)'} / 銘柄名: ${symbol || '(空欄)'} / 受渡日: ${formatDateForAlert_(r['受渡日'])}`
+      );
+    }
+
+    if (!supportedTransactionTypes.includes(tx)) {
+      alerts.push(
+        `取引区分: 未対応の取引区分: ${tx || '(空欄)'} / 商品: ${product || '(空欄)'} / 銘柄名: ${symbol || '(空欄)'} / 受渡日: ${formatDateForAlert_(r['受渡日'])}`
       );
     }
   });
