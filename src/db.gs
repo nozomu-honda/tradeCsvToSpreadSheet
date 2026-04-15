@@ -318,3 +318,31 @@ function buildOutputSheetsFromDbRecords_(ss, records) {
     }
   };
 }
+
+function resetDbData_() {
+  const dbSs = getOrCreateDbSpreadsheet_();
+  const txSheet = getOrCreateDbSheet_(dbSs, DB_CONFIG.SHEET_TRANSACTIONS, DB_HEADERS);
+  const logSheet = getOrCreateDbSheet_(dbSs, DB_CONFIG.SHEET_IMPORT_LOGS, IMPORT_LOG_HEADERS);
+
+  const deletedTransactionCount = clearSheetDataKeepHeader_(txSheet, DB_HEADERS.length);
+  const deletedImportLogCount = clearSheetDataKeepHeader_(logSheet, IMPORT_LOG_HEADERS.length);
+
+  return {
+    ok: true,
+    dbSpreadsheetId: dbSs.getId(),
+    dbSpreadsheetUrl: dbSs.getUrl(),
+    deletedTransactionCount: deletedTransactionCount,
+    deletedImportLogCount: deletedImportLogCount,
+  };
+}
+
+function clearSheetDataKeepHeader_(sheet, columnCount) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow <= 1) {
+    return 0;
+  }
+
+  const deleteCount = lastRow - 1;
+  sheet.getRange(2, 1, deleteCount, columnCount).clearContent();
+  return deleteCount;
+}

@@ -27,3 +27,7 @@ function runFromWebApp(payload) {
 
   return createSpreadsheetFromCsvUrl_(csvUrl);
 }
+
+function resetDbFromWebApp() {
+  return resetDbData_();
+}

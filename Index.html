@@ -51,6 +51,16 @@
       .link-block {
         margin-top: 10px;
       }
+      .button-row {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+      .danger {
+        background: #fff5f5;
+        border: 1px solid #d93025;
+        color: #d93025;
+      }
       a {
         word-break: break-all;
       }
@@ -75,8 +85,9 @@
         <input id="csvFile" type="file" accept=".csv,text/csv" />
       </div>
 
-      <div class="row">
-        <button onclick="run()">実行</button>
+      <div class="row button-row">
+        <button id="runButton" onclick="run()">実行</button>
+        <button id="resetDbButton" class="danger" onclick="resetDb()">データベースをリセット</button>
       </div>
 
       <div id="status" class="row muted"></div>
@@ -94,9 +105,7 @@
         const result = document.getElementById('result');
         const linkArea = document.getElementById('linkArea');
 
-        result.className = '';
-        result.textContent = '';
-        linkArea.innerHTML = '';
+        clearOutput_();
 
         if (!csvUrl && !file) {
           result.className = 'err';
@@ -110,6 +119,7 @@
           return;
         }
 
+        setBusy_(true);
         status.textContent = '実行中...';
 
         try {
@@ -132,6 +142,7 @@
 
           google.script.run
             .withSuccessHandler(function(res) {
+              setBusy_(false);
               status.textContent = '';
               result.className = 'ok';
 
@@ -170,16 +181,68 @@
               }
             })
             .withFailureHandler(function(err) {
+              setBusy_(false);
               status.textContent = '';
               result.className = 'err';
               result.textContent = err && err.message ? err.message : String(err);
             })
             .runFromWebApp(payload);
         } catch (e) {
+          setBusy_(false);
           status.textContent = '';
           result.className = 'err';
           result.textContent = e && e.message ? e.message : String(e);
         }
+      }
+
+      function resetDb() {
+        const confirmed = window.confirm('本当に削除しますか？');
+        if (!confirmed) {
+          return;
+        }
+
+        const status = document.getElementById('status');
+        const result = document.getElementById('result');
+        const linkArea = document.getElementById('linkArea');
+
+        clearOutput_();
+        setBusy_(true);
+        status.textContent = 'データベースをリセット中...';
+
+        google.script.run
+          .withSuccessHandler(function(res) {
+            setBusy_(false);
+            status.textContent = '';
+            result.className = 'ok';
+            result.textContent =
+              'データベースをリセットしました。\n\n' +
+              '取引DB削除件数: ' + (res.deletedTransactionCount || 0) + '\n' +
+              '取込履歴削除件数: ' + (res.deletedImportLogCount || 0);
+
+            if (res.dbSpreadsheetUrl) {
+              appendLink(linkArea, res.dbSpreadsheetUrl, '取引DBを開く');
+            }
+          })
+          .withFailureHandler(function(err) {
+            setBusy_(false);
+            status.textContent = '';
+            result.className = 'err';
+            result.textContent = err && err.message ? err.message : String(err);
+          })
+          .resetDbFromWebApp();
+      }
+
+      function setBusy_(isBusy) {
+        document.getElementById('runButton').disabled = isBusy;
+        document.getElementById('resetDbButton').disabled = isBusy;
+      }
+
+      function clearOutput_() {
+        const result = document.getElementById('result');
+        const linkArea = document.getElementById('linkArea');
+        result.className = '';
+        result.textContent = '';
+        linkArea.innerHTML = '';
       }
 
       function appendLink(container, href, text) {
