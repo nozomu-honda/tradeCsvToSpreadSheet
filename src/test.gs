@@ -246,7 +246,7 @@ function test_readInputRecords_headerRowNotFirst_() {
     const sheet = ss.getSheets()[0];
     const values = [
       ['2026/04/01', '2026/04/02', '株式', '1234', 'AAA', '', '現物買付', '', 'JPY', 10, 100, 1000],
-      [''],
+      new Array(12).fill(''),
       ['約定日', '受渡日', '商品', '銘柄コード', '銘柄名', '摘要', '取引区分', '預り区分', '発行通貨', '数量', '単価', '受渡金額/決済損益']
     ];
     sheet.getRange(1, 1, values.length, values[0].length).setValues(values);
