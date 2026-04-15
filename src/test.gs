@@ -15,6 +15,8 @@ function runSmokeTests() {
     test_collectInputAlerts_supportedProductAndCurrency_doNothing_,
     test_collectInputAlerts_unsupportedProduct_,
     test_collectInputAlerts_unsupportedSettlementCurrency_,
+    test_readInputRecords_headerRowNotFirst_,
+    test_readInputRecords_headerRowAppearsInMiddle_,
     test_holdingZero_and_balanceZero_,
     test_lastTradeHighlightFlag_,
     test_buildCashRows_runningBalance_,
@@ -41,6 +43,8 @@ function runAllTests() {
     test_collectInputAlerts_supportedProductAndCurrency_doNothing_,
     test_collectInputAlerts_unsupportedProduct_,
     test_collectInputAlerts_unsupportedSettlementCurrency_,
+    test_readInputRecords_headerRowNotFirst_,
+    test_readInputRecords_headerRowAppearsInMiddle_,
     test_holdingZero_and_balanceZero_,
     test_lastTradeHighlightFlag_,
     test_buildCashRows_runningBalance_,
@@ -237,6 +241,38 @@ function test_collectInputAlerts_supportedProductAndCurrency_doNothing_() {
   assertEquals_(0, alerts.length, '対応済み商品/決済通貨ではアラートなし');
 }
 
+function test_readInputRecords_headerRowNotFirst_() {
+  withTempSpreadsheet_(function(ss) {
+    const sheet = ss.getSheets()[0];
+    const values = [
+      ['2026/04/01', '2026/04/02', '株式', '1234', 'AAA', '', '現物買付', '', 'JPY', 10, 100, 1000],
+      [''],
+      ['約定日', '受渡日', '商品', '銘柄コード', '銘柄名', '摘要', '取引区分', '預り区分', '発行通貨', '数量', '単価', '受渡金額/決済損益']
+    ];
+    sheet.getRange(1, 1, values.length, values[0].length).setValues(values);
+
+    assertThrowsContains_(function() {
+      readInputRecords_(sheet);
+    }, 'ヘッダー行が1行目ではありません', 'ヘッダーが1行目以外ならエラー');
+  });
+}
+
+function test_readInputRecords_headerRowAppearsInMiddle_() {
+  withTempSpreadsheet_(function(ss) {
+    const sheet = ss.getSheets()[0];
+    const values = [
+      ['約定日', '受渡日', '商品', '銘柄コード', '銘柄名', '摘要', '取引区分', '預り区分', '発行通貨', '数量', '単価', '受渡金額/決済損益'],
+      ['2026/04/01', '2026/04/02', '株式', '1234', 'AAA', '', '現物買付', '', 'JPY', 10, 100, 1000],
+      ['約定日', '受渡日', '商品', '銘柄コード', '銘柄名', '摘要', '取引区分', '預り区分', '発行通貨', '数量', '単価', '受渡金額/決済損益']
+    ];
+    sheet.getRange(1, 1, values.length, values[0].length).setValues(values);
+
+    assertThrowsContains_(function() {
+      readInputRecords_(sheet);
+    }, 'データ途中にヘッダー行があります', '途中ヘッダーがあればエラー');
+  });
+}
+
 function test_holdingZero_and_balanceZero_() {
   const alerts = [];
   const rows = buildTradeRows_([
@@ -278,7 +314,6 @@ function test_normalizeZero_() {
   assertEquals_(0, normalizeZero_(-1e-12), '極小負数を 0 に正規化');
   assertEquals_('', normalizeZero_(''), '空文字はそのまま');
 }
-
 
 function test_buildRowHash_sameRecord_sameHash_() {
   const record = makeTradeRecord_({
@@ -405,7 +440,6 @@ function test_dbRecordToRow_mapsHeaders_() {
   assertEquals_('TEST株', row[DB_HEADERS.indexOf('銘柄名')], '銘柄名 の位置');
   assertEquals_(1000, row[DB_HEADERS.indexOf('受渡金額/決済損益')], '金額 の位置');
 }
-
 
 function test_writeSheet_domesticHiddenColumns_() {
   withTempSpreadsheet_(function(ss) {
@@ -569,4 +603,17 @@ function assertArrayEquals_(expected, actual, message) {
       throw new Error((message || 'assertArrayEquals failed') + ' index=' + i + ' expected=' + expected[i] + ' actual=' + actual[i]);
     }
   }
+}
+
+function assertThrowsContains_(fn, expectedMessagePart, message) {
+  try {
+    fn();
+  } catch (e) {
+    const actual = String(e && e.message ? e.message : e);
+    if (actual.indexOf(expectedMessagePart) >= 0) {
+      return;
+    }
+    throw new Error((message || 'assertThrowsContains failed') + ' expectedPart=' + expectedMessagePart + ' actual=' + actual);
+  }
+  throw new Error((message || 'assertThrowsContains failed') + ' expected exception');
 }
