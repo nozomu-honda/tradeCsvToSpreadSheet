@@ -150,10 +150,14 @@ function buildTradeRows_(records, alerts) {
     symbolBalance = normalizeZero_(symbolBalance);
 
     if (['現物買付', '現物再投', '現物募集', '株転換取得（買）'].includes(tx) && holding > 0) {
-      if (prevBalance > 0) {
-        avgUnitPrice = (prevBalance + (bookValue === '' ? 0 : bookValue)) / holding;
+      const balanceBase = prevBalance > 0
+        ? (prevBalance + (bookValue === '' ? 0 : bookValue))
+        : (bookValue === '' ? 0 : bookValue);
+
+      if (product === '投信') {
+        avgUnitPrice = balanceBase / holding * 10000;
       } else {
-        avgUnitPrice = (bookValue === '' ? 0 : bookValue) / holding;
+        avgUnitPrice = balanceBase / holding;
       }
     } else if (['現物売却', '現物買取', '入庫（増減資）', '強制償還（売）', '償還', '入金（利金）', '入金（配当金）', '入金（分配金）'].includes(tx)) {
       avgUnitPrice = '';
@@ -228,9 +232,9 @@ function buildCashRows_(records) {
     const tx = r['取引区分'];
 
     let delta = 0;
-    if (['現物買付', '現物再投', '出金（振込）', '現物募集'].includes(tx)) {
+    if (['現物買付', '現物再投', '出金（振込）', '現物募集', '為替買付'].includes(tx)) {
       delta = -amount;
-    } else if (['現物売却', '入金（利金）', '入金（配当金）', '償還', '入金（振込）', '入金（分配金）'].includes(tx)) {
+    } else if (['現物売却', '現物買取', '入金（利金）', '入金（配当金）', '償還', '入金（振込）', '入金（分配金）', '為替売却'].includes(tx)) {
       delta = amount;
     }
 

@@ -15,6 +15,8 @@ function runSmokeTests() {
     test_collectInputAlerts_supportedProductAndCurrency_doNothing_,
     test_collectInputAlerts_unsupportedProduct_,
     test_collectInputAlerts_unsupportedSettlementCurrency_,
+    test_readInputRecords_headerRowNotFirst_,
+    test_readInputRecords_headerRowAppearsInMiddle_,
     test_holdingZero_and_balanceZero_,
     test_lastTradeHighlightFlag_,
     test_buildCashRows_runningBalance_,
@@ -23,6 +25,8 @@ function runSmokeTests() {
     test_buildRowHash_differentRecord_differentHash_,
     test_normalizeRecordForDb_setsMetadata_,
     test_dbRecordToRow_mapsHeaders_,
+    test_averageUnitPrice_fund_multipliesBy10000_,
+    test_buildCashRows_forexAndActualPurchasePlus_,
   ];
   return runSelectedTests_(tests, '軽い確認テスト');
 }
@@ -41,6 +45,8 @@ function runAllTests() {
     test_collectInputAlerts_supportedProductAndCurrency_doNothing_,
     test_collectInputAlerts_unsupportedProduct_,
     test_collectInputAlerts_unsupportedSettlementCurrency_,
+    test_readInputRecords_headerRowNotFirst_,
+    test_readInputRecords_headerRowAppearsInMiddle_,
     test_holdingZero_and_balanceZero_,
     test_lastTradeHighlightFlag_,
     test_buildCashRows_runningBalance_,
@@ -53,6 +59,8 @@ function runAllTests() {
     test_writeSheet_foreignHiddenColumns_,
     test_writeSheet_tradeConditionalFormatRules_,
     test_writeSheet_averageUnitPriceNumberFormat_,
+    test_averageUnitPrice_fund_multipliesBy10000_,
+    test_buildCashRows_forexAndActualPurchasePlus_,
   ];
   return runSelectedTests_(tests, 'フルテスト');
 }
@@ -237,6 +245,38 @@ function test_collectInputAlerts_supportedProductAndCurrency_doNothing_() {
   assertEquals_(0, alerts.length, '対応済み商品/決済通貨ではアラートなし');
 }
 
+function test_readInputRecords_headerRowNotFirst_() {
+  withTempSpreadsheet_(function(ss) {
+    const sheet = ss.getSheets()[0];
+    const values = [
+      ['2026/04/01', '2026/04/02', '株式', '1234', 'AAA', '', '現物買付', '', 'JPY', 10, 100, 1000],
+      new Array(12).fill(''),
+      ['約定日', '受渡日', '商品', '銘柄コード', '銘柄名', '摘要', '取引区分', '預り区分', '発行通貨', '数量', '単価', '受渡金額/決済損益']
+    ];
+    sheet.getRange(1, 1, values.length, values[0].length).setValues(values);
+
+    assertThrowsContains_(function() {
+      readInputRecords_(sheet);
+    }, 'ヘッダー行が1行目ではありません', 'ヘッダーが1行目以外ならエラー');
+  });
+}
+
+function test_readInputRecords_headerRowAppearsInMiddle_() {
+  withTempSpreadsheet_(function(ss) {
+    const sheet = ss.getSheets()[0];
+    const values = [
+      ['約定日', '受渡日', '商品', '銘柄コード', '銘柄名', '摘要', '取引区分', '預り区分', '発行通貨', '数量', '単価', '受渡金額/決済損益'],
+      ['2026/04/01', '2026/04/02', '株式', '1234', 'AAA', '', '現物買付', '', 'JPY', 10, 100, 1000],
+      ['約定日', '受渡日', '商品', '銘柄コード', '銘柄名', '摘要', '取引区分', '預り区分', '発行通貨', '数量', '単価', '受渡金額/決済損益']
+    ];
+    sheet.getRange(1, 1, values.length, values[0].length).setValues(values);
+
+    assertThrowsContains_(function() {
+      readInputRecords_(sheet);
+    }, 'データ途中にヘッダー行があります', '途中ヘッダーがあればエラー');
+  });
+}
+
 function test_holdingZero_and_balanceZero_() {
   const alerts = [];
   const rows = buildTradeRows_([
@@ -278,7 +318,6 @@ function test_normalizeZero_() {
   assertEquals_(0, normalizeZero_(-1e-12), '極小負数を 0 に正規化');
   assertEquals_('', normalizeZero_(''), '空文字はそのまま');
 }
-
 
 function test_buildRowHash_sameRecord_sameHash_() {
   const record = makeTradeRecord_({
@@ -405,7 +444,6 @@ function test_dbRecordToRow_mapsHeaders_() {
   assertEquals_('TEST株', row[DB_HEADERS.indexOf('銘柄名')], '銘柄名 の位置');
   assertEquals_(1000, row[DB_HEADERS.indexOf('受渡金額/決済損益')], '金額 の位置');
 }
-
 
 function test_writeSheet_domesticHiddenColumns_() {
   withTempSpreadsheet_(function(ss) {
@@ -569,4 +607,73 @@ function assertArrayEquals_(expected, actual, message) {
       throw new Error((message || 'assertArrayEquals failed') + ' index=' + i + ' expected=' + expected[i] + ' actual=' + actual[i]);
     }
   }
+}
+
+function assertThrowsContains_(fn, expectedMessagePart, message) {
+  try {
+    fn();
+  } catch (e) {
+    const actual = String(e && e.message ? e.message : e);
+    if (actual.indexOf(expectedMessagePart) >= 0) {
+      return;
+    }
+    throw new Error((message || 'assertThrowsContains failed') + ' expectedPart=' + expectedMessagePart + ' actual=' + actual);
+  }
+  throw new Error((message || 'assertThrowsContains failed') + ' expected exception');
+}
+
+function test_averageUnitPrice_fund_multipliesBy10000_() {
+  const alerts = [];
+  const rows = buildTradeRows_([makeTradeRecord_({
+    銘柄名: 'FUND',
+    商品: '投信',
+    取引区分: '現物買付',
+    数量: 10000,
+    単価: 10000,
+    受渡金額_決済損益: 10000,
+    手数料税込: 0,
+    約定日: '2026/04/01',
+    受渡日: '2026/04/01',
+    決済通貨: 'JPY'
+  })], alerts);
+
+  const avgUnitPrice = getTradeRowValue_(rows[0], '平均取得単価');
+  assertApproxEquals_(10000, avgUnitPrice, 1e-9, '投信の平均取得単価は *10000 で算出');
+  assertEquals_(0, alerts.length, '不要なアラートは出ないこと');
+}
+
+function test_buildCashRows_forexAndActualPurchasePlus_() {
+  const rows = buildCashRows_([
+    makeTradeRecord_({
+      銘柄名: 'JPY',
+      商品: '現金',
+      取引区分: '為替売却',
+      受渡金額_決済損益: 150000,
+      約定日: '2026/04/07',
+      受渡日: '2026/04/07',
+      決済通貨: 'JPY'
+    }),
+    makeTradeRecord_({
+      銘柄名: 'USD',
+      商品: '現金',
+      取引区分: '為替買付',
+      受渡金額_決済損益: 1000,
+      約定日: '2026/04/07',
+      受渡日: '2026/04/07',
+      決済通貨: 'USD'
+    }),
+    makeTradeRecord_({
+      銘柄名: 'AAA',
+      商品: '株式',
+      取引区分: '現物買取',
+      受渡金額_決済損益: 500,
+      約定日: '2026/04/08',
+      受渡日: '2026/04/08',
+      決済通貨: 'JPY'
+    })
+  ]);
+
+  assertEquals_(150000, rows[0][16], '為替売却は残高プラス');
+  assertEquals_(149000, rows[1][16], '為替買付は残高マイナス');
+  assertEquals_(149500, rows[2][16], '現物買取は残高プラス');
 }

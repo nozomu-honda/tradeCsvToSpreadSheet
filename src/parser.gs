@@ -6,6 +6,8 @@ function readInputRecords_(sheet) {
     throw new Error('実データのヘッダー行が見つかりません。');
   }
 
+  validateHeaderPlacement_(values, headerRowIndex);
+
   const headers = values[headerRowIndex].map(v => String(v).trim());
 
   const required = ['約定日', '受渡日', '商品', '銘柄名', '取引区分', '受渡金額/決済損益'];
@@ -51,16 +53,31 @@ function readInputRecords_(sheet) {
 
 function findHeaderRowIndex_(values) {
   for (let i = 0; i < values.length; i++) {
-    const row = values[i].map(v => String(v).trim());
-    const hasCore =
-      row.includes('約定日') &&
-      row.includes('受渡日') &&
-      row.includes('商品') &&
-      row.includes('銘柄名') &&
-      row.includes('取引区分') &&
-      row.includes('受渡金額/決済損益');
-
-    if (hasCore) return i;
+    if (isHeaderRow_(values[i])) return i;
   }
   return -1;
+}
+
+function validateHeaderPlacement_(values, headerRowIndex) {
+  if (headerRowIndex !== 0) {
+    throw new Error(`入力CSV異常: ヘッダー行が1行目ではありません。${headerRowIndex + 1}行目を確認してください。`);
+  }
+
+  for (let i = headerRowIndex + 1; i < values.length; i++) {
+    if (isHeaderRow_(values[i])) {
+      throw new Error(`入力CSV異常: データ途中にヘッダー行があります。${i + 1}行目を確認してください。`);
+    }
+  }
+}
+
+function isHeaderRow_(row) {
+  const normalized = row.map(v => String(v).trim());
+  return (
+    normalized.includes('約定日') &&
+    normalized.includes('受渡日') &&
+    normalized.includes('商品') &&
+    normalized.includes('銘柄名') &&
+    normalized.includes('取引区分') &&
+    normalized.includes('受渡金額/決済損益')
+  );
 }
