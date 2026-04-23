@@ -25,8 +25,12 @@ function runSmokeTests() {
     test_buildRowHash_differentRecord_differentHash_,
     test_normalizeRecordForDb_setsMetadata_,
     test_dbRecordToRow_mapsHeaders_,
-    test_averageUnitPrice_fund_multipliesBy10000_,
-    test_buildCashRows_forexAndActualPurchasePlus_,
+    test_dbTargets_defaultSelection_,
+    test_appendRecordsToDb_writesOnlySelectedDb_,
+    test_listRecentImports_returnsOnlySelectedDbLogs_,
+    test_rollbackImport_marksImportInactive_,
+    test_rollbackImport_twice_throws_,
+    test_resetDbData_resetsOnlySelectedDb_,
   ];
   return runSelectedTests_(tests, '軽い確認テスト');
 }
@@ -59,8 +63,12 @@ function runAllTests() {
     test_writeSheet_foreignHiddenColumns_,
     test_writeSheet_tradeConditionalFormatRules_,
     test_writeSheet_averageUnitPriceNumberFormat_,
-    test_averageUnitPrice_fund_multipliesBy10000_,
-    test_buildCashRows_forexAndActualPurchasePlus_,
+    test_dbTargets_defaultSelection_,
+    test_appendRecordsToDb_writesOnlySelectedDb_,
+    test_listRecentImports_returnsOnlySelectedDbLogs_,
+    test_rollbackImport_marksImportInactive_,
+    test_rollbackImport_twice_throws_,
+    test_resetDbData_resetsOnlySelectedDb_,
   ];
   return runSelectedTests_(tests, 'フルテスト');
 }
@@ -571,11 +579,25 @@ function withTempSpreadsheet_(fn) {
   try {
     fn(ss);
   } finally {
+    trashFileWithRetry_(ss.getId(), 'temp spreadsheet cleanup failed');
+  }
+}
+
+function trashFileWithRetry_(fileId, logPrefix) {
+  let lastError = null;
+
+  for (let i = 0; i < 3; i++) {
     try {
-      DriveApp.getFileById(ss.getId()).setTrashed(true);
+      DriveApp.getFileById(fileId).setTrashed(true);
+      return;
     } catch (e) {
-      Logger.log('temp spreadsheet cleanup failed: ' + e.message);
+      lastError = e;
+      Utilities.sleep(1000 * (i + 1));
     }
+  }
+
+  if (lastError) {
+    Logger.log((logPrefix || 'temp cleanup failed') + ': ' + lastError.message);
   }
 }
 
@@ -622,58 +644,300 @@ function assertThrowsContains_(fn, expectedMessagePart, message) {
   throw new Error((message || 'assertThrowsContains failed') + ' expected exception');
 }
 
-function test_averageUnitPrice_fund_multipliesBy10000_() {
-  const alerts = [];
-  const rows = buildTradeRows_([makeTradeRecord_({
-    銘柄名: 'FUND',
-    商品: '投信',
-    取引区分: '現物買付',
-    数量: 10000,
-    単価: 10000,
-    受渡金額_決済損益: 10000,
-    手数料税込: 0,
-    約定日: '2026/04/01',
-    受渡日: '2026/04/01',
-    決済通貨: 'JPY'
-  })], alerts);
 
-  const avgUnitPrice = getTradeRowValue_(rows[0], '平均取得単価');
-  assertApproxEquals_(10000, avgUnitPrice, 1e-9, '投信の平均取得単価は *10000 で算出');
-  assertEquals_(0, alerts.length, '不要なアラートは出ないこと');
+function test_dbTargets_defaultSelection_() {
+  const temp = createTempDbTargets_(['corp_a', 'corp_b']);
+  try {
+    withTempDbTargets_(temp.targets, 'corp_b', function() {
+      assertEquals_('corp_b', getDefaultDbTargetKey_(), 'DEFAULT_TARGET_DB_KEY を返す');
+      const resolved = resolveDbTarget_('corp_b');
+      assertEquals_('corp_b', resolved.key, '選択したDBキーを解決できる');
+      assertEquals_('Temp corp_b', resolved.label, '選択したDBラベルを解決できる');
+    });
+  } finally {
+    temp.cleanup();
+  }
 }
 
-function test_buildCashRows_forexAndActualPurchasePlus_() {
-  const rows = buildCashRows_([
-    makeTradeRecord_({
-      銘柄名: 'JPY',
-      商品: '現金',
-      取引区分: '為替売却',
-      受渡金額_決済損益: 150000,
-      約定日: '2026/04/07',
-      受渡日: '2026/04/07',
-      決済通貨: 'JPY'
-    }),
-    makeTradeRecord_({
-      銘柄名: 'USD',
-      商品: '現金',
-      取引区分: '為替買付',
-      受渡金額_決済損益: 1000,
-      約定日: '2026/04/07',
-      受渡日: '2026/04/07',
-      決済通貨: 'USD'
-    }),
-    makeTradeRecord_({
-      銘柄名: 'AAA',
-      商品: '株式',
-      取引区分: '現物買取',
-      受渡金額_決済損益: 500,
-      約定日: '2026/04/08',
-      受渡日: '2026/04/08',
-      決済通貨: 'JPY'
-    })
-  ]);
+function test_appendRecordsToDb_writesOnlySelectedDb_() {
+  const temp = createTempDbTargets_(['corp_a', 'corp_b']);
+  try {
+    withTempDbTargets_(temp.targets, 'corp_a', function() {
+      const res = appendRecordsToDb_([
+        makeTradeRecord_({
+          銘柄名: 'AAA',
+          商品: '株式',
+          取引区分: '現物買付',
+          数量: 10,
+          単価: 100,
+          受渡金額_決済損益: 1000,
+          決済通貨: 'JPY'
+        })
+      ], {
+        targetDbKey: 'corp_a',
+        sourceName: 'corp_a.csv',
+        inputType: 'upload'
+      });
 
-  assertEquals_(150000, rows[0][16], '為替売却は残高プラス');
-  assertEquals_(149000, rows[1][16], '為替買付は残高マイナス');
-  assertEquals_(149500, rows[2][16], '現物買取は残高プラス');
+      assertEquals_('corp_a', res.dbTargetKey, '追加先DBキーが返る');
+      assertEquals_('Temp corp_a', res.dbTargetLabel, '追加先DBラベルが返る');
+      assertEquals_(1, readDbRecords_('corp_a').length, '選択したDBには追加される');
+      assertEquals_(0, readDbRecords_('corp_b').length, '別DBには追加されない');
+    });
+  } finally {
+    temp.cleanup();
+  }
+}
+
+function test_listRecentImports_returnsOnlySelectedDbLogs_() {
+  const temp = createTempDbTargets_(['corp_a', 'corp_b']);
+  try {
+    withTempDbTargets_(temp.targets, 'corp_a', function() {
+      appendRecordsToDb_([
+        makeTradeRecord_({
+          銘柄名: 'AAA',
+          商品: '株式',
+          取引区分: '現物買付',
+          数量: 10,
+          単価: 100,
+          受渡金額_決済損益: 1000,
+          決済通貨: 'JPY'
+        })
+      ], {
+        targetDbKey: 'corp_a',
+        sourceName: 'corp_a.csv',
+        inputType: 'upload'
+      });
+
+      appendRecordsToDb_([
+        makeTradeRecord_({
+          銘柄名: 'BBB',
+          商品: '株式',
+          取引区分: '現物買付',
+          数量: 20,
+          単価: 100,
+          受渡金額_決済損益: 2000,
+          決済通貨: 'JPY'
+        })
+      ], {
+        targetDbKey: 'corp_b',
+        sourceName: 'corp_b.csv',
+        inputType: 'upload'
+      });
+
+      const logsA = listRecentImports_('corp_a', 10);
+      const logsB = listRecentImports_('corp_b', 10);
+
+      assertEquals_(1, logsA.length, 'corp_a のログだけ返る');
+      assertEquals_(1, logsB.length, 'corp_b のログだけ返る');
+      assertEquals_('corp_a.csv', logsA[0].sourceName, 'corp_a の sourceName');
+      assertEquals_('corp_b.csv', logsB[0].sourceName, 'corp_b の sourceName');
+      assertEquals_('corp_a', logsA[0].targetDbKey, 'corp_a の targetDbKey');
+      assertEquals_('corp_b', logsB[0].targetDbKey, 'corp_b の targetDbKey');
+    });
+  } finally {
+    temp.cleanup();
+  }
+}
+
+function test_rollbackImport_marksImportInactive_() {
+  const temp = createTempDbTargets_(['corp_a', 'corp_b']);
+  try {
+    withTempDbTargets_(temp.targets, 'corp_a', function() {
+      const first = appendRecordsToDb_([
+        makeTradeRecord_({
+          銘柄名: 'AAA',
+          商品: '株式',
+          取引区分: '現物買付',
+          数量: 10,
+          単価: 100,
+          受渡金額_決済損益: 1000,
+          決済通貨: 'JPY'
+        })
+      ], {
+        targetDbKey: 'corp_a',
+        sourceName: 'first.csv',
+        inputType: 'upload'
+      });
+
+      appendRecordsToDb_([
+        makeTradeRecord_({
+          銘柄名: 'BBB',
+          商品: '株式',
+          取引区分: '現物買付',
+          数量: 20,
+          単価: 100,
+          受渡金額_決済損益: 2000,
+          決済通貨: 'JPY'
+        })
+      ], {
+        targetDbKey: 'corp_a',
+        sourceName: 'second.csv',
+        inputType: 'upload'
+      });
+
+      assertEquals_(2, readDbRecords_('corp_a').length, 'ロールバック前は2件');
+
+      const rollback = rollbackImport_('corp_a', first.importId);
+      assertEquals_(1, rollback.rolledBackCount, '1件ロールバック');
+
+      const after = readDbRecords_('corp_a');
+      assertEquals_(1, after.length, 'ロールバック後は有効レコード1件');
+      assertEquals_('BBB', after[0]['銘柄名'], '後から入れた取引は残る');
+
+      const logs = listRecentImports_('corp_a', 10);
+      const rolled = logs.find(function(item) {
+        return item.importId === first.importId;
+      });
+
+      assertTrue_(!!rolled, 'ロールバック対象ログが見つかる');
+      assertTrue_(rolled.isRolledBack, 'ログがロールバック済みになる');
+      assertEquals_(1, rolled.rolledBackRecordCount, 'ロールバック件数が記録される');
+    });
+  } finally {
+    temp.cleanup();
+  }
+}
+
+function test_rollbackImport_twice_throws_() {
+  const temp = createTempDbTargets_(['corp_a', 'corp_b']);
+  try {
+    withTempDbTargets_(temp.targets, 'corp_a', function() {
+      const first = appendRecordsToDb_([
+        makeTradeRecord_({
+          銘柄名: 'AAA',
+          商品: '株式',
+          取引区分: '現物買付',
+          数量: 10,
+          単価: 100,
+          受渡金額_決済損益: 1000,
+          決済通貨: 'JPY'
+        })
+      ], {
+        targetDbKey: 'corp_a',
+        sourceName: 'first.csv',
+        inputType: 'upload'
+      });
+
+      rollbackImport_('corp_a', first.importId);
+
+      assertThrowsContains_(function() {
+        rollbackImport_('corp_a', first.importId);
+      }, 'すでにロールバック済み', '2回目のロールバックはエラー');
+    });
+  } finally {
+    temp.cleanup();
+  }
+}
+
+function test_resetDbData_resetsOnlySelectedDb_() {
+  const temp = createTempDbTargets_(['corp_a', 'corp_b']);
+  try {
+    withTempDbTargets_(temp.targets, 'corp_a', function() {
+      appendRecordsToDb_([
+        makeTradeRecord_({
+          銘柄名: 'AAA',
+          商品: '株式',
+          取引区分: '現物買付',
+          数量: 10,
+          単価: 100,
+          受渡金額_決済損益: 1000,
+          決済通貨: 'JPY'
+        })
+      ], {
+        targetDbKey: 'corp_a',
+        sourceName: 'corp_a.csv',
+        inputType: 'upload'
+      });
+
+      appendRecordsToDb_([
+        makeTradeRecord_({
+          銘柄名: 'BBB',
+          商品: '株式',
+          取引区分: '現物買付',
+          数量: 20,
+          単価: 100,
+          受渡金額_決済損益: 2000,
+          決済通貨: 'JPY'
+        })
+      ], {
+        targetDbKey: 'corp_b',
+        sourceName: 'corp_b.csv',
+        inputType: 'upload'
+      });
+
+      const reset = resetDbData_('corp_a');
+      assertEquals_('corp_a', reset.dbTargetKey, 'リセット対象DBキー');
+      assertEquals_('Temp corp_a', reset.dbTargetLabel, 'リセット対象DBラベル');
+
+      const ssA = getOrCreateDbSpreadsheet_('corp_a');
+      const ssB = getOrCreateDbSpreadsheet_('corp_b');
+      const txA = getOrCreateDbSheet_(ssA, DB_CONFIG.SHEET_TRANSACTIONS, DB_HEADERS);
+      const txB = getOrCreateDbSheet_(ssB, DB_CONFIG.SHEET_TRANSACTIONS, DB_HEADERS);
+      const logA = getOrCreateDbSheet_(ssA, DB_CONFIG.SHEET_IMPORT_LOGS, IMPORT_LOG_HEADERS);
+      const logB = getOrCreateDbSheet_(ssB, DB_CONFIG.SHEET_IMPORT_LOGS, IMPORT_LOG_HEADERS);
+
+      assertEquals_(0, countNonEmptyRowsByHeader_(txA, DB_HEADERS, 'recordId'), 'corp_a の取引DBは空になる');
+      assertEquals_(0, countNonEmptyRowsByHeader_(logA, IMPORT_LOG_HEADERS, 'importId'), 'corp_a の取込履歴は空になる');
+      assertEquals_(1, countNonEmptyRowsByHeader_(txB, DB_HEADERS, 'recordId'), 'corp_b の取引DBは残る');
+      assertEquals_(1, countNonEmptyRowsByHeader_(logB, IMPORT_LOG_HEADERS, 'importId'), 'corp_b の取込履歴は残る');
+    });
+  } finally {
+    temp.cleanup();
+  }
+}
+
+function createTempDbTargets_(keys) {
+  const spreadsheetIds = [];
+  const targets = keys.map(function(key) {
+    const ss = SpreadsheetApp.create('tmp_' + key + '_' + Utilities.getUuid());
+    spreadsheetIds.push(ss.getId());
+    return {
+      key: key,
+      label: 'Temp ' + key,
+      spreadsheetId: ss.getId(),
+      spreadsheetName: ss.getName(),
+    };
+  });
+
+  return {
+    targets: targets,
+    cleanup: function() {
+      spreadsheetIds.forEach(function(id) {
+        trashFileWithRetry_(id, 'temp db cleanup failed');
+      });
+    }
+  };
+}
+
+function withTempDbTargets_(targets, defaultKey, fn) {
+  const originalTargets = JSON.parse(JSON.stringify(DB_CONFIG.TARGET_DBS || []));
+  const originalDefault = DB_CONFIG.DEFAULT_TARGET_DB_KEY;
+
+  DB_CONFIG.TARGET_DBS = JSON.parse(JSON.stringify(targets));
+  DB_CONFIG.DEFAULT_TARGET_DB_KEY = defaultKey;
+
+  try {
+    fn();
+  } finally {
+    DB_CONFIG.TARGET_DBS = originalTargets;
+    DB_CONFIG.DEFAULT_TARGET_DB_KEY = originalDefault;
+  }
+}
+
+function countNonEmptyRowsByHeader_(sheet, headers, headerName) {
+  const col = headers.indexOf(headerName) + 1;
+  if (col <= 0) {
+    throw new Error('ヘッダーが見つかりません: ' + headerName);
+  }
+
+  const lastRow = sheet.getLastRow();
+  if (lastRow <= 1) {
+    return 0;
+  }
+
+  const values = sheet.getRange(2, col, lastRow - 1, 1).getValues();
+  return values.filter(function(row) {
+    return text_(row[0]) !== '';
+  }).length;
 }

@@ -1,15 +1,11 @@
-function createSpreadsheetFromCsvUrl_(csvUrl) {
-  return createSpreadsheetFromCsvUrlUsingDb_(csvUrl);
+function createSpreadsheetFromCsvUrl_(csvUrl, options) {
+  return createSpreadsheetFromCsvUrlUsingDb_(csvUrl, options);
 }
 
-function createSpreadsheetFromCsvText_(csvText, sourceName, normalizedUrl) {
-  return createSpreadsheetFromCsvTextUsingDb_(csvText, sourceName, normalizedUrl);
+function createSpreadsheetFromCsvText_(csvText, sourceName, normalizedUrl, options) {
+  return createSpreadsheetFromCsvTextUsingDb_(csvText, sourceName, normalizedUrl, options);
 }
 
-/**
- * 旧フローを残したい場合のための非DB版入口
- * feature/use-db では通常こちらは使わない。
- */
 function createSpreadsheetFromCsvUrlLegacy_(csvUrl) {
   if (!csvUrl) {
     throw new Error('CSVリンクを入力してください。');
@@ -20,10 +16,6 @@ function createSpreadsheetFromCsvUrlLegacy_(csvUrl) {
   return createSpreadsheetFromCsvTextLegacy_(csvText, 'link.csv', normalizedUrl);
 }
 
-/**
- * 旧フローを残したい場合のための非DB版入口
- * feature/use-db では通常こちらは使わない。
- */
 function createSpreadsheetFromCsvTextLegacy_(csvText, sourceName, normalizedUrl) {
   if (!csvText || String(csvText).trim() === '') {
     throw new Error('CSVの内容が空です。');
@@ -48,17 +40,17 @@ function createSpreadsheetFromCsvTextLegacy_(csvText, sourceName, normalizedUrl)
   return result;
 }
 
-function createSpreadsheetFromCsvUrlUsingDb_(csvUrl) {
+function createSpreadsheetFromCsvUrlUsingDb_(csvUrl, options) {
   if (!csvUrl) {
     throw new Error('CSVリンクを入力してください。');
   }
 
   const normalizedUrl = normalizeCsvUrl_(csvUrl);
   const csvText = fetchCsvText_(normalizedUrl);
-  return createSpreadsheetFromCsvTextUsingDb_(csvText, 'link.csv', normalizedUrl);
+  return createSpreadsheetFromCsvTextUsingDb_(csvText, 'link.csv', normalizedUrl, options);
 }
 
-function createSpreadsheetFromCsvTextUsingDb_(csvText, sourceName, normalizedUrl) {
+function createSpreadsheetFromCsvTextUsingDb_(csvText, sourceName, normalizedUrl, options) {
   if (!csvText || String(csvText).trim() === '') {
     throw new Error('CSVの内容が空です。');
   }
@@ -80,14 +72,17 @@ function createSpreadsheetFromCsvTextUsingDb_(csvText, sourceName, normalizedUrl
   const inputAlerts = [];
   collectInputAlerts_(records, inputAlerts);
 
+  const targetDbKey = options && options.targetDbKey ? options.targetDbKey : getDefaultDbTargetKey_();
+
   const dbAppendResult = appendRecordsToDb_(records, {
     sourceName: sourceName || '',
     inputType: normalizedUrl ? 'url' : 'upload',
     normalizedUrl: normalizedUrl || '',
     alertCount: inputAlerts.length,
+    targetDbKey: targetDbKey,
   });
 
-  const dbRecords = readDbRecords_();
+  const dbRecords = readDbRecords_(targetDbKey);
   const result = buildOutputSheetsFromDbRecords_(ss, dbRecords);
 
   result.inputType = normalizedUrl ? 'url' : 'upload';
@@ -98,6 +93,8 @@ function createSpreadsheetFromCsvTextUsingDb_(csvText, sourceName, normalizedUrl
   result.db = {
     dbSpreadsheetId: dbAppendResult.dbSpreadsheetId,
     dbSpreadsheetUrl: dbAppendResult.dbSpreadsheetUrl,
+    dbTargetKey: dbAppendResult.dbTargetKey,
+    dbTargetLabel: dbAppendResult.dbTargetLabel,
     importId: dbAppendResult.importId,
     rowCount: dbAppendResult.rowCount,
     insertedCount: dbAppendResult.insertedCount,
