@@ -1,21 +1,80 @@
-function getOrCreateDbSpreadsheet_() {
-  // 共有DBのスプレッドシートIDが指定されている場合は、それを最優先で使う
-  if (DB_CONFIG.DB_SPREADSHEET_ID) {
-    const shared = SpreadsheetApp.openById(DB_CONFIG.DB_SPREADSHEET_ID);
-    getOrCreateDbSheet_(shared, DB_CONFIG.SHEET_TRANSACTIONS, DB_HEADERS);
-    getOrCreateDbSheet_(shared, DB_CONFIG.SHEET_IMPORT_LOGS, IMPORT_LOG_HEADERS);
-    return shared;
+function getDbTargets_() {
+  const targets = DB_CONFIG.TARGET_DBS || [];
+  if (!targets.length) {
+    throw new Error('DB_CONFIG.TARGET_DBS が空です。');
+  }
+  return targets;
+}
+
+function getDefaultDbTargetKey_() {
+  const targets = getDbTargets_();
+  const defaultKey = text_(DB_CONFIG.DEFAULT_TARGET_DB_KEY);
+  if (!defaultKey) {
+    return targets[0].key;
+  }
+  const found = targets.some(function(target) {
+    return target.key === defaultKey;
+  });
+  return found ? defaultKey : targets[0].key;
+}
+
+function resolveDbTarget_(targetDbKey) {
+  const targets = getDbTargets_();
+  const key = text_(targetDbKey) || getDefaultDbTargetKey_();
+
+  const target = targets.find(function(item) {
+    return item.key === key;
+  });
+
+  if (!target) {
+    throw new Error('存在しないDBです: ' + key);
   }
 
-  // ID固定がない場合は従来どおり、名前検索 → なければ新規作成
-  const existing = findDbSpreadsheet_();
+  if (!text_(target.label)) {
+    throw new Error('DBラベルが未設定です: ' + key);
+  }
+
+  if (!text_(target.spreadsheetId) && !text_(target.spreadsheetName)) {
+    throw new Error('DBの spreadsheetId か spreadsheetName を設定してください: ' + key);
+  }
+
+  return {
+    key: key,
+    label: target.label,
+    spreadsheetId: text_(target.spreadsheetId),
+    spreadsheetName: text_(target.spreadsheetName),
+  };
+}
+
+function getDbTargetList_() {
+  return getDbTargets_().map(function(target) {
+    return {
+      key: target.key,
+      label: target.label,
+      spreadsheetId: text_(target.spreadsheetId),
+      spreadsheetName: text_(target.spreadsheetName),
+    };
+  });
+}
+
+function getOrCreateDbSpreadsheet_(targetDbKey) {
+  const target = resolveDbTarget_(targetDbKey);
+
+  if (target.spreadsheetId) {
+    const fixed = SpreadsheetApp.openById(target.spreadsheetId);
+    getOrCreateDbSheet_(fixed, DB_CONFIG.SHEET_TRANSACTIONS, DB_HEADERS);
+    getOrCreateDbSheet_(fixed, DB_CONFIG.SHEET_IMPORT_LOGS, IMPORT_LOG_HEADERS);
+    return fixed;
+  }
+
+  const existing = findDbSpreadsheet_(target);
   if (existing) {
     getOrCreateDbSheet_(existing, DB_CONFIG.SHEET_TRANSACTIONS, DB_HEADERS);
     getOrCreateDbSheet_(existing, DB_CONFIG.SHEET_IMPORT_LOGS, IMPORT_LOG_HEADERS);
     return existing;
   }
 
-  const ss = SpreadsheetApp.create(DB_CONFIG.DB_SPREADSHEET_NAME);
+  const ss = SpreadsheetApp.create(target.spreadsheetName);
   const firstSheet = ss.getSheets()[0];
   firstSheet.setName(DB_CONFIG.SHEET_TRANSACTIONS);
   ensureHeaderRow_(firstSheet, DB_HEADERS);
@@ -26,8 +85,8 @@ function getOrCreateDbSpreadsheet_() {
   return ss;
 }
 
-function findDbSpreadsheet_() {
-  const files = DriveApp.getFilesByName(DB_CONFIG.DB_SPREADSHEET_NAME);
+function findDbSpreadsheet_(target) {
+  const files = DriveApp.getFilesByName(target.spreadsheetName);
 
   while (files.hasNext()) {
     const file = files.next();
@@ -144,7 +203,8 @@ function dbRecordToRow_(dbRecord) {
 }
 
 function appendRecordsToDb_(records, options) {
-  const dbSs = getOrCreateDbSpreadsheet_();
+  const target = resolveDbTarget_(options.targetDbKey);
+  const dbSs = getOrCreateDbSpreadsheet_(target.key);
   const txSheet = getOrCreateDbSheet_(dbSs, DB_CONFIG.SHEET_TRANSACTIONS, DB_HEADERS);
 
   const importId = options.importId || buildImportId_();
@@ -182,6 +242,8 @@ function appendRecordsToDb_(records, options) {
   appendImportLog_(dbSs, {
     importId: importId,
     importedAt: now,
+    targetDbKey: target.key,
+    targetDbLabel: target.label,
     sourceName: options.sourceName || '',
     inputType: options.inputType || '',
     normalizedUrl: options.normalizedUrl || '',
@@ -189,11 +251,16 @@ function appendRecordsToDb_(records, options) {
     insertedCount: insertedCount,
     skippedCount: skippedCount,
     alertCount: options.alertCount || 0,
+    isRolledBack: false,
+    rolledBackAt: '',
+    rolledBackRecordCount: '',
   });
 
   return {
     dbSpreadsheetId: dbSs.getId(),
     dbSpreadsheetUrl: dbSs.getUrl(),
+    dbTargetKey: target.key,
+    dbTargetLabel: target.label,
     importId: importId,
     rowCount: records.length,
     insertedCount: insertedCount,
@@ -230,8 +297,8 @@ function appendImportLog_(dbSs, log) {
   logSheet.getRange(logSheet.getLastRow() + 1, 1, 1, IMPORT_LOG_HEADERS.length).setValues([row]);
 }
 
-function readDbRecords_() {
-  const dbSs = getOrCreateDbSpreadsheet_();
+function readDbRecords_(targetDbKey) {
+  const dbSs = getOrCreateDbSpreadsheet_(targetDbKey);
   const txSheet = getOrCreateDbSheet_(dbSs, DB_CONFIG.SHEET_TRANSACTIONS, DB_HEADERS);
   const lastRow = txSheet.getLastRow();
 
@@ -319,8 +386,149 @@ function buildOutputSheetsFromDbRecords_(ss, records) {
   };
 }
 
-function resetDbData_() {
-  const dbSs = getOrCreateDbSpreadsheet_();
+function readImportLogs_(targetDbKey) {
+  const dbSs = getOrCreateDbSpreadsheet_(targetDbKey);
+  const logSheet = getOrCreateDbSheet_(dbSs, DB_CONFIG.SHEET_IMPORT_LOGS, IMPORT_LOG_HEADERS);
+  const lastRow = logSheet.getLastRow();
+
+  if (lastRow <= 1) {
+    return [];
+  }
+
+  const values = logSheet.getRange(2, 1, lastRow - 1, IMPORT_LOG_HEADERS.length).getValues();
+
+  return values.map(function(row, index) {
+    const obj = {};
+    IMPORT_LOG_HEADERS.forEach(function(header, i) {
+      obj[header] = row[i];
+    });
+    obj._sheetRow = index + 2;
+    return obj;
+  });
+}
+
+function listRecentImports_(targetDbKey, maxCount) {
+  const target = resolveDbTarget_(targetDbKey);
+  const count = maxCount || DB_CONFIG.MAX_RECENT_IMPORTS || 30;
+
+  return readImportLogs_(target.key)
+    .filter(function(log) {
+      return text_(log.importId) !== '';
+    })
+    .sort(function(a, b) {
+      return new Date(b.importedAt || 0).getTime() - new Date(a.importedAt || 0).getTime();
+    })
+    .slice(0, count)
+    .map(function(log) {
+      return {
+        importId: text_(log.importId),
+        importedAt: log.importedAt,
+        targetDbKey: target.key,
+        targetDbLabel: target.label,
+        sourceName: text_(log.sourceName),
+        rowCount: toNumber_(log.rowCount),
+        insertedCount: toNumber_(log.insertedCount),
+        skippedCount: toNumber_(log.skippedCount),
+        isRolledBack: log.isRolledBack === true || String(log.isRolledBack).toUpperCase() === 'TRUE',
+        rolledBackAt: log.rolledBackAt || '',
+        rolledBackRecordCount: toNumber_(log.rolledBackRecordCount),
+      };
+    });
+}
+
+function rollbackImport_(targetDbKey, importId) {
+  const target = resolveDbTarget_(targetDbKey);
+  const rollbackImportId = text_(importId);
+
+  if (!rollbackImportId) {
+    throw new Error('ロールバック対象の取込IDを選択してください。');
+  }
+
+  const dbSs = getOrCreateDbSpreadsheet_(target.key);
+  const txSheet = getOrCreateDbSheet_(dbSs, DB_CONFIG.SHEET_TRANSACTIONS, DB_HEADERS);
+  const logSheet = getOrCreateDbSheet_(dbSs, DB_CONFIG.SHEET_IMPORT_LOGS, IMPORT_LOG_HEADERS);
+
+  const logs = readImportLogs_(target.key);
+  const targetLog = logs.find(function(log) {
+    return text_(log.importId) === rollbackImportId;
+  });
+
+  if (!targetLog) {
+    throw new Error('指定した取込IDが見つかりません: ' + rollbackImportId);
+  }
+
+  const alreadyRolledBack =
+    targetLog.isRolledBack === true ||
+    String(targetLog.isRolledBack).toUpperCase() === 'TRUE';
+
+  if (alreadyRolledBack) {
+    throw new Error('この取込IDはすでにロールバック済みです: ' + rollbackImportId);
+  }
+
+  const txLastRow = txSheet.getLastRow();
+  let rolledBackCount = 0;
+
+  if (txLastRow > 1) {
+    const range = txSheet.getRange(2, 1, txLastRow - 1, DB_HEADERS.length);
+    const values = range.getValues();
+    const importIdCol = DB_HEADERS.indexOf('importId');
+    const isActiveCol = DB_HEADERS.indexOf('isActive');
+    const updatedAtCol = DB_HEADERS.indexOf('updatedAt');
+    const now = new Date();
+
+    values.forEach(function(row) {
+      const rowImportId = text_(row[importIdCol]);
+      const isActive = !(row[isActiveCol] === false || String(row[isActiveCol]).toUpperCase() === 'FALSE');
+
+      if (rowImportId === rollbackImportId && isActive) {
+        row[isActiveCol] = false;
+        row[updatedAtCol] = now;
+        rolledBackCount++;
+      }
+    });
+
+    range.setValues(values);
+  }
+
+  if (rolledBackCount === 0) {
+    throw new Error('ロールバック対象の有効レコードがありません: ' + rollbackImportId);
+  }
+
+  const logLastRow = logSheet.getLastRow();
+  if (logLastRow > 1) {
+    const logRange = logSheet.getRange(2, 1, logLastRow - 1, IMPORT_LOG_HEADERS.length);
+    const logValues = logRange.getValues();
+    const importedIdCol = IMPORT_LOG_HEADERS.indexOf('importId');
+    const isRolledBackCol = IMPORT_LOG_HEADERS.indexOf('isRolledBack');
+    const rolledBackAtCol = IMPORT_LOG_HEADERS.indexOf('rolledBackAt');
+    const rolledBackRecordCountCol = IMPORT_LOG_HEADERS.indexOf('rolledBackRecordCount');
+    const now = new Date();
+
+    logValues.forEach(function(row) {
+      if (text_(row[importedIdCol]) === rollbackImportId) {
+        row[isRolledBackCol] = true;
+        row[rolledBackAtCol] = now;
+        row[rolledBackRecordCountCol] = rolledBackCount;
+      }
+    });
+
+    logRange.setValues(logValues);
+  }
+
+  return {
+    ok: true,
+    dbSpreadsheetId: dbSs.getId(),
+    dbSpreadsheetUrl: dbSs.getUrl(),
+    dbTargetKey: target.key,
+    dbTargetLabel: target.label,
+    importId: rollbackImportId,
+    rolledBackCount: rolledBackCount,
+  };
+}
+
+function resetDbData_(targetDbKey) {
+  const target = resolveDbTarget_(targetDbKey);
+  const dbSs = getOrCreateDbSpreadsheet_(target.key);
   const txSheet = getOrCreateDbSheet_(dbSs, DB_CONFIG.SHEET_TRANSACTIONS, DB_HEADERS);
   const logSheet = getOrCreateDbSheet_(dbSs, DB_CONFIG.SHEET_IMPORT_LOGS, IMPORT_LOG_HEADERS);
 
@@ -331,6 +539,8 @@ function resetDbData_() {
     ok: true,
     dbSpreadsheetId: dbSs.getId(),
     dbSpreadsheetUrl: dbSs.getUrl(),
+    dbTargetKey: target.key,
+    dbTargetLabel: target.label,
     deletedTransactionCount: deletedTransactionCount,
     deletedImportLogCount: deletedImportLogCount,
   };
