@@ -335,36 +335,35 @@
 
         google.script.run
           .withSuccessHandler(function(res) {
-            select.innerHTML = '';
+            try {
+              select.innerHTML = '';
 
-            const imports = res.imports || [];
-            if (!imports.length) {
-              const empty = document.createElement('option');
-              empty.value = '';
-              empty.textContent = '最近の取込はありません';
-              select.appendChild(empty);
-              return;
+              const imports = Array.isArray(res && res.imports) ? res.imports : [];
+              if (!imports.length) {
+                const empty = document.createElement('option');
+                empty.value = '';
+                empty.textContent = '最近の取込はありません';
+                select.appendChild(empty);
+                return;
+              }
+
+              imports.forEach(function(item) {
+                const option = document.createElement('option');
+                option.value = item.importId || '';
+                option.textContent = item.displayLabel || item.importId || '(表示名なし)';
+                select.appendChild(option);
+              });
+            } catch (e) {
+              select.innerHTML = '';
+              const failed = document.createElement('option');
+              failed.value = '';
+              failed.textContent = '最近の取込の描画に失敗しました';
+              select.appendChild(failed);
+
+              const result = document.getElementById('result');
+              result.className = 'err';
+              result.textContent = e && e.message ? e.message : String(e);
             }
-
-            imports.forEach(function(item) {
-              const option = document.createElement('option');
-              option.value = item.importId;
-
-              const importedAt = item.importedAt
-                ? new Date(item.importedAt).toLocaleString('ja-JP')
-                : '';
-
-              const rolledBackTag = item.isRolledBack ? ' / ロールバック済み' : '';
-
-              option.textContent =
-                item.importId +
-                ' / ' + (item.sourceName || '(sourceName空欄)') +
-                ' / 追加:' + (item.insertedCount || 0) +
-                ' / ' + importedAt +
-                rolledBackTag;
-
-              select.appendChild(option);
-            });
           })
           .withFailureHandler(function(err) {
             select.innerHTML = '';
