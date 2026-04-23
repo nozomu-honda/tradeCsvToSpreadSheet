@@ -29,6 +29,8 @@ function runSmokeTests() {
     test_appendRecordsToDb_writesOnlySelectedDb_,
     test_listRecentImports_returnsOnlySelectedDbLogs_,
     test_rollbackImport_marksImportInactive_,
+    test_rollbackImport_setsRolledBackAt_,
+    test_rollbackImport_setsRolledBackAt_,
     test_rollbackImport_twice_throws_,
     test_resetDbData_resetsOnlySelectedDb_,
   ];
@@ -418,6 +420,7 @@ function test_normalizeRecordForDb_setsMetadata_() {
   assertEquals_(500, dbRecord['受渡金額/決済損益'], '金額が保持される');
   assertEquals_(now.getTime(), dbRecord.createdAt.getTime(), 'createdAt が入る');
   assertEquals_(now.getTime(), dbRecord.updatedAt.getTime(), 'updatedAt が入る');
+  assertEquals_('', dbRecord.rolledBackAt, 'rolledBackAt は初期値空欄');
 }
 
 function test_dbRecordToRow_mapsHeaders_() {
@@ -793,6 +796,46 @@ function test_rollbackImport_marksImportInactive_() {
       assertTrue_(!!rolled, 'ロールバック対象ログが見つかる');
       assertTrue_(rolled.isRolledBack, 'ログがロールバック済みになる');
       assertEquals_(1, rolled.rolledBackRecordCount, 'ロールバック件数が記録される');
+    });
+  } finally {
+    temp.cleanup();
+  }
+}
+
+
+function test_rollbackImport_setsRolledBackAt_() {
+  const temp = createTempDbTargets_(['corp_a', 'corp_b']);
+  try {
+    withTempDbTargets_(temp.targets, 'corp_a', function() {
+      const first = appendRecordsToDb_([
+        makeTradeRecord_({
+          銘柄名: 'AAA',
+          商品: '株式',
+          取引区分: '現物買付',
+          数量: 10,
+          単価: 100,
+          受渡金額_決済損益: 1000,
+          決済通貨: 'JPY'
+        })
+      ], {
+        targetDbKey: 'corp_a',
+        sourceName: 'first.csv',
+        inputType: 'upload'
+      });
+
+      rollbackImport_('corp_a', first.importId);
+
+      const ssA = getOrCreateDbSpreadsheet_('corp_a');
+      const txA = getOrCreateDbSheet_(ssA, DB_CONFIG.SHEET_TRANSACTIONS, DB_HEADERS);
+      const lastRow = txA.getLastRow();
+      assertEquals_(2, lastRow, 'ヘッダー+1行');
+
+      const values = txA.getRange(2, 1, 1, DB_HEADERS.length).getValues()[0];
+      const rolledBackAt = values[DB_HEADERS.indexOf('rolledBackAt')];
+      const isActive = values[DB_HEADERS.indexOf('isActive')];
+
+      assertFalse_(!(isActive === false || String(isActive).toUpperCase() === 'FALSE'), 'ロールバック後 isActive は false');
+      assertTrue_(rolledBackAt instanceof Date, 'ロールバック後 rolledBackAt が入る');
     });
   } finally {
     temp.cleanup();

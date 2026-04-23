@@ -223,49 +223,29 @@
 
               let alertText = '';
               if (res.alerts && res.alerts.length > 0) {
-                alertText = '
-
-アラート:
-- ' + res.alerts.join('
-- ');
+                alertText = '\n\nアラート:\n- ' + res.alerts.join('\n- ');
               }
 
               let dbText = '';
               if (res.db) {
                 dbText =
-                  '
-
-DB取込結果:
-' +
-                  '追加先DB: ' + (res.db.dbTargetLabel || '') + '
-' +
-                  '取込ID: ' + (res.db.importId || '') + '
-' +
-                  '読込件数: ' + (res.db.rowCount || 0) + '
-' +
-                  '追加件数: ' + (res.db.insertedCount || 0) + '
-' +
+                  '\n\nDB取込結果:\n' +
+                  '追加先DB: ' + (res.db.dbTargetLabel || '') + '\n' +
+                  '取込ID: ' + (res.db.importId || '') + '\n' +
+                  '読込件数: ' + (res.db.rowCount || 0) + '\n' +
+                  '追加件数: ' + (res.db.insertedCount || 0) + '\n' +
                   'スキップ件数: ' + (res.db.skippedCount || 0);
               }
 
               result.textContent =
-                '完了しました。
-
-' +
-                '入力方法: ' + (res.inputType === 'upload' ? 'アップロード' : 'リンク') + '
-' +
-                'スプレッドシート名: ' + res.spreadsheetName + '
-' +
-                '元データシート: ' + (res.sourceSheetName || '') + '
-' +
-                '全件数: ' + res.counts.all + '
-' +
-                '国内取引: ' + res.counts.domestic + '
-' +
-                '外国取引: ' + res.counts.foreign + '
-' +
-                '金銭残高（円）: ' + res.counts.cashJpy + '
-' +
+                '完了しました。\n\n' +
+                '入力方法: ' + (res.inputType === 'upload' ? 'アップロード' : 'リンク') + '\n' +
+                'スプレッドシート名: ' + res.spreadsheetName + '\n' +
+                '元データシート: ' + (res.sourceSheetName || '') + '\n' +
+                '全件数: ' + res.counts.all + '\n' +
+                '国内取引: ' + res.counts.domestic + '\n' +
+                '外国取引: ' + res.counts.foreign + '\n' +
+                '金銭残高（円）: ' + res.counts.cashJpy + '\n' +
                 '金銭残高（ドル）: ' + res.counts.cashUsd +
                 dbText +
                 alertText;
@@ -355,36 +335,35 @@ DB取込結果:
 
         google.script.run
           .withSuccessHandler(function(res) {
-            select.innerHTML = '';
+            try {
+              select.innerHTML = '';
 
-            const imports = res.imports || [];
-            if (!imports.length) {
-              const empty = document.createElement('option');
-              empty.value = '';
-              empty.textContent = '最近の取込はありません';
-              select.appendChild(empty);
-              return;
+              const imports = Array.isArray(res && res.imports) ? res.imports : [];
+              if (!imports.length) {
+                const empty = document.createElement('option');
+                empty.value = '';
+                empty.textContent = '最近の取込はありません';
+                select.appendChild(empty);
+                return;
+              }
+
+              imports.forEach(function(item) {
+                const option = document.createElement('option');
+                option.value = item.importId || '';
+                option.textContent = item.displayLabel || item.importId || '(表示名なし)';
+                select.appendChild(option);
+              });
+            } catch (e) {
+              select.innerHTML = '';
+              const failed = document.createElement('option');
+              failed.value = '';
+              failed.textContent = '最近の取込の描画に失敗しました';
+              select.appendChild(failed);
+
+              const result = document.getElementById('result');
+              result.className = 'err';
+              result.textContent = e && e.message ? e.message : String(e);
             }
-
-            imports.forEach(function(item) {
-              const option = document.createElement('option');
-              option.value = item.importId;
-
-              const importedAt = item.importedAt
-                ? new Date(item.importedAt).toLocaleString('ja-JP')
-                : '';
-
-              const rolledBackTag = item.isRolledBack ? ' / ロールバック済み' : '';
-
-              option.textContent =
-                item.importId +
-                ' / ' + (item.sourceName || '(sourceName空欄)') +
-                ' / 追加:' + (item.insertedCount || 0) +
-                ' / ' + importedAt +
-                rolledBackTag;
-
-              select.appendChild(option);
-            });
           })
           .withFailureHandler(function(err) {
             select.innerHTML = '';

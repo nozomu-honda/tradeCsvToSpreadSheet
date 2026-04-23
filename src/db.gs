@@ -192,6 +192,7 @@ function normalizeRecordForDb_(record, options) {
 
     createdAt: now,
     updatedAt: now,
+    rolledBackAt: '',
     isActive: true,
   };
 }
@@ -474,6 +475,7 @@ function rollbackImport_(targetDbKey, importId) {
     const importIdCol = DB_HEADERS.indexOf('importId');
     const isActiveCol = DB_HEADERS.indexOf('isActive');
     const updatedAtCol = DB_HEADERS.indexOf('updatedAt');
+    const rolledBackAtCol = DB_HEADERS.indexOf('rolledBackAt');
     const now = new Date();
 
     values.forEach(function(row) {
@@ -483,6 +485,7 @@ function rollbackImport_(targetDbKey, importId) {
       if (rowImportId === rollbackImportId && isActive) {
         row[isActiveCol] = false;
         row[updatedAtCol] = now;
+        row[rolledBackAtCol] = now;
         rolledBackCount++;
       }
     });

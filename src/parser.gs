@@ -59,8 +59,10 @@ function findHeaderRowIndex_(values) {
 }
 
 function validateHeaderPlacement_(values, headerRowIndex) {
-  if (headerRowIndex !== 0) {
-    throw new Error(`入力CSV異常: ヘッダー行が1行目ではありません。${headerRowIndex + 1}行目を確認してください。`);
+  for (let i = 0; i < headerRowIndex; i++) {
+    if (looksLikeTradeDetailRow_(values[i])) {
+      throw new Error(`入力CSV異常: 明細ヘッダーより前に実データがあります。${i + 1}行目を確認してください。`);
+    }
   }
 
   for (let i = headerRowIndex + 1; i < values.length; i++) {
@@ -68,6 +70,19 @@ function validateHeaderPlacement_(values, headerRowIndex) {
       throw new Error(`入力CSV異常: データ途中にヘッダー行があります。${i + 1}行目を確認してください。`);
     }
   }
+}
+
+function looksLikeTradeDetailRow_(row) {
+  if (!row || isEmptyRow_(row)) return false;
+
+  const tradeDate = parseDate_(row[0]);
+  const settlementDate = parseDate_(row[1]);
+  const product = text_(row[2]);
+  const symbolName = text_(row[4]);
+  const tx = text_(row[6]);
+  const amount = text_(row[11]);
+
+  return !!tradeDate && !!settlementDate && !!product && !!symbolName && !!tx && amount !== '';
 }
 
 function isHeaderRow_(row) {

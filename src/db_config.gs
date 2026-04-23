@@ -45,6 +45,7 @@ const DB_HEADERS = [
   ...BASE_HEADERS,
   'createdAt',
   'updatedAt',
+  'rolledBackAt',
   'isActive',
 ];
 
