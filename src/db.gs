@@ -192,6 +192,7 @@ function normalizeRecordForDb_(record, options) {
 
     createdAt: now,
     updatedAt: now,
+    rolledBackAt: '',
     isActive: true,
   };
 }
@@ -410,7 +411,6 @@ function readImportLogs_(targetDbKey) {
 function listRecentImports_(targetDbKey, maxCount) {
   const target = resolveDbTarget_(targetDbKey);
   const count = maxCount || DB_CONFIG.MAX_RECENT_IMPORTS || 30;
-  const tz = Session.getScriptTimeZone() || 'Asia/Tokyo';
 
   return readImportLogs_(target.key)
     .filter(function(log) {
@@ -421,39 +421,18 @@ function listRecentImports_(targetDbKey, maxCount) {
     })
     .slice(0, count)
     .map(function(log) {
-      const isRolledBack =
-        log.isRolledBack === true ||
-        String(log.isRolledBack).toUpperCase() === 'TRUE';
-
-      const importedAtText = log.importedAt
-        ? Utilities.formatDate(new Date(log.importedAt), tz, 'yyyy/MM/dd HH:mm:ss')
-        : '';
-
-      const rolledBackAtText = log.rolledBackAt
-        ? Utilities.formatDate(new Date(log.rolledBackAt), tz, 'yyyy/MM/dd HH:mm:ss')
-        : '';
-
-      const sourceName = text_(log.sourceName) || '(sourceName空欄)';
-      const insertedCount = toNumber_(log.insertedCount);
-
       return {
         importId: text_(log.importId),
-        importedAtText: importedAtText,
+        importedAt: log.importedAt,
         targetDbKey: target.key,
         targetDbLabel: target.label,
-        sourceName: sourceName,
+        sourceName: text_(log.sourceName),
         rowCount: toNumber_(log.rowCount),
-        insertedCount: insertedCount,
+        insertedCount: toNumber_(log.insertedCount),
         skippedCount: toNumber_(log.skippedCount),
-        isRolledBack: isRolledBack,
-        rolledBackAtText: rolledBackAtText,
+        isRolledBack: log.isRolledBack === true || String(log.isRolledBack).toUpperCase() === 'TRUE',
+        rolledBackAt: log.rolledBackAt || '',
         rolledBackRecordCount: toNumber_(log.rolledBackRecordCount),
-        displayLabel:
-          text_(log.importId) +
-          ' / ' + sourceName +
-          ' / 追加:' + insertedCount +
-          ' / ' + importedAtText +
-          (isRolledBack ? ' / ロールバック済み' : '')
       };
     });
 }
@@ -496,6 +475,7 @@ function rollbackImport_(targetDbKey, importId) {
     const importIdCol = DB_HEADERS.indexOf('importId');
     const isActiveCol = DB_HEADERS.indexOf('isActive');
     const updatedAtCol = DB_HEADERS.indexOf('updatedAt');
+    const rolledBackAtCol = DB_HEADERS.indexOf('rolledBackAt');
     const now = new Date();
 
     values.forEach(function(row) {
@@ -505,6 +485,7 @@ function rollbackImport_(targetDbKey, importId) {
       if (rowImportId === rollbackImportId && isActive) {
         row[isActiveCol] = false;
         row[updatedAtCol] = now;
+        row[rolledBackAtCol] = now;
         rolledBackCount++;
       }
     });

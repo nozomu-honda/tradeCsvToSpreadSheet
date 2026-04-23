@@ -15,8 +15,7 @@ function runSmokeTests() {
     test_collectInputAlerts_supportedProductAndCurrency_doNothing_,
     test_collectInputAlerts_unsupportedProduct_,
     test_collectInputAlerts_unsupportedSettlementCurrency_,
-    test_readInputRecords_preambleBeforeHeader_ok_,
-    test_readInputRecords_detailRowBeforeHeader_throws_,
+    test_readInputRecords_headerRowNotFirst_,
     test_readInputRecords_headerRowAppearsInMiddle_,
     test_holdingZero_and_balanceZero_,
     test_lastTradeHighlightFlag_,
@@ -30,6 +29,8 @@ function runSmokeTests() {
     test_appendRecordsToDb_writesOnlySelectedDb_,
     test_listRecentImports_returnsOnlySelectedDbLogs_,
     test_rollbackImport_marksImportInactive_,
+    test_rollbackImport_setsRolledBackAt_,
+    test_rollbackImport_setsRolledBackAt_,
     test_rollbackImport_twice_throws_,
     test_resetDbData_resetsOnlySelectedDb_,
   ];
@@ -50,8 +51,7 @@ function runAllTests() {
     test_collectInputAlerts_supportedProductAndCurrency_doNothing_,
     test_collectInputAlerts_unsupportedProduct_,
     test_collectInputAlerts_unsupportedSettlementCurrency_,
-    test_readInputRecords_preambleBeforeHeader_ok_,
-    test_readInputRecords_detailRowBeforeHeader_throws_,
+    test_readInputRecords_headerRowNotFirst_,
     test_readInputRecords_headerRowAppearsInMiddle_,
     test_holdingZero_and_balanceZero_,
     test_lastTradeHighlightFlag_,
@@ -255,44 +255,19 @@ function test_collectInputAlerts_supportedProductAndCurrency_doNothing_() {
   assertEquals_(0, alerts.length, '対応済み商品/決済通貨ではアラートなし');
 }
 
-function test_readInputRecords_preambleBeforeHeader_ok_() {
-  withTempSpreadsheet_(function(ss) {
-    const sheet = ss.getSheets()[0];
-    const row16 = function(values) {
-      return values.concat(new Array(16 - values.length).fill(''));
-    };
-
-    const values = [
-      row16(['取引履歴']),
-      row16(['基準日', '取引期間From', '取引期間To', '商品区分', '取引区分', '預り区分', '銘柄コード']),
-      row16(['約定日', '2021年01月01日', '2026年02月16日', 'すべて（MRF除く）', 'すべて', '特定預り/一般預り', '']),
-      row16(['明細数：248件']),
-      ['約定日', '受渡日', '商品', '銘柄コード', '銘柄名', '摘要', '取引区分', '預り区分', '発行通貨', '数量', '単価', '受渡金額/決済損益', '手数料（税込）', 'レート', '決済通貨', '売買損益（円）'],
-      ['2026/02/13', '2026/02/17', '株式', '6023', 'ダイハツインフィニアース', '', '現物買付', '一般', '', '400', '2545', '1027259', '9259', '', '', '']
-    ];
-    sheet.getRange(1, 1, values.length, values[0].length).setValues(values);
-
-    const records = readInputRecords_(sheet);
-    assertEquals_(1, records.length, '前置き情報があっても明細は読める');
-    assertEquals_('6023', records[0]['銘柄コード'], '銘柄コードを正しく読む');
-    assertEquals_('ダイハツインフィニアース', records[0]['銘柄名'], '銘柄名を正しく読む');
-    assertEquals_('現物買付', records[0]['取引区分'], '取引区分を正しく読む');
-  });
-}
-
-function test_readInputRecords_detailRowBeforeHeader_throws_() {
+function test_readInputRecords_headerRowNotFirst_() {
   withTempSpreadsheet_(function(ss) {
     const sheet = ss.getSheets()[0];
     const values = [
-      ['2026/02/13', '2026/02/17', '株式', '6023', 'ダイハツインフィニアース', '', '現物買付', '一般', '', '400', '2545', '1027259', '9259', '', '', ''],
-      ['約定日', '受渡日', '商品', '銘柄コード', '銘柄名', '摘要', '取引区分', '預り区分', '発行通貨', '数量', '単価', '受渡金額/決済損益', '手数料（税込）', 'レート', '決済通貨', '売買損益（円）'],
-      ['2026/02/09', '2026/02/12', '株式', '285A', 'キオクシアホールディングス', '', '現物買付', '一般', '', '100', '20695', '2085699', '16199', '', '', '']
+      ['2026/04/01', '2026/04/02', '株式', '1234', 'AAA', '', '現物買付', '', 'JPY', 10, 100, 1000],
+      new Array(12).fill(''),
+      ['約定日', '受渡日', '商品', '銘柄コード', '銘柄名', '摘要', '取引区分', '預り区分', '発行通貨', '数量', '単価', '受渡金額/決済損益']
     ];
     sheet.getRange(1, 1, values.length, values[0].length).setValues(values);
 
     assertThrowsContains_(function() {
       readInputRecords_(sheet);
-    }, '明細ヘッダーより前に実データがあります', '明細ヘッダー前の実データはエラー');
+    }, 'ヘッダー行が1行目ではありません', 'ヘッダーが1行目以外ならエラー');
   });
 }
 
@@ -300,9 +275,9 @@ function test_readInputRecords_headerRowAppearsInMiddle_() {
   withTempSpreadsheet_(function(ss) {
     const sheet = ss.getSheets()[0];
     const values = [
-      ['約定日', '受渡日', '商品', '銘柄コード', '銘柄名', '摘要', '取引区分', '預り区分', '発行通貨', '数量', '単価', '受渡金額/決済損益', '手数料（税込）', 'レート', '決済通貨', '売買損益（円）'],
-      ['2026/04/01', '2026/04/02', '株式', '1234', 'AAA', '', '現物買付', '', 'JPY', 10, 100, 1000, '', '', '', ''],
-      ['約定日', '受渡日', '商品', '銘柄コード', '銘柄名', '摘要', '取引区分', '預り区分', '発行通貨', '数量', '単価', '受渡金額/決済損益', '手数料（税込）', 'レート', '決済通貨', '売買損益（円）']
+      ['約定日', '受渡日', '商品', '銘柄コード', '銘柄名', '摘要', '取引区分', '預り区分', '発行通貨', '数量', '単価', '受渡金額/決済損益'],
+      ['2026/04/01', '2026/04/02', '株式', '1234', 'AAA', '', '現物買付', '', 'JPY', 10, 100, 1000],
+      ['約定日', '受渡日', '商品', '銘柄コード', '銘柄名', '摘要', '取引区分', '預り区分', '発行通貨', '数量', '単価', '受渡金額/決済損益']
     ];
     sheet.getRange(1, 1, values.length, values[0].length).setValues(values);
 
@@ -445,6 +420,7 @@ function test_normalizeRecordForDb_setsMetadata_() {
   assertEquals_(500, dbRecord['受渡金額/決済損益'], '金額が保持される');
   assertEquals_(now.getTime(), dbRecord.createdAt.getTime(), 'createdAt が入る');
   assertEquals_(now.getTime(), dbRecord.updatedAt.getTime(), 'updatedAt が入る');
+  assertEquals_('', dbRecord.rolledBackAt, 'rolledBackAt は初期値空欄');
 }
 
 function test_dbRecordToRow_mapsHeaders_() {
@@ -820,6 +796,46 @@ function test_rollbackImport_marksImportInactive_() {
       assertTrue_(!!rolled, 'ロールバック対象ログが見つかる');
       assertTrue_(rolled.isRolledBack, 'ログがロールバック済みになる');
       assertEquals_(1, rolled.rolledBackRecordCount, 'ロールバック件数が記録される');
+    });
+  } finally {
+    temp.cleanup();
+  }
+}
+
+
+function test_rollbackImport_setsRolledBackAt_() {
+  const temp = createTempDbTargets_(['corp_a', 'corp_b']);
+  try {
+    withTempDbTargets_(temp.targets, 'corp_a', function() {
+      const first = appendRecordsToDb_([
+        makeTradeRecord_({
+          銘柄名: 'AAA',
+          商品: '株式',
+          取引区分: '現物買付',
+          数量: 10,
+          単価: 100,
+          受渡金額_決済損益: 1000,
+          決済通貨: 'JPY'
+        })
+      ], {
+        targetDbKey: 'corp_a',
+        sourceName: 'first.csv',
+        inputType: 'upload'
+      });
+
+      rollbackImport_('corp_a', first.importId);
+
+      const ssA = getOrCreateDbSpreadsheet_('corp_a');
+      const txA = getOrCreateDbSheet_(ssA, DB_CONFIG.SHEET_TRANSACTIONS, DB_HEADERS);
+      const lastRow = txA.getLastRow();
+      assertEquals_(2, lastRow, 'ヘッダー+1行');
+
+      const values = txA.getRange(2, 1, 1, DB_HEADERS.length).getValues()[0];
+      const rolledBackAt = values[DB_HEADERS.indexOf('rolledBackAt')];
+      const isActive = values[DB_HEADERS.indexOf('isActive')];
+
+      assertFalse_(!(isActive === false || String(isActive).toUpperCase() === 'FALSE'), 'ロールバック後 isActive は false');
+      assertTrue_(rolledBackAt instanceof Date, 'ロールバック後 rolledBackAt が入る');
     });
   } finally {
     temp.cleanup();
