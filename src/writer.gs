@@ -75,7 +75,7 @@ function styleSheet_(sheet, headers, rowCount) {
     if (h === '銘柄名') width = 280;
     if (['取引区分', '摘要', '預り区分'].includes(h)) width = 120;
     if (['商品', '銘柄コード', '発行通貨', '決済通貨'].includes(h)) width = 90;
-    if (['数量', '単価', '受渡金額/決済損益', '手数料（税込）', 'レート', '売買損益（円）'].includes(h)) width = 120;
+    if (['数量', '単価', '受渡金額/決済損益', '手数料（税込）', 'レート', '売買損益（円）', '国内消費税等（円）', '現地源泉税（円）', '国内源泉所得税（円）', '国内源泉地方税（円）'].includes(h)) width = 120;
     if (['保有数', '手数料の消費税額', '平均取得単価', '手数料抜き売値', '取得価格', '売却損益', '簿価', '銘柄ごとの残高', 'FX2の期末簿価', '残高', '月次残高'].includes(h)) {
       width = 140;
     }
@@ -85,6 +85,7 @@ function styleSheet_(sheet, headers, rowCount) {
 
   const currencyLike = new Set([
     '単価', '受渡金額/決済損益', '手数料（税込）', '売買損益（円）',
+    '国内消費税等（円）', '現地源泉税（円）', '国内源泉所得税（円）', '国内源泉地方税（円）',
     '手数料の消費税額', '手数料抜き売値', '取得価格', '売却損益',
     '簿価', '銘柄ごとの残高', '残高', '月次残高'
   ]);
@@ -100,7 +101,6 @@ function styleSheet_(sheet, headers, rowCount) {
     } else if (qtyLike.has(h)) {
       range.setNumberFormat('#,##0;[Red]-#,##0;0');
     } else if (h === '平均取得単価') {
-      // 内部では小数保持、表示は整数
       range.setNumberFormat('#,##0;[Red]-#,##0;0');
     } else if (h === 'レート') {
       range.setNumberFormat('#,##0.00');
