@@ -20,6 +20,7 @@ function runSmokeTests() {
     test_readInputRecords_detailRowBeforeHeader_throws_,
     test_readInputRecords_headerRowAppearsInMiddle_,
     test_readInputRecords_optionalTaxColumns_,
+    test_readInputRecords_optionalTaxHeaderNameMismatch_throws_,
     test_holdingZero_and_balanceZero_,
     test_lastTradeHighlightFlag_,
     test_buildCashRows_runningBalance_,
@@ -35,6 +36,7 @@ function runSmokeTests() {
     test_rollbackImport_setsRolledBackAt_,
     test_rollbackImport_twice_throws_,
     test_resetDbData_resetsOnlySelectedDb_,
+    test_resetDbData_recreatesSheetsAndClearsFormats_,
   ];
   return runSelectedTests_(tests, '軽い確認テスト');
 }
@@ -58,6 +60,7 @@ function runAllTests() {
     test_readInputRecords_detailRowBeforeHeader_throws_,
     test_readInputRecords_headerRowAppearsInMiddle_,
     test_readInputRecords_optionalTaxColumns_,
+    test_readInputRecords_optionalTaxHeaderNameMismatch_throws_,
     test_holdingZero_and_balanceZero_,
     test_lastTradeHighlightFlag_,
     test_buildCashRows_runningBalance_,
@@ -77,6 +80,7 @@ function runAllTests() {
     test_rollbackImport_setsRolledBackAt_,
     test_rollbackImport_twice_throws_,
     test_resetDbData_resetsOnlySelectedDb_,
+    test_resetDbData_recreatesSheetsAndClearsFormats_,
   ];
   return runSelectedTests_(tests, 'フルテスト');
 }
@@ -353,6 +357,22 @@ function test_readInputRecords_optionalTaxColumns_() {
     assertEquals_(20, records[0]['現地源泉税（円）'], '現地源泉税（円）を読む');
     assertEquals_(30, records[0]['国内源泉所得税（円）'], '国内源泉所得税（円）を読む');
     assertEquals_(40, records[0]['国内源泉地方税（円）'], '国内源泉地方税（円）を読む');
+  });
+}
+
+
+function test_readInputRecords_optionalTaxHeaderNameMismatch_throws_() {
+  withTempSpreadsheet_(function(ss) {
+    const sheet = ss.getSheets()[0];
+    const values = [
+      ['約定日', '受渡日', '商品', '銘柄コード', '銘柄名', '摘要', '取引区分', '預り区分', '発行通貨', '数量', '単価', '受渡金額/決済損益', '手数料（税込）', 'レート', '決済通貨', '売買損益（円）', '国内消費税等(円)', '現地源泉税（円）', '国内源泉所得税（円）', '国内源泉地方税（円）'],
+      ['2026/04/01', '2026/04/02', '株式', '1234', 'AAA', '', '現物買付', '', 'JPY', 10, 100, 1000, 110, '', 'JPY', '', 7, '', '', '']
+    ];
+    sheet.getRange(1, 1, values.length, values[0].length).setValues(values);
+
+    assertThrowsContains_(function() {
+      readInputRecords_(sheet);
+    }, 'ヘッダー名が一致しません', '税列ヘッダー名が少しでも違えば明示エラー');
   });
 }
 
@@ -958,6 +978,98 @@ function test_rollbackImport_twice_throws_() {
       assertThrowsContains_(function() {
         rollbackImport_('corp_a', first.importId);
       }, 'すでにロールバック済み', '2回目のロールバックはエラー');
+    });
+  } finally {
+    temp.cleanup();
+  }
+}
+
+
+function test_resetDbData_recreatesSheetsAndClearsFormats_() {
+  const temp = createTempDbTargets_(['corp_a']);
+  try {
+    withTempDbTargets_(temp.targets, 'corp_a', function() {
+      const beforeSs = getOrCreateDbSpreadsheet_('corp_a');
+      const beforeTx = getOrCreateDbSheet_(beforeSs, DB_CONFIG.SHEET_TRANSACTIONS, DB_HEADERS);
+      const beforeLog = getOrCreateDbSheet_(beforeSs, DB_CONFIG.SHEET_IMPORT_LOGS, IMPORT_LOG_HEADERS);
+
+      const domesticTaxCol = DB_HEADERS.indexOf('国内消費税等（円）') + 1;
+      const foreignTaxCol = DB_HEADERS.indexOf('現地源泉税（円）') + 1;
+
+      beforeTx.getRange(2, domesticTaxCol).setNumberFormat('m/d/yyyy');
+      beforeTx.getRange(2, foreignTaxCol).setNumberFormat('m/d/yyyy');
+
+      const dbRecord = normalizeRecordForDb_(makeTradeRecord_({
+        銘柄名: 'FMT',
+        商品: '株式',
+        取引区分: '現物買付',
+        数量: 1,
+        単価: 100,
+        受渡金額_決済損益: 1000,
+        手数料税込: 110,
+        国内消費税等円: 7,
+        現地源泉税円: 331,
+        約定日: '2026/04/01',
+        受渡日: '2026/04/02',
+        決済通貨: 'JPY'
+      }), {
+        importId: 'import_test',
+        sourceName: 'test.csv',
+        sourceRowNo: 1,
+        now: new Date()
+      });
+
+      beforeTx.getRange(2, 1, 1, DB_HEADERS.length).setValues([dbRecordToRow_(dbRecord)]);
+
+      const log = {
+        importId: 'import_test',
+        importedAt: new Date(),
+        targetDbKey: 'corp_a',
+        targetDbLabel: 'corp_a',
+        sourceName: 'test.csv',
+        inputType: 'upload',
+        normalizedUrl: '',
+        rowCount: 1,
+        insertedCount: 1,
+        skippedCount: 0,
+        alertCount: 0,
+        isRolledBack: false,
+        rolledBackAt: '',
+        rolledBackRecordCount: ''
+      };
+
+      beforeLog.getRange(2, 1, 1, IMPORT_LOG_HEADERS.length).setValues([
+        IMPORT_LOG_HEADERS.map(function(header) {
+          return log[header];
+        })
+      ]);
+
+      SpreadsheetApp.flush();
+
+      const result = resetDbData_('corp_a');
+
+      const afterSs = SpreadsheetApp.openById(result.dbSpreadsheetId);
+      const afterTx = afterSs.getSheetByName(DB_CONFIG.SHEET_TRANSACTIONS);
+      const afterLog = afterSs.getSheetByName(DB_CONFIG.SHEET_IMPORT_LOGS);
+
+      assertTrue_(!!afterTx, '取引DBシートが再作成されている');
+      assertTrue_(!!afterLog, '取込履歴シートが再作成されている');
+
+      assertEquals_(1, afterTx.getLastRow(), '取引DBはヘッダーのみになる');
+      assertEquals_(1, afterLog.getLastRow(), '取込履歴はヘッダーのみになる');
+      assertEquals_(1, result.deletedTransactionCount, '取引DBの削除件数');
+      assertEquals_(1, result.deletedImportLogCount, '取込履歴の削除件数');
+
+      const txHeaders = afterTx.getRange(1, 1, 1, DB_HEADERS.length).getValues()[0];
+      const logHeaders = afterLog.getRange(1, 1, 1, IMPORT_LOG_HEADERS.length).getValues()[0];
+      assertArrayEquals_(DB_HEADERS, txHeaders, '取引DBヘッダーを再作成');
+      assertArrayEquals_(IMPORT_LOG_HEADERS, logHeaders, '取込履歴ヘッダーを再作成');
+
+      const domesticTaxFormat = afterTx.getRange(2, domesticTaxCol).getNumberFormat();
+      const foreignTaxFormat = afterTx.getRange(2, foreignTaxCol).getNumberFormat();
+
+      assertTrue_(domesticTaxFormat !== 'm/d/yyyy', '国内消費税等（円）列の日付書式が消えている');
+      assertTrue_(foreignTaxFormat !== 'm/d/yyyy', '現地源泉税（円）列の日付書式が消えている');
     });
   } finally {
     temp.cleanup();
