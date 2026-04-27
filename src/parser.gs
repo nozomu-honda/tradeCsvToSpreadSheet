@@ -8,14 +8,11 @@ function readInputRecords_(sheet) {
 
   validateHeaderPlacement_(values, headerRowIndex);
 
-  const headers = values[headerRowIndex].map(v => String(v).trim());
-
-  const required = ['約定日', '受渡日', '商品', '銘柄名', '取引区分', '受渡金額/決済損益'];
-  required.forEach(name => {
-    if (!headers.includes(name)) {
-      throw new Error(`必須列「${name}」が見つかりません。`);
-    }
+  const headers = values[headerRowIndex].map(function(v) {
+    return String(v).trim();
   });
+
+  validateHeaderNames_(headers);
 
   const records = [];
 
@@ -24,7 +21,9 @@ function readInputRecords_(sheet) {
     if (isEmptyRow_(row)) continue;
 
     const obj = {};
-    headers.forEach((h, i) => obj[h] = row[i]);
+    headers.forEach(function(h, i) {
+      obj[h] = row[i];
+    });
 
     if (!obj['約定日']) continue;
 
@@ -55,6 +54,75 @@ function readInputRecords_(sheet) {
   return records;
 }
 
+function validateHeaderNames_(headers) {
+  const required = ['約定日', '受渡日', '商品', '銘柄名', '取引区分', '受渡金額/決済損益'];
+
+  required.forEach(function(name) {
+    if (!headers.includes(name)) {
+      throw new Error('必須列「' + name + '」が見つかりません。');
+    }
+  });
+
+  validateOptionalHeaderNames_(headers);
+}
+
+function validateOptionalHeaderNames_(headers) {
+  const optionalRules = [
+    {
+      expected: '国内消費税等（円）',
+      markers: ['国内消費税等']
+    },
+    {
+      expected: '現地源泉税（円）',
+      markers: ['現地源泉税']
+    },
+    {
+      expected: '国内源泉所得税（円）',
+      markers: ['国内源泉所得税']
+    },
+    {
+      expected: '国内源泉地方税（円）',
+      markers: ['国内源泉地方税']
+    }
+  ];
+
+  headers.forEach(function(header) {
+    const actual = String(header || '').trim();
+    if (!actual) return;
+
+    optionalRules.forEach(function(rule) {
+      if (actual === rule.expected) return;
+
+      const normalizedActual = normalizeHeaderNameForCompare_(actual);
+      const normalizedExpected = normalizeHeaderNameForCompare_(rule.expected);
+
+      const normalizedSame = normalizedActual === normalizedExpected;
+      const suspiciousKeywordMatch = rule.markers.some(function(marker) {
+        const normalizedMarker = normalizeHeaderNameForCompare_(marker);
+        return (
+          normalizedActual.indexOf(normalizedMarker) >= 0 ||
+          normalizedMarker.indexOf(normalizedActual) >= 0
+        );
+      });
+
+      if (normalizedSame || suspiciousKeywordMatch) {
+        throw new Error(
+          'ヘッダー名が一致しません。' +
+          '「' + rule.expected + '」を使用してください。' +
+          ' 実際: 「' + actual + '」'
+        );
+      }
+    });
+  });
+}
+
+function normalizeHeaderNameForCompare_(name) {
+  return text_(name)
+    .replace(/\s/g, '')
+    .replace(/\(/g, '（')
+    .replace(/\)/g, '）');
+}
+
 function findHeaderRowIndex_(values) {
   for (let i = 0; i < values.length; i++) {
     if (isHeaderRow_(values[i])) return i;
@@ -65,13 +133,13 @@ function findHeaderRowIndex_(values) {
 function validateHeaderPlacement_(values, headerRowIndex) {
   for (let i = 0; i < headerRowIndex; i++) {
     if (looksLikeTradeDetailRow_(values[i])) {
-      throw new Error(`入力CSV異常: 明細ヘッダーより前に実データがあります。${i + 1}行目を確認してください。`);
+      throw new Error('入力CSV異常: 明細ヘッダーより前に実データがあります。' + (i + 1) + '行目を確認してください。');
     }
   }
 
   for (let i = headerRowIndex + 1; i < values.length; i++) {
     if (isHeaderRow_(values[i])) {
-      throw new Error(`入力CSV異常: データ途中にヘッダー行があります。${i + 1}行目を確認してください。`);
+      throw new Error('入力CSV異常: データ途中にヘッダー行があります。' + (i + 1) + '行目を確認してください。');
     }
   }
 }
@@ -90,7 +158,10 @@ function looksLikeTradeDetailRow_(row) {
 }
 
 function isHeaderRow_(row) {
-  const normalized = row.map(v => String(v).trim());
+  const normalized = row.map(function(v) {
+    return String(v).trim();
+  });
+
   return (
     normalized.includes('約定日') &&
     normalized.includes('受渡日') &&
