@@ -566,11 +566,9 @@ function rollbackImport_(targetDbKey, importId) {
 function resetDbData_(targetDbKey) {
   const target = resolveDbTarget_(targetDbKey);
   const dbSs = getOrCreateDbSpreadsheet_(target.key);
-  const txSheet = getOrCreateDbSheet_(dbSs, DB_CONFIG.SHEET_TRANSACTIONS, DB_HEADERS);
-  const logSheet = getOrCreateDbSheet_(dbSs, DB_CONFIG.SHEET_IMPORT_LOGS, IMPORT_LOG_HEADERS);
 
-  const deletedTransactionCount = clearSheetDataKeepHeader_(txSheet, DB_HEADERS);
-  const deletedImportLogCount = clearSheetDataKeepHeader_(logSheet, IMPORT_LOG_HEADERS);
+  const txDeletedCount = recreateSheetWithHeaders_(dbSs, DB_CONFIG.SHEET_TRANSACTIONS, DB_HEADERS);
+  const logDeletedCount = recreateSheetWithHeaders_(dbSs, DB_CONFIG.SHEET_IMPORT_LOGS, IMPORT_LOG_HEADERS);
 
   return {
     ok: true,
@@ -578,17 +576,32 @@ function resetDbData_(targetDbKey) {
     dbSpreadsheetUrl: dbSs.getUrl(),
     dbTargetKey: target.key,
     dbTargetLabel: target.label,
-    deletedTransactionCount: deletedTransactionCount,
-    deletedImportLogCount: deletedImportLogCount,
+    deletedTransactionCount: txDeletedCount,
+    deletedImportLogCount: logDeletedCount,
   };
 }
 
-function clearSheetDataKeepHeader_(sheet, headers) {
-  const lastRow = sheet.getLastRow();
-  const deleteCount = Math.max(lastRow - 1, 0);
+function recreateSheetWithHeaders_(ss, sheetName, headers) {
+  let oldSheet = ss.getSheetByName(sheetName);
+  let deletedCount = 0;
 
-  sheet.clear();
-  sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+  if (oldSheet) {
+    deletedCount = Math.max(oldSheet.getLastRow() - 1, 0);
+  }
 
-  return deleteCount;
+  if (!oldSheet) {
+    const newSheet = ss.insertSheet(sheetName);
+    newSheet.clear();
+    newSheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+    return deletedCount;
+  }
+
+  const newSheet = ss.insertSheet(sheetName + '_tmp_' + Utilities.getUuid().slice(0, 8));
+  newSheet.clear();
+  newSheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+
+  ss.deleteSheet(oldSheet);
+  newSheet.setName(sheetName);
+
+  return deletedCount;
 }
