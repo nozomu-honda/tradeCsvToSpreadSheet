@@ -569,8 +569,8 @@ function resetDbData_(targetDbKey) {
   const txSheet = getOrCreateDbSheet_(dbSs, DB_CONFIG.SHEET_TRANSACTIONS, DB_HEADERS);
   const logSheet = getOrCreateDbSheet_(dbSs, DB_CONFIG.SHEET_IMPORT_LOGS, IMPORT_LOG_HEADERS);
 
-  const deletedTransactionCount = clearSheetDataKeepHeader_(txSheet, DB_HEADERS.length);
-  const deletedImportLogCount = clearSheetDataKeepHeader_(logSheet, IMPORT_LOG_HEADERS.length);
+  const deletedTransactionCount = clearSheetDataKeepHeader_(txSheet, DB_HEADERS);
+  const deletedImportLogCount = clearSheetDataKeepHeader_(logSheet, IMPORT_LOG_HEADERS);
 
   return {
     ok: true,
@@ -583,13 +583,12 @@ function resetDbData_(targetDbKey) {
   };
 }
 
-function clearSheetDataKeepHeader_(sheet, columnCount) {
+function clearSheetDataKeepHeader_(sheet, headers) {
   const lastRow = sheet.getLastRow();
-  if (lastRow <= 1) {
-    return 0;
-  }
+  const deleteCount = Math.max(lastRow - 1, 0);
 
-  const deleteCount = lastRow - 1;
-  sheet.getRange(2, 1, deleteCount, columnCount).clearContent();
+  sheet.clear();
+  sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+
   return deleteCount;
 }
