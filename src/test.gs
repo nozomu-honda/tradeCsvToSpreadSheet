@@ -11,12 +11,15 @@ function runSmokeTests() {
     test_forcedRedemptionSell_updatesHoldingAndBookValue_,
     test_redemption_tradeRowAndCashRow_withNoPreviousHolding_,
     test_redemption_tradeRowAndCashRow_withPreviousHolding_,
+    test_manualDomesticTax_overridesFeeTax_,
     test_collectInputAlerts_supportedForeignBond_,
     test_collectInputAlerts_supportedProductAndCurrency_doNothing_,
     test_collectInputAlerts_unsupportedProduct_,
     test_collectInputAlerts_unsupportedSettlementCurrency_,
-    test_readInputRecords_headerRowNotFirst_,
+    test_readInputRecords_preambleBeforeHeader_ok_,
+    test_readInputRecords_detailRowBeforeHeader_throws_,
     test_readInputRecords_headerRowAppearsInMiddle_,
+    test_readInputRecords_optionalTaxColumns_,
     test_holdingZero_and_balanceZero_,
     test_lastTradeHighlightFlag_,
     test_buildCashRows_runningBalance_,
@@ -29,7 +32,6 @@ function runSmokeTests() {
     test_appendRecordsToDb_writesOnlySelectedDb_,
     test_listRecentImports_returnsOnlySelectedDbLogs_,
     test_rollbackImport_marksImportInactive_,
-    test_rollbackImport_setsRolledBackAt_,
     test_rollbackImport_setsRolledBackAt_,
     test_rollbackImport_twice_throws_,
     test_resetDbData_resetsOnlySelectedDb_,
@@ -47,12 +49,15 @@ function runAllTests() {
     test_forcedRedemptionSell_updatesHoldingAndBookValue_,
     test_redemption_tradeRowAndCashRow_withNoPreviousHolding_,
     test_redemption_tradeRowAndCashRow_withPreviousHolding_,
+    test_manualDomesticTax_overridesFeeTax_,
     test_collectInputAlerts_supportedForeignBond_,
     test_collectInputAlerts_supportedProductAndCurrency_doNothing_,
     test_collectInputAlerts_unsupportedProduct_,
     test_collectInputAlerts_unsupportedSettlementCurrency_,
-    test_readInputRecords_headerRowNotFirst_,
+    test_readInputRecords_preambleBeforeHeader_ok_,
+    test_readInputRecords_detailRowBeforeHeader_throws_,
     test_readInputRecords_headerRowAppearsInMiddle_,
+    test_readInputRecords_optionalTaxColumns_,
     test_holdingZero_and_balanceZero_,
     test_lastTradeHighlightFlag_,
     test_buildCashRows_runningBalance_,
@@ -69,6 +74,7 @@ function runAllTests() {
     test_appendRecordsToDb_writesOnlySelectedDb_,
     test_listRecentImports_returnsOnlySelectedDbLogs_,
     test_rollbackImport_marksImportInactive_,
+    test_rollbackImport_setsRolledBackAt_,
     test_rollbackImport_twice_throws_,
     test_resetDbData_resetsOnlySelectedDb_,
   ];
@@ -209,7 +215,7 @@ function test_redemption_tradeRowAndCashRow_withNoPreviousHolding_() {
   assertEquals_('', getTradeRowValue_(tradeRow, '取得価格'), '一つ前の保有数が0なら取得価格なし');
   assertEquals_('', getTradeRowValue_(tradeRow, '売却損益'), '一つ前の保有数が0なら売却損益なし');
   assertEquals_(500, getTradeRowValue_(tradeRow, '簿価'), '一つ前の保有数が0なら簿価は受渡金額');
-  assertEquals_(500, cashRows[0][16], '償還は金銭残高を増やす');
+  assertEquals_(500, getCashRowValue_(cashRows[0], '残高'), '償還は金銭残高を増やす');
 }
 
 function test_redemption_tradeRowAndCashRow_withPreviousHolding_() {
@@ -225,6 +231,27 @@ function test_redemption_tradeRowAndCashRow_withPreviousHolding_() {
   assertApproxEquals_(20, getTradeRowValue_(row, '売却損益'), 1e-9, '償還の売却損益');
   assertApproxEquals_(-100, getTradeRowValue_(row, '簿価'), 1e-9, '償還の簿価');
   assertApproxEquals_(200, getTradeRowValue_(row, '銘柄ごとの残高'), 1e-9, '償還後の銘柄残高');
+}
+
+
+function test_manualDomesticTax_overridesFeeTax_() {
+  const alerts = [];
+  const rows = buildTradeRows_([makeTradeRecord_({
+    銘柄名: 'TAX',
+    取引区分: '現物買付',
+    数量: 1,
+    単価: 1000,
+    受渡金額_決済損益: 1000,
+    手数料税込: 110,
+    国内消費税等円: 7,
+    約定日: '2026/04/01',
+    受渡日: '2026/04/01',
+    決済通貨: 'JPY'
+  })], alerts);
+
+  assertEquals_(7, getTradeRowValue_(rows[0], '手数料の消費税額'), '国内消費税等（円）を優先代入');
+  assertEquals_(993, getTradeRowValue_(rows[0], '簿価'), '簿価は受渡金額 - 国内消費税等（円）');
+  assertEquals_(0, alerts.length, '不要なアラートは出ないこと');
 }
 
 function test_collectInputAlerts_supportedForeignBond_() {
@@ -255,19 +282,44 @@ function test_collectInputAlerts_supportedProductAndCurrency_doNothing_() {
   assertEquals_(0, alerts.length, '対応済み商品/決済通貨ではアラートなし');
 }
 
-function test_readInputRecords_headerRowNotFirst_() {
+function test_readInputRecords_preambleBeforeHeader_ok_() {
+  withTempSpreadsheet_(function(ss) {
+    const sheet = ss.getSheets()[0];
+    const row20 = function(values) {
+      return values.concat(new Array(20 - values.length).fill(''));
+    };
+
+    const values = [
+      row20(['取引履歴']),
+      row20(['基準日', '取引期間From', '取引期間To', '商品区分', '取引区分', '預り区分', '銘柄コード']),
+      row20(['約定日', '2021年01月01日', '2026年02月16日', 'すべて（MRF除く）', 'すべて', '特定預り/一般預り', '']),
+      row20(['明細数：248件']),
+      ['約定日', '受渡日', '商品', '銘柄コード', '銘柄名', '摘要', '取引区分', '預り区分', '発行通貨', '数量', '単価', '受渡金額/決済損益', '手数料（税込）', 'レート', '決済通貨', '売買損益（円）', '国内消費税等（円）', '現地源泉税（円）', '国内源泉所得税（円）', '国内源泉地方税（円）'],
+      ['2026/02/13', '2026/02/17', '株式', '6023', 'ダイハツインフィニアース', '', '現物買付', '一般', '', '400', '2545', '1027259', '9259', '', '', '', '', '', '', '']
+    ];
+    sheet.getRange(1, 1, values.length, values[0].length).setValues(values);
+
+    const records = readInputRecords_(sheet);
+    assertEquals_(1, records.length, '前置き情報があっても明細は読める');
+    assertEquals_('6023', records[0]['銘柄コード'], '銘柄コードを正しく読む');
+    assertEquals_('ダイハツインフィニアース', records[0]['銘柄名'], '銘柄名を正しく読む');
+    assertEquals_('現物買付', records[0]['取引区分'], '取引区分を正しく読む');
+  });
+}
+
+function test_readInputRecords_detailRowBeforeHeader_throws_() {
   withTempSpreadsheet_(function(ss) {
     const sheet = ss.getSheets()[0];
     const values = [
-      ['2026/04/01', '2026/04/02', '株式', '1234', 'AAA', '', '現物買付', '', 'JPY', 10, 100, 1000],
-      new Array(12).fill(''),
-      ['約定日', '受渡日', '商品', '銘柄コード', '銘柄名', '摘要', '取引区分', '預り区分', '発行通貨', '数量', '単価', '受渡金額/決済損益']
+      ['2026/02/13', '2026/02/17', '株式', '6023', 'ダイハツインフィニアース', '', '現物買付', '一般', '', '400', '2545', '1027259', '9259', '', '', '', '', '', '', ''],
+      ['約定日', '受渡日', '商品', '銘柄コード', '銘柄名', '摘要', '取引区分', '預り区分', '発行通貨', '数量', '単価', '受渡金額/決済損益', '手数料（税込）', 'レート', '決済通貨', '売買損益（円）', '国内消費税等（円）', '現地源泉税（円）', '国内源泉所得税（円）', '国内源泉地方税（円）'],
+      ['2026/02/09', '2026/02/12', '株式', '285A', 'キオクシアホールディングス', '', '現物買付', '一般', '', '100', '20695', '2085699', '16199', '', '', '', '', '', '', '']
     ];
     sheet.getRange(1, 1, values.length, values[0].length).setValues(values);
 
     assertThrowsContains_(function() {
       readInputRecords_(sheet);
-    }, 'ヘッダー行が1行目ではありません', 'ヘッダーが1行目以外ならエラー');
+    }, '明細ヘッダーより前に実データがあります', '明細ヘッダー前の実データはエラー');
   });
 }
 
@@ -275,15 +327,32 @@ function test_readInputRecords_headerRowAppearsInMiddle_() {
   withTempSpreadsheet_(function(ss) {
     const sheet = ss.getSheets()[0];
     const values = [
-      ['約定日', '受渡日', '商品', '銘柄コード', '銘柄名', '摘要', '取引区分', '預り区分', '発行通貨', '数量', '単価', '受渡金額/決済損益'],
-      ['2026/04/01', '2026/04/02', '株式', '1234', 'AAA', '', '現物買付', '', 'JPY', 10, 100, 1000],
-      ['約定日', '受渡日', '商品', '銘柄コード', '銘柄名', '摘要', '取引区分', '預り区分', '発行通貨', '数量', '単価', '受渡金額/決済損益']
+      ['約定日', '受渡日', '商品', '銘柄コード', '銘柄名', '摘要', '取引区分', '預り区分', '発行通貨', '数量', '単価', '受渡金額/決済損益', '手数料（税込）', 'レート', '決済通貨', '売買損益（円）', '国内消費税等（円）', '現地源泉税（円）', '国内源泉所得税（円）', '国内源泉地方税（円）'],
+      ['2026/04/01', '2026/04/02', '株式', '1234', 'AAA', '', '現物買付', '', 'JPY', 10, 100, 1000, '', '', '', '', '', '', '', ''],
+      ['約定日', '受渡日', '商品', '銘柄コード', '銘柄名', '摘要', '取引区分', '預り区分', '発行通貨', '数量', '単価', '受渡金額/決済損益', '手数料（税込）', 'レート', '決済通貨', '売買損益（円）', '国内消費税等（円）', '現地源泉税（円）', '国内源泉所得税（円）', '国内源泉地方税（円）']
     ];
     sheet.getRange(1, 1, values.length, values[0].length).setValues(values);
 
     assertThrowsContains_(function() {
       readInputRecords_(sheet);
     }, 'データ途中にヘッダー行があります', '途中ヘッダーがあればエラー');
+  });
+}
+
+function test_readInputRecords_optionalTaxColumns_() {
+  withTempSpreadsheet_(function(ss) {
+    const sheet = ss.getSheets()[0];
+    const values = [
+      ['約定日', '受渡日', '商品', '銘柄コード', '銘柄名', '摘要', '取引区分', '預り区分', '発行通貨', '数量', '単価', '受渡金額/決済損益', '手数料（税込）', 'レート', '決済通貨', '売買損益（円）', '国内消費税等（円）', '現地源泉税（円）', '国内源泉所得税（円）', '国内源泉地方税（円）'],
+      ['2026/04/01', '2026/04/02', '株式', '1234', 'AAA', '', '現物買付', '', 'JPY', 10, 100, 1000, 110, '', '', '', 10, 20, 30, 40]
+    ];
+    sheet.getRange(1, 1, values.length, values[0].length).setValues(values);
+
+    const records = readInputRecords_(sheet);
+    assertEquals_(10, records[0]['国内消費税等（円）'], '国内消費税等（円）を読む');
+    assertEquals_(20, records[0]['現地源泉税（円）'], '現地源泉税（円）を読む');
+    assertEquals_(30, records[0]['国内源泉所得税（円）'], '国内源泉所得税（円）を読む');
+    assertEquals_(40, records[0]['国内源泉地方税（円）'], '国内源泉地方税（円）を読む');
   });
 }
 
@@ -315,11 +384,11 @@ function test_buildCashRows_runningBalance_() {
     makeTradeRecord_({銘柄名: 'FFF', 取引区分: '入金（配当金）', 受渡金額_決済損益: 50, 約定日: '2026/04/10', 受渡日: '2026/04/10', 決済通貨: 'JPY'}),
     makeTradeRecord_({銘柄名: '', 商品: '現金', 摘要: '入金テスト', 取引区分: '入金（振込）', 受渡金額_決済損益: 200, 約定日: '2026/05/01', 受渡日: '2026/05/01', 決済通貨: 'JPY'})
   ]);
-  assertEquals_(-1000, rows[0][16], '1行目残高');
-  assertEquals_(-950, rows[1][16], '2行目残高');
-  assertEquals_(-950, rows[1][17], '4月最終行の月次残高');
-  assertEquals_(-750, rows[2][16], '3行目残高');
-  assertEquals_(-750, rows[2][17], '5月最終行の月次残高');
+  assertEquals_(-1000, getCashRowValue_(rows[0], '残高'), '1行目残高');
+  assertEquals_(-950, getCashRowValue_(rows[1], '残高'), '2行目残高');
+  assertEquals_(-950, getCashRowValue_(rows[1], '月次残高'), '4月最終行の月次残高');
+  assertEquals_(-750, getCashRowValue_(rows[2], '残高'), '3行目残高');
+  assertEquals_(-750, getCashRowValue_(rows[2], '月次残高'), '5月最終行の月次残高');
 }
 
 function test_normalizeZero_() {
@@ -418,6 +487,10 @@ function test_normalizeRecordForDb_setsMetadata_() {
   assertEquals_('外債', dbRecord['商品'], '商品が保持される');
   assertEquals_('USD', dbRecord['決済通貨'], '決済通貨が正規化される');
   assertEquals_(500, dbRecord['受渡金額/決済損益'], '金額が保持される');
+  assertEquals_('' , dbRecord['国内消費税等（円）'], '国内消費税等（円）は初期値空欄');
+  assertEquals_('' , dbRecord['現地源泉税（円）'], '現地源泉税（円）は初期値空欄');
+  assertEquals_('' , dbRecord['国内源泉所得税（円）'], '国内源泉所得税（円）は初期値空欄');
+  assertEquals_('' , dbRecord['国内源泉地方税（円）'], '国内源泉地方税（円）は初期値空欄');
   assertEquals_(now.getTime(), dbRecord.createdAt.getTime(), 'createdAt が入る');
   assertEquals_(now.getTime(), dbRecord.updatedAt.getTime(), 'updatedAt が入る');
   assertEquals_('', dbRecord.rolledBackAt, 'rolledBackAt は初期値空欄');
@@ -454,6 +527,10 @@ function test_dbRecordToRow_mapsHeaders_() {
   assertEquals_('sample.csv', row[DB_HEADERS.indexOf('sourceName')], 'sourceName の位置');
   assertEquals_('TEST株', row[DB_HEADERS.indexOf('銘柄名')], '銘柄名 の位置');
   assertEquals_(1000, row[DB_HEADERS.indexOf('受渡金額/決済損益')], '金額 の位置');
+  assertEquals_('', row[DB_HEADERS.indexOf('国内消費税等（円）')], '国内消費税等（円）の位置');
+  assertEquals_('', row[DB_HEADERS.indexOf('現地源泉税（円）')], '現地源泉税（円）の位置');
+  assertEquals_('', row[DB_HEADERS.indexOf('国内源泉所得税（円）')], '国内源泉所得税（円）の位置');
+  assertEquals_('', row[DB_HEADERS.indexOf('国内源泉地方税（円）')], '国内源泉地方税（円）の位置');
 }
 
 function test_writeSheet_domesticHiddenColumns_() {
@@ -521,6 +598,10 @@ function makeTradeRecord_(params) {
     レート: params.レート || 0,
     決済通貨: normalizeCurrency_(params.決済通貨 || 'JPY'),
     '売買損益（円）': params.売買損益円 || 0,
+    '国内消費税等（円）': defaultValue_(params.国内消費税等円, ''),
+    '現地源泉税（円）': defaultValue_(params.現地源泉税円, ''),
+    '国内源泉所得税（円）': defaultValue_(params.国内源泉所得税円, ''),
+    '国内源泉地方税（円）': defaultValue_(params.国内源泉地方税円, ''),
   };
 }
 
@@ -542,6 +623,10 @@ function buildTradeRowForWriterTest_(params) {
   setTradeRowValue_(row, 'レート', defaultValue_(params.レート, 0));
   setTradeRowValue_(row, '決済通貨', params.決済通貨 || 'JPY');
   setTradeRowValue_(row, '売買損益（円）', defaultValue_(params.売買損益円, 0));
+  setTradeRowValue_(row, '国内消費税等（円）', defaultValue_(params.国内消費税等円, ''));
+  setTradeRowValue_(row, '現地源泉税（円）', defaultValue_(params.現地源泉税円, ''));
+  setTradeRowValue_(row, '国内源泉所得税（円）', defaultValue_(params.国内源泉所得税円, ''));
+  setTradeRowValue_(row, '国内源泉地方税（円）', defaultValue_(params.国内源泉地方税円, ''));
   setTradeRowValue_(row, '保有数', defaultValue_(params.保有数, 0));
   setTradeRowValue_(row, '手数料の消費税額', defaultValue_(params['手数料の消費税額'], ''));
   setTradeRowValue_(row, '平均取得単価', defaultValue_(params['平均取得単価'], ''));
@@ -569,6 +654,12 @@ function getTradeRowValue_(row, headerName) {
 
 function getTradeHelperValue_(row) {
   return row[TRADE_HEADERS.length];
+}
+
+function getCashRowValue_(row, headerName) {
+  const idx = CASH_HEADERS.indexOf(headerName);
+  if (idx < 0) throw new Error('CASH_HEADERS に存在しないヘッダーです: ' + headerName);
+  return row[idx];
 }
 
 function getColumnIndexByHeader_(headers, headerName) {

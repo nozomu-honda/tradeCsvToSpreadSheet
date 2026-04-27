@@ -137,6 +137,10 @@ function buildRowHash_(record) {
     String(toNumber_(record['受渡金額/決済損益'])),
     String(toNumber_(record['手数料（税込）'])),
     normalizeCurrency_(record['決済通貨']),
+    String(record['国内消費税等（円）'] === '' ? '' : toNumber_(record['国内消費税等（円）'])),
+    String(record['現地源泉税（円）'] === '' ? '' : toNumber_(record['現地源泉税（円）'])),
+    String(record['国内源泉所得税（円）'] === '' ? '' : toNumber_(record['国内源泉所得税（円）'])),
+    String(record['国内源泉地方税（円）'] === '' ? '' : toNumber_(record['国内源泉地方税（円）'])),
   ];
 
   const raw = parts.join('\t');
@@ -189,6 +193,10 @@ function normalizeRecordForDb_(record, options) {
     レート: toNumber_(record['レート']),
     決済通貨: normalizeCurrency_(record['決済通貨']),
     '売買損益（円）': toNumber_(record['売買損益（円）']),
+    '国内消費税等（円）': toOptionalNumber_(record['国内消費税等（円）']),
+    '現地源泉税（円）': toOptionalNumber_(record['現地源泉税（円）']),
+    '国内源泉所得税（円）': toOptionalNumber_(record['国内源泉所得税（円）']),
+    '国内源泉地方税（円）': toOptionalNumber_(record['国内源泉地方税（円）']),
 
     createdAt: now,
     updatedAt: now,
@@ -338,6 +346,10 @@ function readDbRecords_(targetDbKey) {
         レート: toNumber_(obj['レート']),
         決済通貨: normalizeCurrency_(obj['決済通貨']),
         '売買損益（円）': toNumber_(obj['売買損益（円）']),
+        '国内消費税等（円）': toOptionalNumber_(obj['国内消費税等（円）']),
+        '現地源泉税（円）': toOptionalNumber_(obj['現地源泉税（円）']),
+        '国内源泉所得税（円）': toOptionalNumber_(obj['国内源泉所得税（円）']),
+        '国内源泉地方税（円）': toOptionalNumber_(obj['国内源泉地方税（円）']),
       };
     });
 }
@@ -411,6 +423,7 @@ function readImportLogs_(targetDbKey) {
 function listRecentImports_(targetDbKey, maxCount) {
   const target = resolveDbTarget_(targetDbKey);
   const count = maxCount || DB_CONFIG.MAX_RECENT_IMPORTS || 30;
+  const tz = Session.getScriptTimeZone() || 'Asia/Tokyo';
 
   return readImportLogs_(target.key)
     .filter(function(log) {
@@ -421,18 +434,39 @@ function listRecentImports_(targetDbKey, maxCount) {
     })
     .slice(0, count)
     .map(function(log) {
+      const isRolledBack =
+        log.isRolledBack === true ||
+        String(log.isRolledBack).toUpperCase() === 'TRUE';
+
+      const importedAtText = log.importedAt
+        ? Utilities.formatDate(new Date(log.importedAt), tz, 'yyyy/MM/dd HH:mm:ss')
+        : '';
+
+      const rolledBackAtText = log.rolledBackAt
+        ? Utilities.formatDate(new Date(log.rolledBackAt), tz, 'yyyy/MM/dd HH:mm:ss')
+        : '';
+
+      const sourceName = text_(log.sourceName) || '(sourceName空欄)';
+      const insertedCount = toNumber_(log.insertedCount);
+
       return {
         importId: text_(log.importId),
-        importedAt: log.importedAt,
+        importedAtText: importedAtText,
         targetDbKey: target.key,
         targetDbLabel: target.label,
-        sourceName: text_(log.sourceName),
+        sourceName: sourceName,
         rowCount: toNumber_(log.rowCount),
-        insertedCount: toNumber_(log.insertedCount),
+        insertedCount: insertedCount,
         skippedCount: toNumber_(log.skippedCount),
-        isRolledBack: log.isRolledBack === true || String(log.isRolledBack).toUpperCase() === 'TRUE',
-        rolledBackAt: log.rolledBackAt || '',
+        isRolledBack: isRolledBack,
+        rolledBackAtText: rolledBackAtText,
         rolledBackRecordCount: toNumber_(log.rolledBackRecordCount),
+        displayLabel:
+          text_(log.importId) +
+          ' / ' + sourceName +
+          ' / 追加:' + insertedCount +
+          ' / ' + importedAtText +
+          (isRolledBack ? ' / ロールバック済み' : '')
       };
     });
 }

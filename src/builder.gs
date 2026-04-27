@@ -45,8 +45,11 @@ function buildTradeRows_(records, alerts) {
 
     const holding = prevHolding + holdingDelta;
 
+    const manualDomesticTax = r['国内消費税等（円）'];
     let feeTax = '';
-    if (tx === '現物買付') {
+    if (manualDomesticTax !== '' && manualDomesticTax !== null && manualDomesticTax !== undefined) {
+      feeTax = manualDomesticTax;
+    } else if (tx === '現物買付') {
       feeTax = Math.floor((fee / 1.1) * 0.1);
     } else if (tx === '現物再投') {
       feeTax = 0;
@@ -198,6 +201,10 @@ function buildTradeRows_(records, alerts) {
       displayValue_(rate),
       r['決済通貨'],
       displayValue_(r['売買損益（円）']),
+      displayValueKeepZero_(r['国内消費税等（円）']),
+      displayValueKeepZero_(r['現地源泉税（円）']),
+      displayValueKeepZero_(r['国内源泉所得税（円）']),
+      displayValueKeepZero_(r['国内源泉地方税（円）']),
       holding,
       feeTax,
       avgUnitPrice,
@@ -261,6 +268,10 @@ function buildCashRows_(records) {
       displayValue_(r['レート']),
       r['決済通貨'],
       displayValue_(r['売買損益（円）']),
+      displayValueKeepZero_(r['国内消費税等（円）']),
+      displayValueKeepZero_(r['現地源泉税（円）']),
+      displayValueKeepZero_(r['国内源泉所得税（円）']),
+      displayValueKeepZero_(r['国内源泉地方税（円）']),
       runningBalance,
       monthEndBalance
     ]);
