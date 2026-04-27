@@ -137,6 +137,10 @@ function buildRowHash_(record) {
     String(toNumber_(record['受渡金額/決済損益'])),
     String(toNumber_(record['手数料（税込）'])),
     normalizeCurrency_(record['決済通貨']),
+    String(record['国内消費税等（円）'] === '' ? '' : toNumber_(record['国内消費税等（円）'])),
+    String(record['現地源泉税（円）'] === '' ? '' : toNumber_(record['現地源泉税（円）'])),
+    String(record['国内源泉所得税（円）'] === '' ? '' : toNumber_(record['国内源泉所得税（円）'])),
+    String(record['国内源泉地方税（円）'] === '' ? '' : toNumber_(record['国内源泉地方税（円）'])),
   ];
 
   const raw = parts.join('\t');
@@ -189,9 +193,14 @@ function normalizeRecordForDb_(record, options) {
     レート: toNumber_(record['レート']),
     決済通貨: normalizeCurrency_(record['決済通貨']),
     '売買損益（円）': toNumber_(record['売買損益（円）']),
+    '国内消費税等（円）': toOptionalNumber_(record['国内消費税等（円）']),
+    '現地源泉税（円）': toOptionalNumber_(record['現地源泉税（円）']),
+    '国内源泉所得税（円）': toOptionalNumber_(record['国内源泉所得税（円）']),
+    '国内源泉地方税（円）': toOptionalNumber_(record['国内源泉地方税（円）']),
 
     createdAt: now,
     updatedAt: now,
+    rolledBackAt: '',
     isActive: true,
   };
 }
@@ -337,6 +346,10 @@ function readDbRecords_(targetDbKey) {
         レート: toNumber_(obj['レート']),
         決済通貨: normalizeCurrency_(obj['決済通貨']),
         '売買損益（円）': toNumber_(obj['売買損益（円）']),
+        '国内消費税等（円）': toOptionalNumber_(obj['国内消費税等（円）']),
+        '現地源泉税（円）': toOptionalNumber_(obj['現地源泉税（円）']),
+        '国内源泉所得税（円）': toOptionalNumber_(obj['国内源泉所得税（円）']),
+        '国内源泉地方税（円）': toOptionalNumber_(obj['国内源泉地方税（円）']),
       };
     });
 }
@@ -496,6 +509,7 @@ function rollbackImport_(targetDbKey, importId) {
     const importIdCol = DB_HEADERS.indexOf('importId');
     const isActiveCol = DB_HEADERS.indexOf('isActive');
     const updatedAtCol = DB_HEADERS.indexOf('updatedAt');
+    const rolledBackAtCol = DB_HEADERS.indexOf('rolledBackAt');
     const now = new Date();
 
     values.forEach(function(row) {
@@ -505,6 +519,7 @@ function rollbackImport_(targetDbKey, importId) {
       if (rowImportId === rollbackImportId && isActive) {
         row[isActiveCol] = false;
         row[updatedAtCol] = now;
+        row[rolledBackAtCol] = now;
         rolledBackCount++;
       }
     });

@@ -44,6 +44,10 @@ function readInputRecords_(sheet) {
     obj['手数料（税込）'] = toNumber_(obj['手数料（税込）']);
     obj['レート'] = toNumber_(obj['レート']);
     obj['売買損益（円）'] = toNumber_(obj['売買損益（円）']);
+    obj['国内消費税等（円）'] = toOptionalNumber_(obj['国内消費税等（円）']);
+    obj['現地源泉税（円）'] = toOptionalNumber_(obj['現地源泉税（円）']);
+    obj['国内源泉所得税（円）'] = toOptionalNumber_(obj['国内源泉所得税（円）']);
+    obj['国内源泉地方税（円）'] = toOptionalNumber_(obj['国内源泉地方税（円）']);
 
     records.push(obj);
   }

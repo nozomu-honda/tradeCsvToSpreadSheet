@@ -49,6 +49,15 @@ function toNumber_(v) {
   return isNaN(n) ? 0 : n;
 }
 
+function toOptionalNumber_(v) {
+  if (v === '' || v === null || v === undefined) return '';
+  if (typeof v === 'number') return v;
+  const s = String(v).replace(/,/g, '').trim();
+  if (!s) return '';
+  const n = Number(s);
+  return isNaN(n) ? '' : n;
+}
+
 function text_(v) {
   return String(v || '').trim();
 }
