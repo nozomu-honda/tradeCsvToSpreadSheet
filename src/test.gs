@@ -632,31 +632,33 @@ function test_writeSheet_averageUnitPriceNumberFormat_() {
   });
 }
 
-function makeTradeRecord_(params) {
+function makeTradeRecord_(overrides) {
+  overrides = overrides || {};
+
   return {
-    約定日: parseDate_(params.約定日 || '2026/04/01'),
-    受渡日: parseDate_(params.受渡日 || '2026/04/01'),
-    商品: params.商品 || '株式',
-    銘柄コード: params.銘柄コード || '0000',
-    銘柄名: params.銘柄名 || 'TEST',
-    摘要: params.摘要 || '',
-    取引区分: params.取引区分 || '現物買付',
-    預り区分: params.預り区分 || '',
-    発行通貨: normalizeCurrency_(params.発行通貨 || 'JPY'),
-    数量: params.数量 || 0,
-    単価: params.単価 || 0,
-    '受渡金額/決済損益': params.受渡金額_決済損益 || 0,
-    '手数料（税込）': params.手数料税込 || 0,
-    レート: params.レート || 0,
-    決済通貨: normalizeCurrency_(params.決済通貨 || 'JPY'),
-    '売買損益（円）': params.売買損益円 || 0,
-    '国内消費税等（円）': defaultValue_(params.国内消費税等円, ''),
-    '現地源泉税（円）': defaultValue_(params.現地源泉税円, ''),
-    '国内源泉所得税（円）': defaultValue_(params.国内源泉所得税円, ''),
-    '国内源泉地方税（円）': defaultValue_(params.国内源泉地方税円, ''),
+    '約定日': parseDate_(overrides.約定日 || '2026/04/01'),
+    '受渡日': parseDate_(overrides.受渡日 || overrides.約定日 || '2026/04/01'),
+    '商品': overrides.商品 || '株式',
+    '銘柄コード': overrides.銘柄コード || '',
+    '銘柄名': overrides.銘柄名 || 'TEST',
+    '摘要': overrides.摘要 || '',
+    '取引区分': overrides.取引区分 || '現物買付',
+    '預り区分': overrides.預り区分 || '',
+    '発行通貨': overrides.発行通貨 || '',
+    '数量': overrides.数量 !== undefined ? overrides.数量 : 0,
+    '単価': overrides.単価 !== undefined ? overrides.単価 : 0,
+    '受渡金額/決済損益': overrides.受渡金額_決済損益 !== undefined ? overrides.受渡金額_決済損益 : 0,
+    '手数料（税込）': overrides.手数料税込 !== undefined ? overrides.手数料税込 : 0,
+    'レート': overrides.レート !== undefined ? overrides.レート : 0,
+    '決済通貨': overrides.決済通貨 || '',
+    '売買損益（円）': overrides.売買損益円 !== undefined ? overrides.売買損益円 : 0,
+    '国内消費税等（円）': overrides.国内消費税等円 !== undefined ? overrides.国内消費税等円 : '',
+    '現地源泉税（円）': overrides.現地源泉税円 !== undefined ? overrides.現地源泉税円 : '',
+    '国内源泉所得税（円）': overrides.国内源泉所得税円 !== undefined ? overrides.国内源泉所得税円 : '',
+    '国内源泉地方税（円）': overrides.国内源泉地方税円 !== undefined ? overrides.国内源泉地方税円 : '',
     '元本払戻金': overrides.元本払戻金 === true ? true : '',
-    '国内手数料（円）': overrides.国内手数料円 ?? '',
-    '現地手数料（円）': overrides.現地手数料円 ?? '',
+    '国内手数料（円）': overrides.国内手数料円 !== undefined ? overrides.国内手数料円 : '',
+    '現地手数料（円）': overrides.現地手数料円 !== undefined ? overrides.現地手数料円 : '',
   };
 }
 
