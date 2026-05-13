@@ -6,6 +6,10 @@ function createSpreadsheetFromCsvText_(csvText, sourceName, normalizedUrl, optio
   return createSpreadsheetFromCsvTextUsingDb_(csvText, sourceName, normalizedUrl, options);
 }
 
+function createSpreadsheetFromSourceSpreadsheet_(spreadsheetUrlOrId, options) {
+  return createSpreadsheetFromSourceSpreadsheetUsingDb_(spreadsheetUrlOrId, options);
+}
+
 function createSpreadsheetFromCsvUrlLegacy_(csvUrl) {
   if (!csvUrl) {
     throw new Error('CSVリンクを入力してください。');
@@ -102,6 +106,118 @@ function createSpreadsheetFromCsvTextUsingDb_(csvText, sourceName, normalizedUrl
   };
 
   return result;
+}
+
+function createSpreadsheetFromSourceSpreadsheetUsingDb_(spreadsheetUrlOrId, options) {
+  if (!spreadsheetUrlOrId) {
+    throw new Error('スプレッドシートURLまたはIDを入力してください。');
+  }
+
+  const sourceSs = openSpreadsheetByUrlOrId_(spreadsheetUrlOrId);
+  const sourceSheet = findInputSheetByHeader_(sourceSs);
+  const sourceValues = sourceSheet.getDataRange().getValues();
+
+  if (!sourceValues || sourceValues.length === 0) {
+    throw new Error('入力元シートが空です。');
+  }
+
+  const paddedRows = padRows_(sourceValues);
+  const ss = SpreadsheetApp.create(buildSpreadsheetName_(sourceSs.getName()));
+  const outputSourceSheet = ss.getSheets()[0];
+  outputSourceSheet.setName(CONFIG.SOURCE_SHEET_NAME);
+  outputSourceSheet.getRange(1, 1, paddedRows.length, paddedRows[0].length).setValues(paddedRows);
+
+  const records = readInputRecords_(outputSourceSheet);
+
+  const inputAlerts = [];
+  collectInputAlerts_(records, inputAlerts);
+
+  const targetDbKey = options && options.targetDbKey ? options.targetDbKey : getDefaultDbTargetKey_();
+
+  const dbAppendResult = appendRecordsToDb_(records, {
+    sourceName: sourceSs.getName() + ' / ' + sourceSheet.getName(),
+    inputType: 'spreadsheet',
+    normalizedUrl: text_(spreadsheetUrlOrId),
+    alertCount: inputAlerts.length,
+    targetDbKey: targetDbKey,
+  });
+
+  const dbRecords = readDbRecords_(targetDbKey);
+  const result = buildOutputSheetsFromDbRecords_(ss, dbRecords);
+
+  result.inputType = 'spreadsheet';
+  result.normalizedUrl = text_(spreadsheetUrlOrId);
+  result.sourceName = sourceSs.getName();
+  result.sourceSheetName = sourceSheet.getName();
+  result.sourceSpreadsheetName = sourceSs.getName();
+
+  result.db = {
+    dbSpreadsheetId: dbAppendResult.dbSpreadsheetId,
+    dbSpreadsheetUrl: dbAppendResult.dbSpreadsheetUrl,
+    dbTargetKey: dbAppendResult.dbTargetKey,
+    dbTargetLabel: dbAppendResult.dbTargetLabel,
+    importId: dbAppendResult.importId,
+    rowCount: dbAppendResult.rowCount,
+    insertedCount: dbAppendResult.insertedCount,
+    skippedCount: dbAppendResult.skippedCount,
+  };
+
+  return result;
+}
+
+function openSpreadsheetByUrlOrId_(value) {
+  const s = text_(value);
+
+  if (!s) {
+    throw new Error('スプレッドシートURLまたはIDを入力してください。');
+  }
+
+  if (s.indexOf('https://docs.google.com/spreadsheets/') === 0) {
+    return SpreadsheetApp.openByUrl(s);
+  }
+
+  return SpreadsheetApp.openById(s);
+}
+
+function findInputSheetByHeader_(ss) {
+  const candidateSheets = [];
+
+  ss.getSheets().forEach(function(sheet) {
+    try {
+      const values = sheet.getDataRange().getValues();
+      if (!values || values.length === 0) {
+        return;
+      }
+
+      const headerRowIndex = findHeaderRowIndex_(values);
+      if (headerRowIndex < 0) {
+        return;
+      }
+
+      validateHeaderPlacement_(values, headerRowIndex);
+      const headers = values[headerRowIndex].map(function(v) {
+        return String(v).trim();
+      });
+      validateHeaderNames_(headers);
+
+      candidateSheets.push(sheet);
+    } catch (e) {
+      // 候補ではないシートは無視
+    }
+  });
+
+  if (candidateSheets.length === 0) {
+    throw new Error('取引履歴のヘッダーを持つシートが見つかりません。');
+  }
+
+  if (candidateSheets.length > 1) {
+    throw new Error(
+      '取引履歴のヘッダーを持つシートが複数見つかりました。シートを1つに絞ってください: ' +
+      candidateSheets.map(function(sheet) { return sheet.getName(); }).join(', ')
+    );
+  }
+
+  return candidateSheets[0];
 }
 
 function buildOutputSheetsFromSourceSheet_(ss, sourceSheet) {

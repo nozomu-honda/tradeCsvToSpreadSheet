@@ -78,7 +78,7 @@
   </head>
   <body>
     <div class="card">
-      <h2>CSVから4シート生成</h2>
+      <h2>CSV / スプレッドシートから4シート生成</h2>
       <p class="muted">
         法人ごとに追加先DBを選べます。誤って登録した場合は、取込単位でロールバックできます。
       </p>
@@ -91,6 +91,14 @@
       <div class="row">
         <label for="csvUrl">CSVリンク</label>
         <input id="csvUrl" type="text" value="<?= initialCsvUrl ?>" placeholder="https://..." />
+      </div>
+
+      <div class="sep">または</div>
+
+      <div class="row">
+        <label for="spreadsheetUrl">スプレッドシートURLまたはID</label>
+        <input id="spreadsheetUrl" type="text" value="<?= initialSpreadsheetUrl ?>" placeholder="https://docs.google.com/spreadsheets/... または スプレッドシートID" />
+        <div class="muted">シート名入力は不要です。ヘッダーを持つシートを自動判定します。</div>
       </div>
 
       <div class="sep">または</div>
@@ -164,6 +172,7 @@
 
       async function run() {
         const csvUrl = document.getElementById('csvUrl').value.trim();
+        const spreadsheetUrl = document.getElementById('spreadsheetUrl').value.trim();
         const fileInput = document.getElementById('csvFile');
         const file = fileInput.files && fileInput.files[0] ? fileInput.files[0] : null;
         const target = getSelectedDbTarget_();
@@ -180,15 +189,16 @@
           return;
         }
 
-        if (!csvUrl && !file) {
+        const inputCount = (csvUrl ? 1 : 0) + (spreadsheetUrl ? 1 : 0) + (file ? 1 : 0);
+        if (inputCount === 0) {
           result.className = 'err';
-          result.textContent = 'CSVリンクかCSVファイルのどちらかを指定してください。';
+          result.textContent = 'CSVリンク、スプレッドシートURL、CSVファイルのいずれかを指定してください。';
           return;
         }
 
-        if (csvUrl && file) {
+        if (inputCount >= 2) {
           result.className = 'err';
-          result.textContent = 'CSVリンクとCSVファイルは同時に指定せず、どちらか一方にしてください。';
+          result.textContent = 'CSVリンク、スプレッドシートURL、CSVファイルは同時に指定せず、どれか1つだけ指定してください。';
           return;
         }
 
@@ -203,6 +213,7 @@
             payload = {
               targetDbKey: target.key,
               csvUrl: '',
+              spreadsheetUrl: '',
               uploadedCsvText: uploadedCsvText,
               uploadedFileName: file.name
             };
@@ -210,6 +221,7 @@
             payload = {
               targetDbKey: target.key,
               csvUrl: csvUrl,
+              spreadsheetUrl: spreadsheetUrl,
               uploadedCsvText: '',
               uploadedFileName: ''
             };
@@ -237,11 +249,25 @@
                   'スキップ件数: ' + (res.db.skippedCount || 0);
               }
 
+              const inputTypeLabel =
+                res.inputType === 'upload' ? 'アップロード' :
+                res.inputType === 'spreadsheet' ? 'スプレッドシート' :
+                'リンク';
+
+              let sourceInfoText = '';
+              if (res.inputType === 'spreadsheet') {
+                sourceInfoText =
+                  '入力元スプレッドシート: ' + (res.sourceSpreadsheetName || res.sourceName || '') + '\n' +
+                  '入力元シート: ' + (res.sourceSheetName || '') + '\n';
+              } else {
+                sourceInfoText = '元データシート: ' + (res.sourceSheetName || '') + '\n';
+              }
+
               result.textContent =
                 '完了しました。\n\n' +
-                '入力方法: ' + (res.inputType === 'upload' ? 'アップロード' : 'リンク') + '\n' +
+                '入力方法: ' + inputTypeLabel + '\n' +
                 'スプレッドシート名: ' + res.spreadsheetName + '\n' +
-                '元データシート: ' + (res.sourceSheetName || '') + '\n' +
+                sourceInfoText +
                 '全件数: ' + res.counts.all + '\n' +
                 '国内取引: ' + res.counts.domestic + '\n' +
                 '外国取引: ' + res.counts.foreign + '\n' +
