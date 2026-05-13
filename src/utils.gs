@@ -58,6 +58,24 @@ function toOptionalNumber_(v) {
   return isNaN(n) ? '' : n;
 }
 
+function toNullableBooleanFlag_(v, label) {
+  if (v === '' || v === null || v === undefined) return '';
+  if (v === true) return true;
+  if (v === false) {
+    throw new Error((label || 'フラグ') + ' は空欄または1を入力してください。');
+  }
+
+  const s = String(v).trim();
+  if (!s) return '';
+  if (s === '1' || s.toUpperCase() === 'TRUE') return true;
+
+  throw new Error((label || 'フラグ') + ' は空欄または1を入力してください。');
+}
+
+function displayNullableBooleanFlag_(v) {
+  return v === true ? 1 : '';
+}
+
 function text_(v) {
   return String(v || '').trim();
 }
@@ -76,12 +94,17 @@ function sameYearMonth_(a, b) {
 }
 
 function isEmptyRow_(row) {
-  return row.every(v => v === '' || v === null || v === undefined);
+  return row.every(function(v) {
+    return v === '' || v === null || v === undefined;
+  });
 }
 
 function padRows_(rows) {
-  const maxCols = Math.max(...rows.map(r => r.length));
-  return rows.map(row => {
+  const maxCols = Math.max.apply(null, rows.map(function(r) {
+    return r.length;
+  }));
+
+  return rows.map(function(row) {
     const newRow = row.slice();
     while (newRow.length < maxCols) newRow.push('');
     return newRow;
@@ -113,5 +136,9 @@ function columnToLetter_(column) {
 
 function formatDateForAlert_(dateValue) {
   if (!(dateValue instanceof Date)) return '(日付なし)';
-  return Utilities.formatDate(dateValue, Session.getScriptTimeZone() || 'Asia/Tokyo', 'yyyy/MM/dd');
+  return Utilities.formatDate(
+    dateValue,
+    Session.getScriptTimeZone() || 'Asia/Tokyo',
+    'yyyy/MM/dd'
+  );
 }

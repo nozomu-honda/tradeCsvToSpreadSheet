@@ -47,6 +47,9 @@ function readInputRecords_(sheet) {
     obj['現地源泉税（円）'] = toOptionalNumber_(obj['現地源泉税（円）']);
     obj['国内源泉所得税（円）'] = toOptionalNumber_(obj['国内源泉所得税（円）']);
     obj['国内源泉地方税（円）'] = toOptionalNumber_(obj['国内源泉地方税（円）']);
+    obj['元本払戻金'] = toNullableBooleanFlag_(obj['元本払戻金'], '元本払戻金');
+    obj['国内手数料（円）'] = toOptionalNumber_(obj['国内手数料（円）']);
+    obj['現地手数料（円）'] = toOptionalNumber_(obj['現地手数料（円）']);
 
     records.push(obj);
   }
@@ -83,6 +86,18 @@ function validateOptionalHeaderNames_(headers) {
     {
       expected: '国内源泉地方税（円）',
       markers: ['国内源泉地方税']
+    },
+    {
+      expected: '元本払戻金',
+      markers: ['元本払戻金']
+    },
+    {
+      expected: '国内手数料（円）',
+      markers: ['国内手数料']
+    },
+    {
+      expected: '現地手数料（円）',
+      markers: ['現地手数料']
     }
   ];
 

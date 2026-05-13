@@ -141,6 +141,9 @@ function buildRowHash_(record) {
     String(record['現地源泉税（円）'] === '' ? '' : toNumber_(record['現地源泉税（円）'])),
     String(record['国内源泉所得税（円）'] === '' ? '' : toNumber_(record['国内源泉所得税（円）'])),
     String(record['国内源泉地方税（円）'] === '' ? '' : toNumber_(record['国内源泉地方税（円）'])),
+    String(record['元本払戻金'] === true ? 1 : ''),
+    String(record['国内手数料（円）'] === '' ? '' : toNumber_(record['国内手数料（円）'])),
+    String(record['現地手数料（円）'] === '' ? '' : toNumber_(record['現地手数料（円）'])),
   ];
 
   const raw = parts.join('\t');
@@ -197,6 +200,9 @@ function normalizeRecordForDb_(record, options) {
     '現地源泉税（円）': toOptionalNumber_(record['現地源泉税（円）']),
     '国内源泉所得税（円）': toOptionalNumber_(record['国内源泉所得税（円）']),
     '国内源泉地方税（円）': toOptionalNumber_(record['国内源泉地方税（円）']),
+    '元本払戻金': toNullableBooleanFlag_(record['元本払戻金'], '元本払戻金'),
+    '国内手数料（円）': toOptionalNumber_(record['国内手数料（円）']),
+    '現地手数料（円）': toOptionalNumber_(record['現地手数料（円）']),
 
     createdAt: now,
     updatedAt: now,
@@ -350,6 +356,9 @@ function readDbRecords_(targetDbKey) {
         '現地源泉税（円）': toOptionalNumber_(obj['現地源泉税（円）']),
         '国内源泉所得税（円）': toOptionalNumber_(obj['国内源泉所得税（円）']),
         '国内源泉地方税（円）': toOptionalNumber_(obj['国内源泉地方税（円）']),
+        '元本払戻金': toNullableBooleanFlag_(obj['元本払戻金'], '元本払戻金'),
+        '国内手数料（円）': toOptionalNumber_(obj['国内手数料（円）']),
+        '現地手数料（円）': toOptionalNumber_(obj['現地手数料（円）']),
       };
     });
 }

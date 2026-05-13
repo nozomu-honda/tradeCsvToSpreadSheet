@@ -37,6 +37,13 @@ function runSmokeTests() {
     test_rollbackImport_twice_throws_,
     test_resetDbData_resetsOnlySelectedDb_,
     test_resetDbData_recreatesSheetsAndClearsFormats_,
+    test_readInputRecords_manualColumns_20260511_,
+    test_readInputRecords_manualColumnHeaderMismatch_20260511_,
+    test_buildTradeRows_foreignStockSellNet_usesRate_20260511_,
+    test_buildTradeRows_bookValue_foreignBuy_minusFeeTaxOnly_20260511_,
+    test_buildTradeRows_avgUnitPrice_updatesOnStockTransferIn_20260511_,
+    test_buildTradeRows_principalReturn_distributionDoesNotChangeBalance_20260511_,
+    test_buildRowHash_changesWhenManualColumnsChange_20260511_,
   ];
   return runSelectedTests_(tests, '軽い確認テスト');
 }
@@ -81,6 +88,13 @@ function runAllTests() {
     test_rollbackImport_twice_throws_,
     test_resetDbData_resetsOnlySelectedDb_,
     test_resetDbData_recreatesSheetsAndClearsFormats_,
+    test_readInputRecords_manualColumns_20260511_,
+    test_readInputRecords_manualColumnHeaderMismatch_20260511_,
+    test_buildTradeRows_foreignStockSellNet_usesRate_20260511_,
+    test_buildTradeRows_bookValue_foreignBuy_minusFeeTaxOnly_20260511_,
+    test_buildTradeRows_avgUnitPrice_updatesOnStockTransferIn_20260511_,
+    test_buildTradeRows_principalReturn_distributionDoesNotChangeBalance_20260511_,
+    test_buildRowHash_changesWhenManualColumnsChange_20260511_,
   ];
   return runSelectedTests_(tests, 'フルテスト');
 }
@@ -1186,4 +1200,222 @@ function countNonEmptyRowsByHeader_(sheet, headers, headerName) {
   return values.filter(function(row) {
     return text_(row[0]) !== '';
   }).length;
+}
+
+function test_readInputRecords_manualColumns_20260511_() {
+  withTempSpreadsheet_(function(ss) {
+    const sheet = ss.getSheets()[0];
+    const values = [
+      [
+        '約定日', '受渡日', '商品', '銘柄コード', '銘柄名', '摘要', '取引区分', '預り区分',
+        '発行通貨', '数量', '単価', '受渡金額/決済損益', '手数料（税込）', 'レート', '決済通貨', '売買損益（円）',
+        '国内消費税等（円）', '現地源泉税（円）', '国内源泉所得税（円）', '国内源泉地方税（円）',
+        '元本払戻金', '国内手数料（円）', '現地手数料（円）'
+      ],
+      [
+        '2026/05/01', '2026/05/02', '外株', 'ABCD', 'ALPHA', '', '現物売却', '特定',
+        'USD', 10, 12, 18000, 110, 150, 'USD', 0,
+        7, 331, 123, 45,
+        1, 222, 333
+      ]
+    ];
+    sheet.getRange(1, 1, values.length, values[0].length).setValues(values);
+
+    const records = readInputRecords_(sheet);
+    assertEquals_(1, records.length, '1件読めること');
+
+    const r = records[0];
+    assertEquals_(true, r['元本払戻金'], '元本払戻金は boolean true');
+    assertEquals_(222, r['国内手数料（円）'], '国内手数料（円）を読める');
+    assertEquals_(333, r['現地手数料（円）'], '現地手数料（円）を読める');
+    assertEquals_(331, r['現地源泉税（円）'], '既存の税列も維持');
+  });
+}
+
+function test_readInputRecords_manualColumnHeaderMismatch_20260511_() {
+  withTempSpreadsheet_(function(ss) {
+    const sheet = ss.getSheets()[0];
+    const values = [
+      [
+        '約定日', '受渡日', '商品', '銘柄コード', '銘柄名', '摘要', '取引区分', '預り区分',
+        '発行通貨', '数量', '単価', '受渡金額/決済損益', '手数料（税込）', 'レート', '決済通貨', '売買損益（円）',
+        '国内消費税等（円）', '現地源泉税（円）', '国内源泉所得税（円）', '国内源泉地方税（円）',
+        '元本払戻金', '国内手数料(円)', '現地手数料（円）'
+      ],
+      [
+        '2026/05/01', '2026/05/02', '株式', '1234', 'AAA', '', '現物買付', '',
+        'JPY', 10, 100, 1000, 110, '', 'JPY', '', '', '', '', '', '', '', ''
+      ]
+    ];
+    sheet.getRange(1, 1, values.length, values[0].length).setValues(values);
+
+    assertThrowsContains_(function() {
+      readInputRecords_(sheet);
+    }, 'ヘッダー名が一致しません', '国内手数料（円）のヘッダー不一致は明示エラー');
+  });
+}
+
+function test_buildTradeRows_foreignStockSellNet_usesRate_20260511_() {
+  const alerts = [];
+  const rows = buildTradeRows_([
+    makeTradeRecord_({
+      銘柄名: 'FOREIGN_SELL',
+      商品: '外株',
+      取引区分: '現物買付',
+      数量: 10,
+      単価: 10,
+      受渡金額_決済損益: 100,
+      手数料税込: 0,
+      レート: 150,
+      約定日: '2026/05/01',
+      受渡日: '2026/05/01',
+      決済通貨: 'USD'
+    }),
+    makeTradeRecord_({
+      銘柄名: 'FOREIGN_SELL',
+      商品: '外株',
+      取引区分: '現物売却',
+      数量: 2,
+      単価: 12,
+      受渡金額_決済損益: 0,
+      手数料税込: 0,
+      レート: 155,
+      約定日: '2026/05/02',
+      受渡日: '2026/05/02',
+      決済通貨: 'USD'
+    })
+  ], alerts);
+
+  const sellRow = rows[1];
+  assertApproxEquals_(12 * 2 * 155, getTradeRowValue_(sellRow, '手数料抜き売値'), 1e-9, '外株の手数料抜き売値は 単価*数量*レート');
+}
+
+function test_buildTradeRows_bookValue_foreignBuy_minusFeeTaxOnly_20260511_() {
+  const alerts = [];
+  const rows = buildTradeRows_([
+    makeTradeRecord_({
+      銘柄名: 'FOREIGN_BUY',
+      商品: '外株',
+      取引区分: '現物買付',
+      数量: 1,
+      単価: 10,
+      受渡金額_決済損益: 100,
+      手数料税込: 110,
+      国内消費税等円: 7,
+      レート: 150,
+      約定日: '2026/05/01',
+      受渡日: '2026/05/01',
+      決済通貨: 'USD'
+    })
+  ], alerts);
+
+  const row = rows[0];
+  assertApproxEquals_(100 * 150 - 7, getTradeRowValue_(row, '簿価'), 1e-9, '外貨買付の簿価は 消費税額にレートを掛けない');
+}
+
+function test_buildTradeRows_avgUnitPrice_updatesOnStockTransferIn_20260511_() {
+  const alerts = [];
+  const rows = buildTradeRows_([
+    makeTradeRecord_({
+      銘柄名: 'TRANSFER_IN',
+      商品: '株式',
+      取引区分: '現物買付',
+      数量: 2,
+      単価: 100,
+      受渡金額_決済損益: 200,
+      手数料税込: 0,
+      約定日: '2026/05/01',
+      受渡日: '2026/05/01',
+      決済通貨: 'JPY'
+    }),
+    makeTradeRecord_({
+      銘柄名: 'TRANSFER_IN',
+      商品: '株式',
+      取引区分: '入庫（増減資）',
+      数量: 1,
+      単価: 0,
+      受渡金額_決済損益: 0,
+      手数料税込: 0,
+      約定日: '2026/05/02',
+      受渡日: '2026/05/02',
+      決済通貨: 'JPY'
+    })
+  ], alerts);
+
+  const row = rows[1];
+  assertEquals_(3, getTradeRowValue_(row, '保有数'), '入庫（増減資）で保有数が増える');
+  assertApproxEquals_(200 / 3, getTradeRowValue_(row, '平均取得単価'), 1e-9, '入庫（増減資）は投信以外の平均取得単価更新対象');
+}
+
+function test_buildTradeRows_principalReturn_distributionDoesNotChangeBalance_20260511_() {
+  const alerts = [];
+  const rows = buildTradeRows_([
+    makeTradeRecord_({
+      銘柄名: 'PRINCIPAL_RETURN',
+      商品: '投信',
+      取引区分: '現物買付',
+      数量: 10000,
+      単価: 1,
+      受渡金額_決済損益: 10000,
+      手数料税込: 0,
+      約定日: '2026/05/01',
+      受渡日: '2026/05/01',
+      決済通貨: 'JPY'
+    }),
+    makeTradeRecord_({
+      銘柄名: 'PRINCIPAL_RETURN',
+      商品: '投信',
+      取引区分: '入金（分配金）',
+      数量: 0,
+      単価: 0,
+      受渡金額_決済損益: 500,
+      手数料税込: 0,
+      元本払戻金: true,
+      約定日: '2026/05/02',
+      受渡日: '2026/05/02',
+      決済通貨: 'JPY'
+    })
+  ], alerts);
+
+  const row = rows[1];
+  assertEquals_('', getTradeRowValue_(row, '簿価'), '元本払戻金=true なら簿価は空欄');
+  assertApproxEquals_(10000, getTradeRowValue_(row, '銘柄ごとの残高'), 1e-9, '元本払戻金=true の分配金は残高を増やさない');
+}
+
+function test_buildRowHash_changesWhenManualColumnsChange_20260511_() {
+  const a = makeTradeRecord_({
+    銘柄名: 'HASH_TEST',
+    商品: '外株',
+    取引区分: '現物売却',
+    数量: 1,
+    単価: 10,
+    受渡金額_決済損益: 100,
+    レート: 150,
+    約定日: '2026/05/01',
+    受渡日: '2026/05/02',
+    決済通貨: 'USD',
+    国内手数料円: 111,
+    現地手数料円: 222,
+    元本払戻金: true
+  });
+
+  const b = makeTradeRecord_({
+    銘柄名: 'HASH_TEST',
+    商品: '外株',
+    取引区分: '現物売却',
+    数量: 1,
+    単価: 10,
+    受渡金額_決済損益: 100,
+    レート: 150,
+    約定日: '2026/05/01',
+    受渡日: '2026/05/02',
+    決済通貨: 'USD',
+    国内手数料円: 999,
+    現地手数料円: 222,
+    元本払戻金: true
+  });
+
+  const ha = buildRowHash_(a);
+  const hb = buildRowHash_(b);
+  assertTrue_(ha !== hb, '追加手入力列が変わると rowHash も変わる');
 }
