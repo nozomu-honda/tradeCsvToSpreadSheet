@@ -59,14 +59,12 @@ function toOptionalNumber_(v) {
 }
 
 function toNullableBooleanFlag_(v, label) {
-  if (v === '' || v === null || v === undefined) return '';
+  if (v === '' || v === null || v === undefined || v === false) return '';
   if (v === true) return true;
-  if (v === false) {
-    throw new Error((label || 'フラグ') + ' は空欄または1を入力してください。');
-  }
 
   const s = String(v).trim();
   if (!s) return '';
+  if (s === '0' || s.toUpperCase() === 'FALSE') return '';
   if (s === '1' || s.toUpperCase() === 'TRUE') return true;
 
   throw new Error((label || 'フラグ') + ' は空欄または1を入力してください。');
