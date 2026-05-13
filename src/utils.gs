@@ -62,12 +62,32 @@ function toNullableBooleanFlag_(v, label) {
   if (v === '' || v === null || v === undefined || v === false) return '';
   if (v === true) return true;
 
-  const s = String(v).trim();
-  if (!s) return '';
-  if (s === '0' || s.toUpperCase() === 'FALSE') return '';
-  if (s === '1' || s.toUpperCase() === 'TRUE') return true;
+  if (typeof v === 'number') {
+    if (v === 0) return '';
+    if (v === 1) return true;
+  }
 
-  throw new Error((label || 'フラグ') + ' は空欄または1を入力してください。');
+  const raw = String(v)
+    .replace(/\u00A0/g, ' ')   // NBSP
+    .replace(/\u200B/g, '')    // zero-width space
+    .replace(/\uFEFF/g, '')    // BOM
+    .replace(/\u3000/g, ' ')   // 全角スペース
+    .trim();
+
+  if (!raw) return '';
+
+  const upper = raw.toUpperCase();
+
+  if (raw === '0' || raw === 'FALSE' || upper === 'FALSE') return '';
+  if (raw === '1' || raw === 'TRUE' || upper === 'TRUE') return true;
+
+  throw new Error(
+    (label || 'フラグ') +
+    ' は空欄または1を入力してください。' +
+    ' actual=' + JSON.stringify(v) +
+    ' normalized=' + JSON.stringify(raw) +
+    ' type=' + (typeof v)
+  );
 }
 
 function displayNullableBooleanFlag_(v) {
