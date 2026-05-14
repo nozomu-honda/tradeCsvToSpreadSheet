@@ -37,6 +37,17 @@ function runSmokeTests() {
     test_rollbackImport_twice_throws_,
     test_resetDbData_resetsOnlySelectedDb_,
     test_resetDbData_recreatesSheetsAndClearsFormats_,
+    test_readInputRecords_manualColumns_20260511_,
+    test_readInputRecords_manualColumnHeaderMismatch_20260511_,
+    test_buildTradeRows_foreignStockSellNet_usesRate_20260511_,
+    test_buildTradeRows_bookValue_foreignBuy_minusFeeTaxOnly_20260511_,
+    test_buildTradeRows_avgUnitPrice_updatesOnStockTransferIn_20260511_,
+    test_buildTradeRows_principalReturn_distributionDoesNotChangeBalance_20260511_,
+    test_buildRowHash_changesWhenManualColumnsChange_20260511_,
+    test_findInputSheetByHeader_singleCandidate_,
+    test_findInputSheetByHeader_noCandidate_throws_,
+    test_findInputSheetByHeader_multipleCandidates_throws_,
+    test_createSpreadsheetFromSourceSpreadsheetUsingDb_readsDetectedSheet_,
   ];
   return runSelectedTests_(tests, '軽い確認テスト');
 }
@@ -81,6 +92,17 @@ function runAllTests() {
     test_rollbackImport_twice_throws_,
     test_resetDbData_resetsOnlySelectedDb_,
     test_resetDbData_recreatesSheetsAndClearsFormats_,
+    test_readInputRecords_manualColumns_20260511_,
+    test_readInputRecords_manualColumnHeaderMismatch_20260511_,
+    test_buildTradeRows_foreignStockSellNet_usesRate_20260511_,
+    test_buildTradeRows_bookValue_foreignBuy_minusFeeTaxOnly_20260511_,
+    test_buildTradeRows_avgUnitPrice_updatesOnStockTransferIn_20260511_,
+    test_buildTradeRows_principalReturn_distributionDoesNotChangeBalance_20260511_,
+    test_buildRowHash_changesWhenManualColumnsChange_20260511_,
+    test_findInputSheetByHeader_singleCandidate_,
+    test_findInputSheetByHeader_noCandidate_throws_,
+    test_findInputSheetByHeader_multipleCandidates_throws_,
+    test_createSpreadsheetFromSourceSpreadsheetUsingDb_readsDetectedSheet_,
   ];
   return runSelectedTests_(tests, 'フルテスト');
 }
@@ -184,13 +206,31 @@ function test_stockConversionBuy_updatesHoldingAndAvg_() {
       約定日: '2026/04/02',
       受渡日: '2026/04/02',
       決済通貨: 'JPY'
+    }),
+    makeTradeRecord_({
+      銘柄名: 'SCB',
+      商品: '株式',
+      取引区分: '現物売却',
+      数量: 1,
+      単価: 130,
+      受渡金額_決済損益: 130,
+      手数料税込: 0,
+      約定日: '2026/04/03',
+      受渡日: '2026/04/03',
+      決済通貨: 'JPY'
     })
   ], alerts);
-  const row = rows[1];
-  assertEquals_(3, getTradeRowValue_(row, '保有数'), '株転換取得（買）で保有数が増える');
-  assertEquals_(150, getTradeRowValue_(row, '簿価'), '株転換取得（買）の簿価');
-  assertEquals_(200, getTradeRowValue_(row, '銘柄ごとの残高'), '株転換取得（買）は銘柄ごとの残高を動かさない');
-  assertApproxEquals_((200 + 150) / 3, getTradeRowValue_(row, '平均取得単価'), 1e-9, '株転換取得（買）は平均取得単価の対象');
+
+  const conversionRow = rows[1];
+  const sellRow = rows[2];
+
+  assertEquals_(3, getTradeRowValue_(conversionRow, '保有数'), '株転換取得（買）で保有数が増える');
+  assertEquals_(150, getTradeRowValue_(conversionRow, '簿価'), '株転換取得（買）の簿価');
+  assertEquals_(200, getTradeRowValue_(conversionRow, '銘柄ごとの残高'), '株転換取得（買）は銘柄ごとの残高を動かさない');
+  assertEquals_('', getTradeRowValue_(conversionRow, '平均取得単価'), '株転換取得（買）は平均取得単価の更新対象ではない');
+
+  assertApproxEquals_(100, getTradeRowValue_(sellRow, '取得価格'), 1e-9, '直前の平均取得単価は維持される');
+  assertApproxEquals_(-100, getTradeRowValue_(sellRow, '簿価'), 1e-9, '売却簿価は維持された平均取得単価ベース');
   assertEquals_(0, alerts.length, '不要なアラートは出ないこと');
 }
 
@@ -600,28 +640,33 @@ function test_writeSheet_averageUnitPriceNumberFormat_() {
   });
 }
 
-function makeTradeRecord_(params) {
+function makeTradeRecord_(overrides) {
+  overrides = overrides || {};
+
   return {
-    約定日: parseDate_(params.約定日 || '2026/04/01'),
-    受渡日: parseDate_(params.受渡日 || '2026/04/01'),
-    商品: params.商品 || '株式',
-    銘柄コード: params.銘柄コード || '0000',
-    銘柄名: params.銘柄名 || 'TEST',
-    摘要: params.摘要 || '',
-    取引区分: params.取引区分 || '現物買付',
-    預り区分: params.預り区分 || '',
-    発行通貨: normalizeCurrency_(params.発行通貨 || 'JPY'),
-    数量: params.数量 || 0,
-    単価: params.単価 || 0,
-    '受渡金額/決済損益': params.受渡金額_決済損益 || 0,
-    '手数料（税込）': params.手数料税込 || 0,
-    レート: params.レート || 0,
-    決済通貨: normalizeCurrency_(params.決済通貨 || 'JPY'),
-    '売買損益（円）': params.売買損益円 || 0,
-    '国内消費税等（円）': defaultValue_(params.国内消費税等円, ''),
-    '現地源泉税（円）': defaultValue_(params.現地源泉税円, ''),
-    '国内源泉所得税（円）': defaultValue_(params.国内源泉所得税円, ''),
-    '国内源泉地方税（円）': defaultValue_(params.国内源泉地方税円, ''),
+    '約定日': parseDate_(overrides.約定日 || '2026/04/01'),
+    '受渡日': parseDate_(overrides.受渡日 || overrides.約定日 || '2026/04/01'),
+    '商品': overrides.商品 || '株式',
+    '銘柄コード': overrides.銘柄コード || '',
+    '銘柄名': overrides.銘柄名 || 'TEST',
+    '摘要': overrides.摘要 || '',
+    '取引区分': overrides.取引区分 || '現物買付',
+    '預り区分': overrides.預り区分 || '',
+    '発行通貨': overrides.発行通貨 || '',
+    '数量': overrides.数量 !== undefined ? overrides.数量 : 0,
+    '単価': overrides.単価 !== undefined ? overrides.単価 : 0,
+    '受渡金額/決済損益': overrides.受渡金額_決済損益 !== undefined ? overrides.受渡金額_決済損益 : 0,
+    '手数料（税込）': overrides.手数料税込 !== undefined ? overrides.手数料税込 : 0,
+    'レート': overrides.レート !== undefined ? overrides.レート : 0,
+    '決済通貨': overrides.決済通貨 || '',
+    '売買損益（円）': overrides.売買損益円 !== undefined ? overrides.売買損益円 : 0,
+    '国内消費税等（円）': overrides.国内消費税等円 !== undefined ? overrides.国内消費税等円 : '',
+    '現地源泉税（円）': overrides.現地源泉税円 !== undefined ? overrides.現地源泉税円 : '',
+    '国内源泉所得税（円）': overrides.国内源泉所得税円 !== undefined ? overrides.国内源泉所得税円 : '',
+    '国内源泉地方税（円）': overrides.国内源泉地方税円 !== undefined ? overrides.国内源泉地方税円 : '',
+    '元本払戻金': overrides.元本払戻金 === true ? true : '',
+    '国内手数料（円）': overrides.国内手数料円 !== undefined ? overrides.国内手数料円 : '',
+    '現地手数料（円）': overrides.現地手数料円 !== undefined ? overrides.現地手数料円 : '',
   };
 }
 
@@ -1186,4 +1231,318 @@ function countNonEmptyRowsByHeader_(sheet, headers, headerName) {
   return values.filter(function(row) {
     return text_(row[0]) !== '';
   }).length;
+}
+
+function test_readInputRecords_manualColumns_20260511_() {
+  withTempSpreadsheet_(function(ss) {
+    const sheet = ss.getSheets()[0];
+    const values = [
+      [
+        '約定日', '受渡日', '商品', '銘柄コード', '銘柄名', '摘要', '取引区分', '預り区分',
+        '発行通貨', '数量', '単価', '受渡金額/決済損益', '手数料（税込）', 'レート', '決済通貨', '売買損益（円）',
+        '国内消費税等（円）', '現地源泉税（円）', '国内源泉所得税（円）', '国内源泉地方税（円）',
+        '元本払戻金', '国内手数料（円）', '現地手数料（円）'
+      ],
+      [
+        '2026/05/01', '2026/05/02', '外株', 'ABCD', 'ALPHA', '', '現物売却', '特定',
+        'USD', 10, 12, 18000, 110, 150, 'USD', 0,
+        7, 331, 123, 45,
+        1, 222, 333
+      ]
+    ];
+    sheet.getRange(1, 1, values.length, values[0].length).setValues(values);
+
+    const records = readInputRecords_(sheet);
+    assertEquals_(1, records.length, '1件読めること');
+
+    const r = records[0];
+    assertEquals_(true, r['元本払戻金'], '元本払戻金は boolean true');
+    assertEquals_(222, r['国内手数料（円）'], '国内手数料（円）を読める');
+    assertEquals_(333, r['現地手数料（円）'], '現地手数料（円）を読める');
+    assertEquals_(331, r['現地源泉税（円）'], '既存の税列も維持');
+  });
+}
+
+function test_readInputRecords_manualColumnHeaderMismatch_20260511_() {
+  withTempSpreadsheet_(function(ss) {
+    const sheet = ss.getSheets()[0];
+    const values = [
+      [
+        '約定日', '受渡日', '商品', '銘柄コード', '銘柄名', '摘要', '取引区分', '預り区分',
+        '発行通貨', '数量', '単価', '受渡金額/決済損益', '手数料（税込）', 'レート', '決済通貨', '売買損益（円）',
+        '国内消費税等（円）', '現地源泉税（円）', '国内源泉所得税（円）', '国内源泉地方税（円）',
+        '元本払戻金', '国内手数料(円)', '現地手数料（円）'
+      ],
+      [
+        '2026/05/01', '2026/05/02', '株式', '1234', 'AAA', '', '現物買付', '',
+        'JPY', 10, 100, 1000, 110, '', 'JPY', '', '', '', '', '', '', '', ''
+      ]
+    ];
+    sheet.getRange(1, 1, values.length, values[0].length).setValues(values);
+
+    assertThrowsContains_(function() {
+      readInputRecords_(sheet);
+    }, 'ヘッダー名が一致しません', '国内手数料（円）のヘッダー不一致は明示エラー');
+  });
+}
+
+function test_buildTradeRows_foreignStockSellNet_usesRate_20260511_() {
+  const alerts = [];
+  const rows = buildTradeRows_([
+    makeTradeRecord_({
+      銘柄名: 'FOREIGN_SELL',
+      商品: '外株',
+      取引区分: '現物買付',
+      数量: 10,
+      単価: 10,
+      受渡金額_決済損益: 100,
+      手数料税込: 0,
+      レート: 150,
+      約定日: '2026/05/01',
+      受渡日: '2026/05/01',
+      決済通貨: 'USD'
+    }),
+    makeTradeRecord_({
+      銘柄名: 'FOREIGN_SELL',
+      商品: '外株',
+      取引区分: '現物売却',
+      数量: 2,
+      単価: 12,
+      受渡金額_決済損益: 0,
+      手数料税込: 0,
+      レート: 155,
+      約定日: '2026/05/02',
+      受渡日: '2026/05/02',
+      決済通貨: 'USD'
+    })
+  ], alerts);
+
+  const sellRow = rows[1];
+  assertApproxEquals_(12 * 2 * 155, getTradeRowValue_(sellRow, '手数料抜き売値'), 1e-9, '外株の手数料抜き売値は 単価*数量*レート');
+}
+
+function test_buildTradeRows_bookValue_foreignBuy_minusFeeTaxOnly_20260511_() {
+  const alerts = [];
+  const rows = buildTradeRows_([
+    makeTradeRecord_({
+      銘柄名: 'FOREIGN_BUY',
+      商品: '外株',
+      取引区分: '現物買付',
+      数量: 1,
+      単価: 10,
+      受渡金額_決済損益: 100,
+      手数料税込: 110,
+      国内消費税等円: 7,
+      レート: 150,
+      約定日: '2026/05/01',
+      受渡日: '2026/05/01',
+      決済通貨: 'USD'
+    })
+  ], alerts);
+
+  const row = rows[0];
+  assertApproxEquals_(100 * 150 - 7, getTradeRowValue_(row, '簿価'), 1e-9, '外貨買付の簿価は 消費税額にレートを掛けない');
+}
+
+function test_buildTradeRows_avgUnitPrice_updatesOnStockTransferIn_20260511_() {
+  const alerts = [];
+  const rows = buildTradeRows_([
+    makeTradeRecord_({
+      銘柄名: 'TRANSFER_IN',
+      商品: '株式',
+      取引区分: '現物買付',
+      数量: 2,
+      単価: 100,
+      受渡金額_決済損益: 200,
+      手数料税込: 0,
+      約定日: '2026/05/01',
+      受渡日: '2026/05/01',
+      決済通貨: 'JPY'
+    }),
+    makeTradeRecord_({
+      銘柄名: 'TRANSFER_IN',
+      商品: '株式',
+      取引区分: '入庫（増減資）',
+      数量: 1,
+      単価: 0,
+      受渡金額_決済損益: 0,
+      手数料税込: 0,
+      約定日: '2026/05/02',
+      受渡日: '2026/05/02',
+      決済通貨: 'JPY'
+    })
+  ], alerts);
+
+  const row = rows[1];
+  assertEquals_(3, getTradeRowValue_(row, '保有数'), '入庫（増減資）で保有数が増える');
+  assertApproxEquals_(200 / 3, getTradeRowValue_(row, '平均取得単価'), 1e-9, '入庫（増減資）は投信以外の平均取得単価更新対象');
+}
+
+function test_buildTradeRows_principalReturn_distributionDoesNotChangeBalance_20260511_() {
+  const alerts = [];
+  const rows = buildTradeRows_([
+    makeTradeRecord_({
+      銘柄名: 'PRINCIPAL_RETURN',
+      商品: '投信',
+      取引区分: '現物買付',
+      数量: 10000,
+      単価: 1,
+      受渡金額_決済損益: 10000,
+      手数料税込: 0,
+      約定日: '2026/05/01',
+      受渡日: '2026/05/01',
+      決済通貨: 'JPY'
+    }),
+    makeTradeRecord_({
+      銘柄名: 'PRINCIPAL_RETURN',
+      商品: '投信',
+      取引区分: '入金（分配金）',
+      数量: 0,
+      単価: 0,
+      受渡金額_決済損益: 500,
+      手数料税込: 0,
+      元本払戻金: true,
+      約定日: '2026/05/02',
+      受渡日: '2026/05/02',
+      決済通貨: 'JPY'
+    })
+  ], alerts);
+
+  const row = rows[1];
+  assertEquals_('', getTradeRowValue_(row, '簿価'), '元本払戻金=true なら簿価は空欄');
+  assertApproxEquals_(10000, getTradeRowValue_(row, '銘柄ごとの残高'), 1e-9, '元本払戻金=true の分配金は残高を増やさない');
+}
+
+function test_buildRowHash_changesWhenManualColumnsChange_20260511_() {
+  const a = makeTradeRecord_({
+    銘柄名: 'HASH_TEST',
+    商品: '外株',
+    取引区分: '現物売却',
+    数量: 1,
+    単価: 10,
+    受渡金額_決済損益: 100,
+    レート: 150,
+    約定日: '2026/05/01',
+    受渡日: '2026/05/02',
+    決済通貨: 'USD',
+    国内手数料円: 111,
+    現地手数料円: 222,
+    元本払戻金: true
+  });
+
+  const b = makeTradeRecord_({
+    銘柄名: 'HASH_TEST',
+    商品: '外株',
+    取引区分: '現物売却',
+    数量: 1,
+    単価: 10,
+    受渡金額_決済損益: 100,
+    レート: 150,
+    約定日: '2026/05/01',
+    受渡日: '2026/05/02',
+    決済通貨: 'USD',
+    国内手数料円: 999,
+    現地手数料円: 222,
+    元本払戻金: true
+  });
+
+  const ha = buildRowHash_(a);
+  const hb = buildRowHash_(b);
+  assertTrue_(ha !== hb, '追加手入力列が変わると rowHash も変わる');
+}
+
+function test_findInputSheetByHeader_singleCandidate_() {
+  withTempSpreadsheet_(function(ss) {
+    const sheet1 = ss.getSheets()[0];
+    sheet1.setName('メモ');
+    sheet1.getRange(1, 1, 2, 2).setValues([
+      ['foo', 'bar'],
+      ['1', '2']
+    ]);
+
+    const inputSheet = ss.insertSheet('取引データ');
+    const values = [
+      ['取引履歴'],
+      ['明細数：1件'],
+      ['約定日', '受渡日', '商品', '銘柄コード', '銘柄名', '摘要', '取引区分', '預り区分', '発行通貨', '数量', '単価', '受渡金額/決済損益', '手数料（税込）', 'レート', '決済通貨', '売買損益（円）'],
+      ['2026/05/01', '2026/05/02', '株式', '1234', 'AAA', '', '現物買付', '', 'JPY', 10, 100, 1000, 110, '', 'JPY', '']
+    ];
+    inputSheet.getRange(1, 1, values.length, values[2].length).setValues([
+      values[0].concat(new Array(values[2].length - values[0].length).fill('')),
+      values[1].concat(new Array(values[2].length - values[1].length).fill('')),
+      values[2],
+      values[3],
+    ]);
+
+    const actual = findInputSheetByHeader_(ss);
+    assertEquals_('取引データ', actual.getName(), '候補が1枚ならそのシートを採用');
+  });
+}
+
+function test_findInputSheetByHeader_noCandidate_throws_() {
+  withTempSpreadsheet_(function(ss) {
+    const sheet = ss.getSheets()[0];
+    sheet.setName('メモ');
+    sheet.getRange(1, 1, 2, 2).setValues([
+      ['foo', 'bar'],
+      ['1', '2']
+    ]);
+
+    assertThrowsContains_(function() {
+      findInputSheetByHeader_(ss);
+    }, '取引履歴のヘッダーを持つシートが見つかりません', '候補0枚ならエラー');
+  });
+}
+
+function test_findInputSheetByHeader_multipleCandidates_throws_() {
+  withTempSpreadsheet_(function(ss) {
+    const headers = ['約定日', '受渡日', '商品', '銘柄コード', '銘柄名', '摘要', '取引区分', '預り区分', '発行通貨', '数量', '単価', '受渡金額/決済損益', '手数料（税込）', 'レート', '決済通貨', '売買損益（円）'];
+    const row = ['2026/05/01', '2026/05/02', '株式', '1234', 'AAA', '', '現物買付', '', 'JPY', 10, 100, 1000, 110, '', 'JPY', ''];
+
+    const s1 = ss.getSheets()[0];
+    s1.setName('候補1');
+    s1.getRange(1, 1, 2, headers.length).setValues([headers, row]);
+
+    const s2 = ss.insertSheet('候補2');
+    s2.getRange(1, 1, 2, headers.length).setValues([headers, row]);
+
+    assertThrowsContains_(function() {
+      findInputSheetByHeader_(ss);
+    }, '複数見つかりました', '候補が複数ならエラー');
+  });
+}
+
+function test_createSpreadsheetFromSourceSpreadsheetUsingDb_readsDetectedSheet_() {
+  const temp = createTempDbTargets_(['corp_a']);
+  try {
+    withTempDbTargets_(temp.targets, 'corp_a', function() {
+      const sourceSs = SpreadsheetApp.create('入力元テスト');
+      try {
+        const memo = sourceSs.getSheets()[0];
+        memo.setName('メモ');
+        memo.getRange(1, 1, 2, 2).setValues([
+          ['foo', 'bar'],
+          ['1', '2']
+        ]);
+
+        const inputSheet = sourceSs.insertSheet('入力候補');
+        const headers = ['約定日', '受渡日', '商品', '銘柄コード', '銘柄名', '摘要', '取引区分', '預り区分', '発行通貨', '数量', '単価', '受渡金額/決済損益', '手数料（税込）', 'レート', '決済通貨', '売買損益（円）', '国内消費税等（円）', '現地源泉税（円）', '国内源泉所得税（円）', '国内源泉地方税（円）', '元本払戻金', '国内手数料（円）', '現地手数料（円）'];
+        const row = ['2026/05/01', '2026/05/02', '株式', '1234', 'AAA', '', '現物買付', '', 'JPY', 10, 100, 1000, 110, '', 'JPY', '', '', '', '', '', '', '', ''];
+        inputSheet.getRange(1, 1, 2, headers.length).setValues([headers, row]);
+
+        const result = createSpreadsheetFromSourceSpreadsheetUsingDb_(sourceSs.getUrl(), {
+          targetDbKey: 'corp_a'
+        });
+
+        assertEquals_('spreadsheet', result.inputType, '入力方式は spreadsheet');
+        assertEquals_('入力候補', result.sourceSheetName, '自動判定したシート名を返す');
+        assertEquals_(1, result.db.insertedCount, 'DBに1件追加');
+        assertEquals_(1, result.counts.all, '全件数1件');
+      } finally {
+        DriveApp.getFileById(sourceSs.getId()).setTrashed(true);
+      }
+    });
+  } finally {
+    temp.cleanup();
+  }
 }

@@ -118,6 +118,82 @@ function ensureHeaderRow_(sheet, headers) {
   }
 }
 
+function assertDbSheetCompatible_(sheet, headers) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow <= 1) {
+    return;
+  }
+
+  const rowCount = Math.min(lastRow - 1, 50);
+  const values = sheet.getRange(2, 1, rowCount, headers.length).getValues();
+
+  const idx = {
+    principalReturn: headers.indexOf('元本払戻金'),
+    domesticFee: headers.indexOf('国内手数料（円）'),
+    foreignFee: headers.indexOf('現地手数料（円）'),
+    createdAt: headers.indexOf('createdAt'),
+    updatedAt: headers.indexOf('updatedAt'),
+    isActive: headers.indexOf('isActive')
+  };
+
+  values.forEach(function(row, i) {
+    const rowNo = i + 2;
+    const issues = [];
+
+    if (idx.principalReturn >= 0 && row[idx.principalReturn] instanceof Date) {
+      issues.push('元本払戻金列に日時が入っています');
+    }
+
+    if (idx.domesticFee >= 0 && row[idx.domesticFee] instanceof Date) {
+      issues.push('国内手数料（円）列に日時が入っています');
+    }
+
+    if (idx.foreignFee >= 0 && row[idx.foreignFee] instanceof Date) {
+      issues.push('現地手数料（円）列に日時が入っています');
+    }
+
+    if (idx.createdAt >= 0) {
+      const v = row[idx.createdAt];
+      if (v !== '' && v !== null && v !== undefined && !(v instanceof Date)) {
+        issues.push('createdAt列が日時ではありません');
+      }
+    }
+
+    if (idx.updatedAt >= 0) {
+      const v = row[idx.updatedAt];
+      if (v !== '' && v !== null && v !== undefined && !(v instanceof Date)) {
+        issues.push('updatedAt列が日時ではありません');
+      }
+    }
+
+    if (idx.isActive >= 0) {
+      const v = row[idx.isActive];
+      const ok =
+        v === '' ||
+        v === null ||
+        v === undefined ||
+        v === true ||
+        v === false ||
+        String(v).toUpperCase() === 'TRUE' ||
+        String(v).toUpperCase() === 'FALSE';
+      if (!ok) {
+        issues.push('isActive列がbooleanではありません');
+      }
+    }
+
+    if (issues.length > 0) {
+      throw new Error(
+        'DB側のデータレイアウトが現行仕様と一致していない可能性があります。' +
+        '旧レイアウトのDBを読んでいる可能性があります。' +
+        ' 対象シート: ' + sheet.getName() +
+        ' / 行: ' + rowNo +
+        ' / 問題: ' + issues.join(', ') +
+        '。選択中DBをリセットして再取込してください。'
+      );
+    }
+  });
+}
+
 function buildImportId_() {
   const tz = Session.getScriptTimeZone() || 'Asia/Tokyo';
   const ts = Utilities.formatDate(new Date(), tz, 'yyyyMMdd_HHmmss');
@@ -141,6 +217,9 @@ function buildRowHash_(record) {
     String(record['現地源泉税（円）'] === '' ? '' : toNumber_(record['現地源泉税（円）'])),
     String(record['国内源泉所得税（円）'] === '' ? '' : toNumber_(record['国内源泉所得税（円）'])),
     String(record['国内源泉地方税（円）'] === '' ? '' : toNumber_(record['国内源泉地方税（円）'])),
+    String(record['元本払戻金'] === true ? 1 : ''),
+    String(record['国内手数料（円）'] === '' ? '' : toNumber_(record['国内手数料（円）'])),
+    String(record['現地手数料（円）'] === '' ? '' : toNumber_(record['現地手数料（円）'])),
   ];
 
   const raw = parts.join('\t');
@@ -197,6 +276,9 @@ function normalizeRecordForDb_(record, options) {
     '現地源泉税（円）': toOptionalNumber_(record['現地源泉税（円）']),
     '国内源泉所得税（円）': toOptionalNumber_(record['国内源泉所得税（円）']),
     '国内源泉地方税（円）': toOptionalNumber_(record['国内源泉地方税（円）']),
+    '元本払戻金': toNullableBooleanFlag_(record['元本払戻金'], '元本払戻金'),
+    '国内手数料（円）': toOptionalNumber_(record['国内手数料（円）']),
+    '現地手数料（円）': toOptionalNumber_(record['現地手数料（円）']),
 
     createdAt: now,
     updatedAt: now,
@@ -215,6 +297,8 @@ function appendRecordsToDb_(records, options) {
   const target = resolveDbTarget_(options.targetDbKey);
   const dbSs = getOrCreateDbSpreadsheet_(target.key);
   const txSheet = getOrCreateDbSheet_(dbSs, DB_CONFIG.SHEET_TRANSACTIONS, DB_HEADERS);
+
+  assertDbSheetCompatible_(txSheet, DB_HEADERS);
 
   const importId = options.importId || buildImportId_();
   const now = new Date();
@@ -309,6 +393,9 @@ function appendImportLog_(dbSs, log) {
 function readDbRecords_(targetDbKey) {
   const dbSs = getOrCreateDbSpreadsheet_(targetDbKey);
   const txSheet = getOrCreateDbSheet_(dbSs, DB_CONFIG.SHEET_TRANSACTIONS, DB_HEADERS);
+
+  assertDbSheetCompatible_(txSheet, DB_HEADERS);
+
   const lastRow = txSheet.getLastRow();
 
   if (lastRow <= 1) {
@@ -350,6 +437,9 @@ function readDbRecords_(targetDbKey) {
         '現地源泉税（円）': toOptionalNumber_(obj['現地源泉税（円）']),
         '国内源泉所得税（円）': toOptionalNumber_(obj['国内源泉所得税（円）']),
         '国内源泉地方税（円）': toOptionalNumber_(obj['国内源泉地方税（円）']),
+        '元本払戻金': toNullableBooleanFlag_(obj['元本払戻金'], '元本払戻金'),
+        '国内手数料（円）': toOptionalNumber_(obj['国内手数料（円）']),
+        '現地手数料（円）': toOptionalNumber_(obj['現地手数料（円）']),
       };
     });
 }

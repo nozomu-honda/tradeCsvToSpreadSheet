@@ -25,6 +25,7 @@ function buildTradeRows_(records, alerts) {
     const tx = r['取引区分'];
     const product = r['商品'];
     const settlementCurrency = normalizeCurrency_(r['決済通貨']);
+    const isPrincipalReturn = r['元本払戻金'] === true;
 
     const prevHolding = st.holding;
     const prevBalance = st.balance;
@@ -62,10 +63,21 @@ function buildTradeRows_(records, alerts) {
     let bookValue = '';
 
     if (['現物売却', '現物買取'].includes(tx)) {
-      sellNet = product === '投信' ? qty * price / 10000 : qty * price;
+      if (product === '投信') {
+        sellNet = qty * price / 10000;
+      } else if (product === '外株') {
+        if (rate && rate !== 0) {
+          sellNet = qty * price * rate;
+        } else {
+          alerts.push(`手数料抜き売値: レート未入力: ${symbol || '(空欄)'} / 受渡日: ${formatDateForAlert_(r['受渡日'])} / 商品: ${product}`);
+          sellNet = qty * price;
+        }
+      } else {
+        sellNet = qty * price;
+      }
     } else if (tx === '償還') {
       if (prevHolding !== 0) {
-        sellNet = product === '投信' ? qty * price / 10000 : qty * price;
+        sellNet = qty * price;
       }
     } else if (tx === '強制償還（売）') {
       sellNet = amount;
@@ -73,25 +85,32 @@ function buildTradeRows_(records, alerts) {
 
     if (['現物売却', '現物買取', '強制償還（売）'].includes(tx)) {
       if (prevAvgUnitPrice !== '') {
-        acquisitionPrice = product === '投信' ? prevAvgUnitPrice * qty / 10000 : prevAvgUnitPrice * qty;
+        acquisitionPrice = product === '投信'
+          ? prevAvgUnitPrice * qty / 10000
+          : prevAvgUnitPrice * qty;
       } else {
         acquisitionPrice = '';
       }
     } else if (tx === '償還') {
       if (prevHolding !== 0) {
         if (prevAvgUnitPrice !== '') {
-          acquisitionPrice = product === '投信' ? prevAvgUnitPrice * qty / 10000 : prevAvgUnitPrice * qty;
+          acquisitionPrice = product === '投信'
+            ? prevAvgUnitPrice * qty / 10000
+            : prevAvgUnitPrice * qty;
         } else {
           acquisitionPrice = '';
         }
       }
     }
 
-    if (['現物買付', '現物再投', '現物募集'].includes(tx)) {
+    if (isPrincipalReturn) {
+      bookValue = '';
+    } else if (['現物買付', '現物再投', '現物募集'].includes(tx)) {
       const tax = feeTax === '' ? 0 : feeTax;
+
       if (settlementCurrency && settlementCurrency !== 'JPY') {
         if (rate && rate !== 0) {
-          bookValue = amount * rate - tax * rate;
+          bookValue = amount * rate - tax;
         } else {
           alerts.push(`簿価: レート未入力: ${symbol || '(空欄)'} / 受渡日: ${formatDateForAlert_(r['受渡日'])} / 決済通貨: ${settlementCurrency}`);
           bookValue = amount - tax;
@@ -112,6 +131,9 @@ function buildTradeRows_(records, alerts) {
         bookValue = amount;
       }
 
+    } else if (tx === '入金（分配金）') {
+      bookValue = amount;
+
     } else if (['現物売却', '現物買取', '強制償還（売）'].includes(tx)) {
       if (acquisitionPrice !== '') {
         bookValue = -acquisitionPrice;
@@ -130,7 +152,7 @@ function buildTradeRows_(records, alerts) {
         alerts.push(`簿価: 平均取得単価が未計算: ${symbol || '(空欄)'} / 受渡日: ${formatDateForAlert_(r['受渡日'])} / 取引区分: ${tx}`);
       }
 
-    } else if (['入庫（増減資）', '入金（利金）', '入金（配当金）', '入金（分配金）'].includes(tx)) {
+    } else if (['入庫（増減資）', '入金（利金）', '入金（配当金）'].includes(tx)) {
       bookValue = '';
 
     } else {
@@ -144,7 +166,9 @@ function buildTradeRows_(records, alerts) {
       symbolBalance = prevBalance + (bookValue === '' ? 0 : bookValue);
     } else if (tx === '償還') {
       symbolBalance = prevHolding === 0 ? prevBalance : prevBalance + (bookValue === '' ? 0 : bookValue);
-    } else if (['株転換取得（買）', '入庫（増減資）', '入金（利金）', '入金（配当金）', '入金（分配金）'].includes(tx)) {
+    } else if (tx === '入金（分配金）') {
+      symbolBalance = isPrincipalReturn ? prevBalance : prevBalance + (bookValue === '' ? 0 : bookValue);
+    } else if (['株転換取得（買）', '入庫（増減資）', '入金（利金）', '入金（配当金）'].includes(tx)) {
       symbolBalance = prevBalance;
     } else {
       alerts.push(`銘柄ごとの残高: 対象外の取引区分: ${tx || '(空欄)'} / 銘柄名: ${symbol || '(空欄)'} / 受渡日: ${formatDateForAlert_(r['受渡日'])}`);
@@ -152,20 +176,20 @@ function buildTradeRows_(records, alerts) {
 
     symbolBalance = normalizeZero_(symbolBalance);
 
-    if (['現物買付', '現物再投', '現物募集', '株転換取得（買）'].includes(tx) && holding > 0) {
-      const balanceBase = prevBalance > 0
-        ? (prevBalance + (bookValue === '' ? 0 : bookValue))
-        : (bookValue === '' ? 0 : bookValue);
-
-      if (product === '投信') {
+    if (holding > 0) {
+      if (product === '投信' && ['現物買付', '現物再投'].includes(tx)) {
+        const balanceBase = prevBalance > 0
+          ? (prevBalance + (bookValue === '' ? 0 : bookValue))
+          : (bookValue === '' ? 0 : bookValue);
         avgUnitPrice = balanceBase / holding * 10000;
-      } else {
+      } else if (product !== '投信' && ['現物買付', '現物再投', '現物募集', '入庫（増減資）'].includes(tx)) {
+        const balanceBase = prevBalance > 0
+          ? (prevBalance + (bookValue === '' ? 0 : bookValue))
+          : (bookValue === '' ? 0 : bookValue);
         avgUnitPrice = balanceBase / holding;
+      } else if (!['現物売却', '現物買取', '入庫（増減資）', '強制償還（売）', '償還', '入金（利金）', '入金（配当金）', '入金（分配金）', '株転換取得（買）'].includes(tx)) {
+        alerts.push(`平均取得単価: 対象外の取引区分: ${tx || '(空欄)'} / 銘柄名: ${symbol || '(空欄)'} / 受渡日: ${formatDateForAlert_(r['受渡日'])}`);
       }
-    } else if (['現物売却', '現物買取', '入庫（増減資）', '強制償還（売）', '償還', '入金（利金）', '入金（配当金）', '入金（分配金）'].includes(tx)) {
-      avgUnitPrice = '';
-    } else {
-      alerts.push(`平均取得単価: 対象外の取引区分: ${tx || '(空欄)'} / 銘柄名: ${symbol || '(空欄)'} / 受渡日: ${formatDateForAlert_(r['受渡日'])}`);
     }
 
     avgUnitPrice = normalizeZero_(avgUnitPrice);
@@ -205,6 +229,9 @@ function buildTradeRows_(records, alerts) {
       displayValueKeepZero_(r['現地源泉税（円）']),
       displayValueKeepZero_(r['国内源泉所得税（円）']),
       displayValueKeepZero_(r['国内源泉地方税（円）']),
+      displayNullableBooleanFlag_(r['元本払戻金']),
+      displayValueKeepZero_(r['国内手数料（円）']),
+      displayValueKeepZero_(r['現地手数料（円）']),
       holding,
       feeTax,
       avgUnitPrice,
@@ -218,7 +245,7 @@ function buildTradeRows_(records, alerts) {
     ]);
 
     stateBySymbol[symbol] = {
-      holding,
+      holding: holding,
       balance: symbolBalance,
       avgUnitPrice: avgUnitPrice !== '' ? avgUnitPrice : prevAvgUnitPrice
     };
@@ -272,6 +299,9 @@ function buildCashRows_(records) {
       displayValueKeepZero_(r['現地源泉税（円）']),
       displayValueKeepZero_(r['国内源泉所得税（円）']),
       displayValueKeepZero_(r['国内源泉地方税（円）']),
+      displayNullableBooleanFlag_(r['元本払戻金']),
+      displayValueKeepZero_(r['国内手数料（円）']),
+      displayValueKeepZero_(r['現地手数料（円）']),
       runningBalance,
       monthEndBalance
     ]);
@@ -314,6 +344,7 @@ function compareTradePriority_(a, b) {
   const pb = priority[b] || 999;
   return pa - pb;
 }
+
 function makeBlankTradeRow_() {
   return new Array(TRADE_HEADERS.length + 1).fill('');
 }

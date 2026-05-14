@@ -58,6 +58,42 @@ function toOptionalNumber_(v) {
   return isNaN(n) ? '' : n;
 }
 
+function toNullableBooleanFlag_(v, label) {
+  if (v === '' || v === null || v === undefined || v === false) return '';
+  if (v === true) return true;
+
+  if (typeof v === 'number') {
+    if (v === 0) return '';
+    if (v === 1) return true;
+  }
+
+  const raw = String(v)
+    .replace(/\u00A0/g, ' ')   // NBSP
+    .replace(/\u200B/g, '')    // zero-width space
+    .replace(/\uFEFF/g, '')    // BOM
+    .replace(/\u3000/g, ' ')   // 全角スペース
+    .trim();
+
+  if (!raw) return '';
+
+  const upper = raw.toUpperCase();
+
+  if (raw === '0' || raw === 'FALSE' || upper === 'FALSE') return '';
+  if (raw === '1' || raw === 'TRUE' || upper === 'TRUE') return true;
+
+  throw new Error(
+    (label || 'フラグ') +
+    ' は空欄または1を入力してください。' +
+    ' actual=' + JSON.stringify(v) +
+    ' normalized=' + JSON.stringify(raw) +
+    ' type=' + (typeof v)
+  );
+}
+
+function displayNullableBooleanFlag_(v) {
+  return v === true ? 1 : '';
+}
+
 function text_(v) {
   return String(v || '').trim();
 }
@@ -76,12 +112,17 @@ function sameYearMonth_(a, b) {
 }
 
 function isEmptyRow_(row) {
-  return row.every(v => v === '' || v === null || v === undefined);
+  return row.every(function(v) {
+    return v === '' || v === null || v === undefined;
+  });
 }
 
 function padRows_(rows) {
-  const maxCols = Math.max(...rows.map(r => r.length));
-  return rows.map(row => {
+  const maxCols = Math.max.apply(null, rows.map(function(r) {
+    return r.length;
+  }));
+
+  return rows.map(function(row) {
     const newRow = row.slice();
     while (newRow.length < maxCols) newRow.push('');
     return newRow;
@@ -113,5 +154,9 @@ function columnToLetter_(column) {
 
 function formatDateForAlert_(dateValue) {
   if (!(dateValue instanceof Date)) return '(日付なし)';
-  return Utilities.formatDate(dateValue, Session.getScriptTimeZone() || 'Asia/Tokyo', 'yyyy/MM/dd');
+  return Utilities.formatDate(
+    dateValue,
+    Session.getScriptTimeZone() || 'Asia/Tokyo',
+    'yyyy/MM/dd'
+  );
 }
