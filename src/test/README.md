@@ -246,6 +246,47 @@ Apps Script では、テスト中に以下が重いです。
 
 ---
 
+## test DB の固定出力Spreadsheet
+
+### 目的
+`test DB` で後続処理を確認したいときに、  
+毎回 `SpreadsheetApp.create()` を使うとクォータを消耗します。
+
+そのため、`test DB` では新規の出力Spreadsheetを毎回作らず、  
+**固定の確認用Spreadsheetへ上書き出力** する運用にします。
+
+### 想定挙動
+- 通常DB
+  - 出力Spreadsheetを都度新規作成
+- test DB (`key === 'test'`)
+  - 固定の確認用Spreadsheetを再利用
+  - 日本株 / 米国株 / 投信 / 金銭残高（円） / 金銭残高（ドル）を毎回上書き更新
+
+### 推奨設定
+`src/app/db_config.gs` の `DB_CONFIG` に以下を持たせます。
+
+- `TARGET_DBS` の `key: 'test'`
+- `TEST_OUTPUT_SPREADSHEET`
+
+運用上は、事前に次の2つを手動で作成して `spreadsheetId` を入れておくのがベストです。
+
+- test DB 本体
+- test DB 確認用出力Spreadsheet
+
+これにより、test DB 実行時の `SpreadsheetApp.create()` を大幅に減らせます。
+
+### メリット
+- test DB でも実際の出力シートを確認できる
+- 出力Spreadsheetの実物を見ながら検証できる
+- create クォータを節約できる
+
+### 注意
+- 固定出力Spreadsheetは **test 専用**
+- 本番確認用と混ぜない
+- 毎回上書きされる前提で使う
+
+---
+
 ## 命名ルール
 
 ### テスト関数
@@ -309,6 +350,7 @@ Apps Script では、テスト中に以下が重いです。
 - DB列追加時に関連テストを更新しているか
 - README / docs と整合しているか
 - test DB の特例が本番DBへ漏れていないか
+- 固定出力Spreadsheetの前提が崩れていないか
 
 ---
 
@@ -346,6 +388,11 @@ Google Sheets / Apps Script では、セル値が
 ### test DB は例外であって通常ルートではない
 test DB は、あくまで**検証を進めるための安全弁**です。  
 通常仕様のバリデーションを置き換えるものではありません。
+
+### 固定出力Spreadsheetは使い回し前提
+test DB の出力先は毎回新規作成されないので、  
+前回結果を残したまま比較したい用途には向きません。  
+必要なら別名で退避する運用にします。
 
 ---
 

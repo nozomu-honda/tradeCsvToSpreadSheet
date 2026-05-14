@@ -29,8 +29,12 @@ function createSpreadsheetFromSourceSpreadsheet_(spreadsheetUrlOrId, options) {
   return createSpreadsheetFromSourceSpreadsheetUsingDb_(spreadsheetUrlOrId, options);
 }
 
-function shouldSkipRequiredManualValidationForTarget_(targetDbKey) {
+function isTestDbTarget_(targetDbKey) {
   return text_(targetDbKey) === 'test';
+}
+
+function shouldSkipRequiredManualValidationForTarget_(targetDbKey) {
+  return isTestDbTarget_(targetDbKey);
 }
 
 function createStagingSpreadsheetFromCsvUrl_(csvUrl) {
@@ -319,6 +323,58 @@ function a1_(row, col) {
   return columnToLetter_(col) + row;
 }
 
+function getManagedOutputSpreadsheet_(targetDbKey, sourceNameForNewFile) {
+  if (!isTestDbTarget_(targetDbKey)) {
+    return {
+      ss: SpreadsheetApp.create(buildSpreadsheetName_(sourceNameForNewFile)),
+      reused: false,
+      mode: 'created'
+    };
+  }
+
+  const outputConfig = DB_CONFIG.TEST_OUTPUT_SPREADSHEET || {};
+  const fixedId = text_(outputConfig.spreadsheetId);
+  const fixedName = text_(outputConfig.spreadsheetName) || '株管理ツール_TEST_OUTPUT';
+
+  if (fixedId) {
+    return {
+      ss: SpreadsheetApp.openById(fixedId),
+      reused: true,
+      mode: 'fixed_id'
+    };
+  }
+
+  const existing = findSpreadsheetByName_(fixedName);
+  if (existing) {
+    return {
+      ss: existing,
+      reused: true,
+      mode: 'fixed_name'
+    };
+  }
+
+  return {
+    ss: SpreadsheetApp.create(fixedName),
+    reused: false,
+    mode: 'created_test_output'
+  };
+}
+
+function findSpreadsheetByName_(spreadsheetName) {
+  if (!spreadsheetName) {
+    return null;
+  }
+
+  const files = DriveApp.getFilesByName(spreadsheetName);
+  while (files.hasNext()) {
+    const file = files.next();
+    if (file.getMimeType() === MimeType.GOOGLE_SHEETS) {
+      return SpreadsheetApp.openById(file.getId());
+    }
+  }
+  return null;
+}
+
 function createSpreadsheetFromCsvUrlLegacy_(csvUrl) {
   if (!csvUrl) {
     throw new Error('CSVリンクを入力してください。');
@@ -374,9 +430,16 @@ function createSpreadsheetFromCsvTextUsingDb_(csvText, sourceName, normalizedUrl
   }
 
   const paddedRows = padRows_(rows);
+  const targetDbKey = options && options.targetDbKey ? options.targetDbKey : getDefaultDbTargetKey_();
+  const outputMeta = getManagedOutputSpreadsheet_(targetDbKey, sourceName);
+  const ss = outputMeta.ss;
 
-  const ss = SpreadsheetApp.create(buildSpreadsheetName_(sourceName));
-  const sourceSheet = ss.getSheets()[0];
+  let sourceSheet = ss.getSheetByName(CONFIG.SOURCE_SHEET_NAME);
+  if (!sourceSheet) {
+    sourceSheet = ss.insertSheet(CONFIG.SOURCE_SHEET_NAME, 0);
+  } else {
+    sourceSheet.clear();
+  }
   sourceSheet.setName(CONFIG.SOURCE_SHEET_NAME);
   sourceSheet.getRange(1, 1, paddedRows.length, paddedRows[0].length).setValues(paddedRows);
 
@@ -384,8 +447,6 @@ function createSpreadsheetFromCsvTextUsingDb_(csvText, sourceName, normalizedUrl
 
   const inputAlerts = [];
   collectInputAlerts_(records, inputAlerts);
-
-  const targetDbKey = options && options.targetDbKey ? options.targetDbKey : getDefaultDbTargetKey_();
 
   const dbAppendResult = appendRecordsToDb_(records, {
     sourceName: sourceName || '',
@@ -402,6 +463,8 @@ function createSpreadsheetFromCsvTextUsingDb_(csvText, sourceName, normalizedUrl
   result.normalizedUrl = normalizedUrl || '';
   result.sourceName = sourceName || '';
   result.sourceSheetName = sourceSheet.getName();
+  result.outputSpreadsheetReused = outputMeta.reused;
+  result.outputSpreadsheetMode = outputMeta.mode;
 
   result.db = {
     dbSpreadsheetId: dbAppendResult.dbSpreadsheetId,
@@ -431,14 +494,20 @@ function createSpreadsheetFromSourceSpreadsheetUsingDb_(spreadsheetUrlOrId, opti
   }
 
   const paddedRows = padRows_(sourceValues);
-  const ss = SpreadsheetApp.create(buildSpreadsheetName_(sourceSs.getName()));
-  const outputSourceSheet = ss.getSheets()[0];
+  const targetDbKey = options && options.targetDbKey ? options.targetDbKey : getDefaultDbTargetKey_();
+  const outputMeta = getManagedOutputSpreadsheet_(targetDbKey, sourceSs.getName());
+  const ss = outputMeta.ss;
+
+  let outputSourceSheet = ss.getSheetByName(CONFIG.SOURCE_SHEET_NAME);
+  if (!outputSourceSheet) {
+    outputSourceSheet = ss.insertSheet(CONFIG.SOURCE_SHEET_NAME, 0);
+  } else {
+    outputSourceSheet.clear();
+  }
   outputSourceSheet.setName(CONFIG.SOURCE_SHEET_NAME);
   outputSourceSheet.getRange(1, 1, paddedRows.length, paddedRows[0].length).setValues(paddedRows);
 
-  const targetDbKey = options && options.targetDbKey ? options.targetDbKey : getDefaultDbTargetKey_();
   const validationBypassed = shouldSkipRequiredManualValidationForTarget_(targetDbKey);
-
   if (!validationBypassed) {
     validateRequiredManualInputsOnSheet_(outputSourceSheet);
   }
@@ -465,6 +534,8 @@ function createSpreadsheetFromSourceSpreadsheetUsingDb_(spreadsheetUrlOrId, opti
   result.sourceSheetName = sourceSheet.getName();
   result.sourceSpreadsheetName = sourceSs.getName();
   result.validationBypassed = validationBypassed;
+  result.outputSpreadsheetReused = outputMeta.reused;
+  result.outputSpreadsheetMode = outputMeta.mode;
 
   result.db = {
     dbSpreadsheetId: dbAppendResult.dbSpreadsheetId,
