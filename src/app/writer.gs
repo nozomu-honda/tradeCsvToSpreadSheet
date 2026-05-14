@@ -13,7 +13,7 @@ function writeSheet_(ss, sheetName, headers, rows, isTradeSheet) {
     sheet.clear();
   }
 
-  const values = [actualHeaders, ...valuesRows];
+  const values = [actualHeaders].concat(valuesRows);
   sheet.getRange(1, 1, values.length, actualHeaders.length).setValues(values);
 
   styleSheet_(sheet, actualHeaders, values.length);
@@ -35,7 +35,7 @@ function writeSheet_(ss, sheetName, headers, rows, isTradeSheet) {
       .build();
 
     const positiveHoldingLastTradeRule = SpreadsheetApp.newConditionalFormatRule()
-      .whenFormulaSatisfied(`=$${columnToLetter_(helperCol)}2="YES"`)
+      .whenFormulaSatisfied('=$' + columnToLetter_(helperCol) + '2="YES"')
       .setBackground('#d9f0ff')
       .setRanges([sheet.getRange(2, symbolCol, rows.length, 1)])
       .build();
@@ -69,7 +69,7 @@ function styleSheet_(sheet, headers, rowCount) {
       .setVerticalAlignment('middle');
   }
 
-  headers.forEach((h, i) => {
+  headers.forEach(function(h, i) {
     let width = 110;
     if (['約定日', '受渡日'].includes(h)) width = 95;
     if (h === '銘柄名') width = 280;
@@ -102,7 +102,7 @@ function styleSheet_(sheet, headers, rowCount) {
 
   const qtyLike = new Set(['数量', '保有数']);
 
-  headers.forEach((h, i) => {
+  headers.forEach(function(h, i) {
     if (rowCount <= 1) return;
     const range = sheet.getRange(2, i + 1, rowCount - 1, 1);
 
@@ -119,13 +119,13 @@ function styleSheet_(sheet, headers, rowCount) {
 }
 
 function hideColumnsByName_(sheet, headers, sheetName) {
-  const hideMap = {
-    '国内取引': ['摘要', '発行通貨', 'レート', '決済通貨'],
-    '外国取引': ['摘要']
-  };
+  const hideMap = {};
+  hideMap[CONFIG.OUTPUT_JAPAN_STOCK] = ['摘要', '発行通貨', 'レート', '決済通貨'];
+  hideMap[CONFIG.OUTPUT_US_STOCK] = ['摘要'];
+  hideMap[CONFIG.OUTPUT_FUND] = ['摘要', '発行通貨', 'レート', '決済通貨'];
 
   const targetNames = hideMap[sheetName] || [];
-  targetNames.forEach(name => {
+  targetNames.forEach(function(name) {
     const idx = headers.indexOf(name);
     if (idx >= 0) {
       sheet.hideColumns(idx + 1);

@@ -53,11 +53,13 @@ const CORE_TESTS_ = [
   test_validateRequiredManualInputsOnSheet_requiresForeignStockManualInputs_,
   test_validateRequiredManualInputsOnSheet_allowsWhenForeignStockManualInputsFilled_,
   test_createStagingSpreadsheetFromSourceSpreadsheet_createsSingleSheet_,
+  test_buildOutputSheetsFromDbRecords_splitsIntoFiveSheets_,
 ];
 
 const FULL_ONLY_TESTS_ = [
-  test_writeSheet_domesticHiddenColumns_,
-  test_writeSheet_foreignHiddenColumns_,
+  test_writeSheet_japanStockHiddenColumns_,
+  test_writeSheet_usStockHiddenColumns_,
+  test_writeSheet_fundHiddenColumns_,
   test_writeSheet_tradeConditionalFormatRules_,
   test_writeSheet_averageUnitPriceNumberFormat_,
 ];
