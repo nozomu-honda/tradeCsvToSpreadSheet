@@ -29,6 +29,12 @@ const DB_CONFIG = {
       spreadsheetId: '1i9pU8D8J-vRVP6uMfaIbMtX9lC4DFw3jw1AfbASCvlw',
       spreadsheetName: '取引DB_法人B',
     },
+    {
+      key: 'test',
+      label: 'テスト用DB（赤セルバリデーション無視）',
+      spreadsheetId: '1IEwnXis7WiFJ9jRl3E-llZanhjkwlyOafWqSXCxkI3M',
+      spreadsheetName: '株管理ツール_TEST_DB',
+    },
   ],
 
   SHEET_TRANSACTIONS: '取引DB',

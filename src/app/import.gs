@@ -29,6 +29,10 @@ function createSpreadsheetFromSourceSpreadsheet_(spreadsheetUrlOrId, options) {
   return createSpreadsheetFromSourceSpreadsheetUsingDb_(spreadsheetUrlOrId, options);
 }
 
+function shouldSkipRequiredManualValidationForTarget_(targetDbKey) {
+  return text_(targetDbKey) === 'test';
+}
+
 function createStagingSpreadsheetFromCsvUrl_(csvUrl) {
   if (!csvUrl) {
     throw new Error('CSVリンクを入力してください。');
@@ -432,14 +436,17 @@ function createSpreadsheetFromSourceSpreadsheetUsingDb_(spreadsheetUrlOrId, opti
   outputSourceSheet.setName(CONFIG.SOURCE_SHEET_NAME);
   outputSourceSheet.getRange(1, 1, paddedRows.length, paddedRows[0].length).setValues(paddedRows);
 
-  validateRequiredManualInputsOnSheet_(outputSourceSheet);
+  const targetDbKey = options && options.targetDbKey ? options.targetDbKey : getDefaultDbTargetKey_();
+  const validationBypassed = shouldSkipRequiredManualValidationForTarget_(targetDbKey);
+
+  if (!validationBypassed) {
+    validateRequiredManualInputsOnSheet_(outputSourceSheet);
+  }
 
   const records = readInputRecords_(outputSourceSheet);
 
   const inputAlerts = [];
   collectInputAlerts_(records, inputAlerts);
-
-  const targetDbKey = options && options.targetDbKey ? options.targetDbKey : getDefaultDbTargetKey_();
 
   const dbAppendResult = appendRecordsToDb_(records, {
     sourceName: sourceSs.getName() + ' / ' + sourceSheet.getName(),
@@ -457,6 +464,7 @@ function createSpreadsheetFromSourceSpreadsheetUsingDb_(spreadsheetUrlOrId, opti
   result.sourceName = sourceSs.getName();
   result.sourceSheetName = sourceSheet.getName();
   result.sourceSpreadsheetName = sourceSs.getName();
+  result.validationBypassed = validationBypassed;
 
   result.db = {
     dbSpreadsheetId: dbAppendResult.dbSpreadsheetId,
@@ -693,12 +701,16 @@ function buildOutputSheetsFromSourceSheet_(ss, sourceSheet) {
 
   collectInputAlerts_(records, alerts);
 
-  const domestic = records
-    .filter(function(r) { return ['株式', '投信'].includes(r['商品']); })
+  const japanStocks = records
+    .filter(function(r) { return r['商品'] === '株式'; })
     .sort(sortTradeRows_);
 
-  const foreign = records
+  const usStocks = records
     .filter(function(r) { return ['外株', '外債'].includes(r['商品']); })
+    .sort(sortTradeRows_);
+
+  const funds = records
+    .filter(function(r) { return r['商品'] === '投信'; })
     .sort(sortTradeRows_);
 
   const cashJpy = records
@@ -712,8 +724,9 @@ function buildOutputSheetsFromSourceSheet_(ss, sourceSheet) {
     .filter(function(r) { return normalizeCurrency_(r['決済通貨']) === 'USD'; })
     .sort(sortCashRows_);
 
-  writeSheet_(ss, CONFIG.OUTPUT_DOMESTIC, TRADE_HEADERS, buildTradeRows_(domestic, alerts), true);
-  writeSheet_(ss, CONFIG.OUTPUT_FOREIGN, TRADE_HEADERS, buildTradeRows_(foreign, alerts), true);
+  writeSheet_(ss, CONFIG.OUTPUT_JAPAN_STOCK, TRADE_HEADERS, buildTradeRows_(japanStocks, alerts), true);
+  writeSheet_(ss, CONFIG.OUTPUT_US_STOCK, TRADE_HEADERS, buildTradeRows_(usStocks, alerts), true);
+  writeSheet_(ss, CONFIG.OUTPUT_FUND, TRADE_HEADERS, buildTradeRows_(funds, alerts), true);
   writeSheet_(ss, CONFIG.OUTPUT_CASH_JPY, CASH_HEADERS, buildCashRows_(cashJpy), false);
   writeSheet_(ss, CONFIG.OUTPUT_CASH_USD, CASH_HEADERS, buildCashRows_(cashUsd), false);
 
@@ -726,8 +739,9 @@ function buildOutputSheetsFromSourceSheet_(ss, sourceSheet) {
     alerts: alerts,
     counts: {
       all: records.length,
-      domestic: domestic.length,
-      foreign: foreign.length,
+      japanStocks: japanStocks.length,
+      usStocks: usStocks.length,
+      funds: funds.length,
       cashJpy: cashJpy.length,
       cashUsd: cashUsd.length,
     }

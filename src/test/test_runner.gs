@@ -54,6 +54,9 @@ const CORE_TESTS_ = [
   test_validateRequiredManualInputsOnSheet_allowsWhenForeignStockManualInputsFilled_,
   test_createStagingSpreadsheetFromSourceSpreadsheet_createsSingleSheet_,
   test_buildOutputSheetsFromDbRecords_splitsIntoFiveSheets_,
+  test_shouldSkipRequiredManualValidationForTarget_testDb_true_,
+  test_shouldSkipRequiredManualValidationForTarget_normalDb_false_,
+  test_createSpreadsheetFromSourceSpreadsheetUsingDb_testDb_skipsManualValidation_,
 ];
 
 const FULL_ONLY_TESTS_ = [

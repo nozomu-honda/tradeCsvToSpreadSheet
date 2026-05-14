@@ -45,6 +45,7 @@ src/
     writer.gs
     parser.gs
     config.gs
+    db_config.gs
     utils.gs
 
   test/
@@ -57,6 +58,9 @@ src/
     test_writer.gs
     test_db.gs
     test_staging_sheet.gs
+    test_output_split.gs
+    test_test_db_validation_bypass.gs
+    README.md
 ```
 
 ---
@@ -93,6 +97,7 @@ DB系テスト用の一時Spreadsheet管理です。
 主な責務:
 - `assertEquals_`
 - `assertTrue_`
+- `assertFalse_`
 - `assertApproxEquals_`
 - `assertThrowsContains_`
 - テストデータ生成関数
@@ -148,6 +153,23 @@ DB保存 / ロールバック / リセットのテストです。
 - 必須入力バリデーション
 - スプレッドシートURLからの一次受け枠生成
 
+### `test_output_split.gs`
+5シート出力の振り分けテストです。
+
+主な責務:
+- 日本株 / 米国株 / 投信 / 金銭残高（円） / 金銭残高（ドル）の振り分け確認
+- 外債を暫定で米国株に含める仕様確認
+- 出力件数確認
+- 作成シート名確認
+
+### `test_test_db_validation_bypass.gs`
+テスト用DBの特例動作テストです。
+
+主な責務:
+- `key === 'test'` のDBでは赤セル必須入力バリデーションをスキップする確認
+- 通常DBではバリデーションを維持する確認
+- テスト用DBで後続処理まで進める確認
+
 ---
 
 ## テスト実行方針
@@ -184,6 +206,46 @@ Apps Script では、テスト中に以下が重いです。
 
 ---
 
+## テスト用DB（test DB）
+
+### 目的
+赤いセルの必須入力バリデーションを通常運用では維持しつつ、  
+**後続処理の確認だけをしたい** 場面があります。
+
+そのため、`key === 'test'` のDBを用意し、  
+このDBを選んだ場合だけ **赤セル必須入力バリデーションをスキップ** します。
+
+### 想定挙動
+- 通常DB
+  - 赤セル未入力ならエラーで停止
+- テスト用DB (`key === 'test'`)
+  - 赤セル未入力でも後続へ進む
+  - DB追加
+  - 5シート生成
+  - ロールバックやUI動作確認
+
+### 主な用途
+- 一次受け枠の後続確認
+- 出力シート振り分け確認
+- DB保存確認
+- UI文言確認
+- ロールバック確認
+
+### 実装上の考え方
+本番仕様は緩めず、  
+**テスト用DBを選んだときだけ例外的にスキップ** する方針です。
+
+判定関数の例:
+- `shouldSkipRequiredManualValidationForTarget_('test') === true`
+- `shouldSkipRequiredManualValidationForTarget_('corp_a') === false`
+
+### 注意
+- テスト用DBは **本番データの保存先に使わない**
+- 仕様確認や検証専用とする
+- 本番DBの挙動を緩めるための仕組みではない
+
+---
+
 ## 命名ルール
 
 ### テスト関数
@@ -215,6 +277,8 @@ Apps Script では、テスト中に以下が重いです。
 - 取引計算 → `test_trade_rows.gs`
 - DB保存 → `test_db.gs`
 - 一次受け枠 → `test_staging_sheet.gs`
+- 出力振り分け → `test_output_split.gs`
+- test DB特例 → `test_test_db_validation_bypass.gs`
 
 ### 2. ランナーへ登録する
 必要に応じて以下へ追加します。
@@ -244,6 +308,7 @@ Apps Script では、テスト中に以下が重いです。
 - 一時Spreadsheet作成回数が増えすぎていないか
 - DB列追加時に関連テストを更新しているか
 - README / docs と整合しているか
+- test DB の特例が本番DBへ漏れていないか
 
 ---
 
@@ -277,6 +342,10 @@ Google Sheets / Apps Script では、セル値が
 - rowHash
 - テスト
 - 仕様書
+
+### test DB は例外であって通常ルートではない
+test DB は、あくまで**検証を進めるための安全弁**です。  
+通常仕様のバリデーションを置き換えるものではありません。
 
 ---
 
