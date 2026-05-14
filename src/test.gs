@@ -1,6 +1,113 @@
 /**
  * Apps Script テストランナー
  */
+
+var __TEST_SUITE_TEMP_SPREADSHEET_ID__ = null;
+var __TEST_SUITE_TEMP_DB_SPREADSHEET_IDS__ = {};
+
+function getSuiteTempSpreadsheet_() {
+  if (__TEST_SUITE_TEMP_SPREADSHEET_ID__) {
+    return SpreadsheetApp.openById(__TEST_SUITE_TEMP_SPREADSHEET_ID__);
+  }
+
+  const ss = SpreadsheetApp.create('tmp_test_suite_' + new Date().getTime());
+  __TEST_SUITE_TEMP_SPREADSHEET_ID__ = ss.getId();
+  return ss;
+}
+
+function resetTempSpreadsheet_(ss) {
+  const sheets = ss.getSheets();
+
+  for (var i = sheets.length - 1; i >= 1; i--) {
+    ss.deleteSheet(sheets[i]);
+  }
+
+  var first = ss.getSheets()[0];
+  first.clear();
+  first.clearFormats();
+  first.clearConditionalFormatRules();
+  first.setName('Sheet1');
+
+  if (first.getFilter()) {
+    first.getFilter().remove();
+  }
+
+  const maxRows = first.getMaxRows();
+  const maxCols = first.getMaxColumns();
+
+  if (maxRows > 200) {
+    first.deleteRows(201, maxRows - 200);
+  } else if (maxRows < 200) {
+    first.insertRowsAfter(maxRows, 200 - maxRows);
+  }
+
+  if (maxCols > 40) {
+    first.deleteColumns(41, maxCols - 40);
+  } else if (maxCols < 40) {
+    first.insertColumnsAfter(maxCols, 40 - maxCols);
+  }
+
+  first.getRange(1, 1).setValue('');
+}
+
+function cleanupSuiteTempSpreadsheet_() {
+  if (!__TEST_SUITE_TEMP_SPREADSHEET_ID__) {
+    return;
+  }
+
+  try {
+    DriveApp.getFileById(__TEST_SUITE_TEMP_SPREADSHEET_ID__).setTrashed(true);
+  } catch (e) {
+    Logger.log('temp spreadsheet cleanup failed: ' + e.message);
+  }
+
+  __TEST_SUITE_TEMP_SPREADSHEET_ID__ = null;
+}
+
+function getSuiteTempDbSpreadsheetByKey_(key) {
+  if (__TEST_SUITE_TEMP_DB_SPREADSHEET_IDS__[key]) {
+    return SpreadsheetApp.openById(__TEST_SUITE_TEMP_DB_SPREADSHEET_IDS__[key]);
+  }
+
+  const ss = SpreadsheetApp.create('tmp_test_db_' + key + '_' + new Date().getTime());
+  __TEST_SUITE_TEMP_DB_SPREADSHEET_IDS__[key] = ss.getId();
+  return ss;
+}
+
+function resetTempDbSpreadsheet_(ss) {
+  const sheets = ss.getSheets();
+
+  for (var i = sheets.length - 1; i >= 1; i--) {
+    ss.deleteSheet(sheets[i]);
+  }
+
+  var first = ss.getSheets()[0];
+  first.clear();
+  first.clearFormats();
+  first.clearConditionalFormatRules();
+  first.setName('Sheet1');
+
+  if (first.getFilter()) {
+    first.getFilter().remove();
+  }
+}
+
+function cleanupSuiteTempDbSpreadsheets_() {
+  const ids = Object.keys(__TEST_SUITE_TEMP_DB_SPREADSHEET_IDS__).map(function(key) {
+    return __TEST_SUITE_TEMP_DB_SPREADSHEET_IDS__[key];
+  });
+
+  ids.forEach(function(id) {
+    try {
+      DriveApp.getFileById(id).setTrashed(true);
+    } catch (e) {
+      Logger.log('temp db cleanup failed: ' + e.message);
+    }
+  });
+
+  __TEST_SUITE_TEMP_DB_SPREADSHEET_IDS__ = {};
+}
+
 function runSmokeTests() {
   const tests = [
     test_averageUnitPrice_keepsDecimal_,
@@ -118,15 +225,22 @@ function runAllTests() {
 function runSelectedTests_(tests, label) {
   const results = [];
   let failed = 0;
-  tests.forEach(function(fn) {
-    try {
-      fn();
-      results.push('OK  ' + fn.name);
-    } catch (e) {
-      failed++;
-      results.push('NG  ' + fn.name + ' :: ' + e.message);
-    }
-  });
+
+  try {
+    tests.forEach(function(fn) {
+      try {
+        fn();
+        results.push('OK  ' + fn.name);
+      } catch (e) {
+        failed++;
+        results.push('NG  ' + fn.name + ' :: ' + e.message);
+      }
+    });
+  } finally {
+    cleanupSuiteTempSpreadsheet_();
+    cleanupSuiteTempDbSpreadsheets_();
+  }
+
   const message = '[' + label + ']\n' + results.join('\n');
   Logger.log(message);
   if (failed > 0) throw new Error(message);
@@ -742,12 +856,9 @@ function getColumnIndexByHeader_(headers, headerName) {
 }
 
 function withTempSpreadsheet_(fn) {
-  const ss = SpreadsheetApp.create('test_' + Utilities.getUuid());
-  try {
-    fn(ss);
-  } finally {
-    trashFileWithRetry_(ss.getId(), 'temp spreadsheet cleanup failed');
-  }
+  const ss = getSuiteTempSpreadsheet_();
+  resetTempSpreadsheet_(ss);
+  return fn(ss);
 }
 
 function trashFileWithRetry_(fileId, logPrefix) {
@@ -1187,10 +1298,9 @@ function test_resetDbData_resetsOnlySelectedDb_() {
 }
 
 function createTempDbTargets_(keys) {
-  const spreadsheetIds = [];
   const targets = keys.map(function(key) {
-    const ss = SpreadsheetApp.create('tmp_' + key + '_' + Utilities.getUuid());
-    spreadsheetIds.push(ss.getId());
+    const ss = getSuiteTempDbSpreadsheetByKey_(key);
+    resetTempDbSpreadsheet_(ss);
     return {
       key: key,
       label: 'Temp ' + key,
@@ -1202,9 +1312,7 @@ function createTempDbTargets_(keys) {
   return {
     targets: targets,
     cleanup: function() {
-      spreadsheetIds.forEach(function(id) {
-        trashFileWithRetry_(id, 'temp db cleanup failed');
-      });
+      // runSelectedTests_ の finally でまとめて cleanup する
     }
   };
 }
