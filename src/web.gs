@@ -102,3 +102,41 @@ function runStagingSheetFromWebApp(payload) {
 
   return createStagingSpreadsheetFromCsvUrl_(csvUrl);
 }
+
+function runStagingSheetFromWebApp(payload) {
+  if (!payload) {
+    throw new Error('入力がありません。');
+  }
+
+  const csvUrl = (payload.csvUrl || '').trim();
+  const spreadsheetUrl = (payload.spreadsheetUrl || '').trim();
+  const uploadedCsvText = payload.uploadedCsvText || '';
+  const uploadedFileName = (payload.uploadedFileName || '').trim();
+
+  const inputCount =
+    (csvUrl ? 1 : 0) +
+    (spreadsheetUrl ? 1 : 0) +
+    (uploadedCsvText ? 1 : 0);
+
+  if (inputCount === 0) {
+    throw new Error('CSVリンク、スプレッドシートURL、CSVファイルのいずれかを指定してください。');
+  }
+
+  if (inputCount >= 2) {
+    throw new Error('CSVリンク、スプレッドシートURL、CSVファイルは同時に指定せず、どれか1つだけ指定してください。');
+  }
+
+  if (uploadedCsvText) {
+    return createStagingSpreadsheetFromCsvText_(
+      uploadedCsvText,
+      uploadedFileName || 'uploaded.csv',
+      ''
+    );
+  }
+
+  if (spreadsheetUrl) {
+    return createStagingSpreadsheetFromSourceSpreadsheet_(spreadsheetUrl);
+  }
+
+  return createStagingSpreadsheetFromCsvUrl_(csvUrl);
+}

@@ -70,6 +70,42 @@ function createStagingSpreadsheetFromCsvText_(csvText, sourceName, normalizedUrl
   };
 }
 
+function createStagingSpreadsheetFromSourceSpreadsheet_(spreadsheetUrlOrId) {
+  if (!spreadsheetUrlOrId) {
+    throw new Error('スプレッドシートURLまたはIDを入力してください。');
+  }
+
+  const sourceSs = openSpreadsheetByUrlOrId_(spreadsheetUrlOrId);
+  const sourceSheet = findInputSheetByHeader_(sourceSs);
+  const sourceValues = sourceSheet.getDataRange().getValues();
+
+  if (!sourceValues || sourceValues.length === 0) {
+    throw new Error('入力元シートが空です。');
+  }
+
+  const outputRows = buildRowsWithAdditionalManualHeaders_(sourceValues);
+
+  const ss = SpreadsheetApp.create(buildSpreadsheetName_(sourceSs.getName() + '_一次受け'));
+  const sheet = ss.getSheets()[0];
+  sheet.setName('取引履歴_一次受け枠');
+  sheet.getRange(1, 1, outputRows.length, outputRows[0].length).setValues(outputRows);
+
+  applyStagingManualHighlights_(sheet);
+
+  return {
+    ok: true,
+    spreadsheetId: ss.getId(),
+    spreadsheetUrl: ss.getUrl(),
+    spreadsheetName: ss.getName(),
+    sheetName: sheet.getName(),
+    inputType: 'spreadsheet',
+    normalizedUrl: text_(spreadsheetUrlOrId),
+    sourceName: sourceSs.getName(),
+    sourceSheetName: sourceSheet.getName(),
+    sourceSpreadsheetName: sourceSs.getName()
+  };
+}
+
 function buildRowsWithAdditionalManualHeaders_(rows) {
   const paddedRows = padRows_(rows);
   const headerRowIndex = findHeaderRowIndex_(paddedRows);

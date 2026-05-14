@@ -59,7 +59,7 @@
       </div>
 
       <div class="muted">
-        「一次受け枠を作成」は野村證券CSVを読み込み、手入力用7カラムを追加したスプレッドシートを1枚だけ作成します。
+        「一次受け枠を作成」はCSVリンク、スプレッドシートURL、CSVファイルのいずれかから、手入力用7カラムを追加したスプレッドシートを1枚だけ作成します。
       </div>
 
       <div class="section-title">ロールバック</div>
@@ -139,8 +139,8 @@
             : 'CSVリンクとCSVファイルは同時に指定せず、どちらか一方だけ指定してください。');
         }
 
-        if (!allowSpreadsheet && payload.spreadsheetUrl) {
-          throw new Error('一次受け枠を作成できるのはCSVリンクまたはCSVファイルのみです。');
+        if (!allowSpreadsheet && payload.spreadsheetUrl && payload.csvUrl) {
+          throw new Error('一次受け枠は入力元を1つだけ指定してください。');
         }
       }
 
@@ -200,7 +200,7 @@
         document.getElementById('status').textContent = '一次受け枠を作成中...';
 
         try {
-          const payload = await buildPayloadFromUi_(false);
+          const payload = await buildPayloadFromUi_(true);
           google.script.run
             .withSuccessHandler(function(res) {
               setBusy_(false);
@@ -208,12 +208,27 @@
               const result = document.getElementById('result');
               const linkArea = document.getElementById('linkArea');
               result.className = 'ok';
+
+              const inputTypeLabel =
+                res.inputType === 'upload' ? 'アップロード' :
+                res.inputType === 'spreadsheet' ? 'スプレッドシート' :
+                'リンク';
+
+              let sourceText = '';
+              if (res.inputType === 'spreadsheet') {
+                sourceText =
+                  '入力元スプレッドシート: ' + (res.sourceSpreadsheetName || res.sourceName || '') + '\n' +
+                  '入力元シート: ' + (res.sourceSheetName || '') + '\n';
+              }
+
               result.textContent =
                 '一次受け枠を作成しました。\n\n' +
-                '入力方法: ' + (res.inputType === 'upload' ? 'アップロード' : 'リンク') + '\n' +
+                '入力方法: ' + inputTypeLabel + '\n' +
                 'スプレッドシート名: ' + res.spreadsheetName + '\n' +
                 'シート名: ' + res.sheetName + '\n' +
+                sourceText +
                 '追加カラム: 国内消費税等（円）, 現地源泉税（円）, 国内源泉所得税（円）, 国内源泉地方税（円）, 国内手数料（円）, 現地手数料（円）, 元本払戻金';
+
               appendLink(linkArea, res.spreadsheetUrl, '一次受け枠のスプレッドシートを開く');
             })
             .withFailureHandler(function(err) {
