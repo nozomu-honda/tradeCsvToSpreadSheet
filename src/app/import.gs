@@ -509,10 +509,15 @@ function createSpreadsheetFromSourceSpreadsheetUsingDb_(spreadsheetUrlOrId, opti
 
   const validationBypassed = shouldSkipRequiredManualValidationForTarget_(targetDbKey);
   if (!validationBypassed) {
-    validateRequiredManualInputsOnSheet_(outputSourceSheet);
+    validateRequiredManualInputsOnSheet_(sourceSheet);
   }
 
-  const records = readInputRecords_(outputSourceSheet);
+  // 日付ずれ対策:
+  // 元の入力シートの Date 値をいったん別Spreadsheetへ setValues() してから
+  // そのコピー先を再読込すると、Spreadsheet間のタイムゾーン差で
+  // 約定日 / 受渡日が前倒しに見えることがある。
+  // そのため、DB投入用レコードは元の sourceSheet から直接読む。
+  const records = readInputRecords_(sourceSheet);
 
   const inputAlerts = [];
   collectInputAlerts_(records, inputAlerts);
