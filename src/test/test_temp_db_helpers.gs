@@ -1,19 +1,11 @@
 /**
  * DBテスト用 固定スプレッドシート再利用ヘルパー
  *
- * 使い方:
- * 1. key ごとにテスト専用Spreadsheetを手動で作る
- * 2. IDを以下の定数か Script Properties に設定する
- *
- * Script Properties の例:
- *   TEST_FIXED_DB_SPREADSHEET_ID_CORP_A = <spreadsheet id>
- *   TEST_FIXED_DB_SPREADSHEET_ID_CORP_B = <spreadsheet id>
- *   TEST_FIXED_DB_SPREADSHEET_ID_TEST = <spreadsheet id>
- *
- * 定数を使う場合:
- *   TEST_FIXED_DB_SPREADSHEET_IDS_BY_KEY に直接入れる
- *
- * 固定IDが未設定のときだけ、必要に応じて create にフォールバックします。
+ * 方針:
+ * - key ごとの固定IDを Script Properties / 定数から見る
+ * - なければ DB用テストフォルダ内を名前で探す
+ * - なければ自動作成して Script Properties に登録する
+ * - フォルダ指定も固定IDもない場合だけ、一時 create にフォールバックする
  */
 
 var __TEST_SUITE_TEMP_DB_SPREADSHEET_IDS_BY_KEY__ = {};
@@ -26,39 +18,115 @@ const TEST_FIXED_DB_SPREADSHEET_IDS_BY_KEY = {
   test: '',
 };
 
+const TEST_FIXED_DB_SPREADSHEET_FILE_NAMES_BY_KEY = {
+  corp_a: '株管理ツール_TEST_DB_CORP_A',
+  corp_b: '株管理ツール_TEST_DB_CORP_B',
+  corp_c: '株管理ツール_TEST_DB_CORP_C',
+  test: '株管理ツール_TEST_DB_TEST',
+};
+
+const TEST_DB_RESOURCE_FOLDER_ID = '';
 const TEST_ALLOW_DB_CREATE_FALLBACK = true;
 
 function getSuiteTempDbSpreadsheetByKey_(key) {
+  ensureManagedScriptPropertiesIfAvailable_();
+
   if (__TEST_SUITE_TEMP_DB_SPREADSHEET_IDS_BY_KEY__[key]) {
     return SpreadsheetApp.openById(__TEST_SUITE_TEMP_DB_SPREADSHEET_IDS_BY_KEY__[key]);
   }
 
-  const fixedId = resolveFixedTestDbSpreadsheetId_(key);
-  if (fixedId) {
-    __TEST_SUITE_TEMP_DB_SPREADSHEET_IDS_BY_KEY__[key] = fixedId;
-    __TEST_SUITE_TEMP_DB_SPREADSHEET_IS_FIXED_BY_KEY__[key] = true;
-    return SpreadsheetApp.openById(fixedId);
+  const managed = getOrCreateManagedTestDbSpreadsheet_(key);
+  __TEST_SUITE_TEMP_DB_SPREADSHEET_IDS_BY_KEY__[key] = managed.ss.getId();
+  __TEST_SUITE_TEMP_DB_SPREADSHEET_IS_FIXED_BY_KEY__[key] = managed.isManaged;
+  return managed.ss;
+}
+
+function getOrCreateManagedTestDbSpreadsheet_(key) {
+  const props = PropertiesService.getScriptProperties();
+  const propertyKey = getTestDbPropertyKey_(key);
+  const savedId =
+    text_(props.getProperty(propertyKey)) ||
+    text_(TEST_FIXED_DB_SPREADSHEET_IDS_BY_KEY[key]);
+
+  if (savedId) {
+    try {
+      return {
+        ss: SpreadsheetApp.openById(savedId),
+        isManaged: true
+      };
+    } catch (e) {
+      props.deleteProperty(propertyKey);
+    }
+  }
+
+  const folderId = resolveTestDbResourceFolderId_();
+  const fileName = getTestDbFileName_(key);
+
+  if (folderId) {
+    const folder = DriveApp.getFolderById(folderId);
+    const existing = findGoogleSheetInDbFolderByName_(folder, fileName);
+
+    if (existing) {
+      props.setProperty(propertyKey, existing.getId());
+      return {
+        ss: SpreadsheetApp.openById(existing.getId()),
+        isManaged: true
+      };
+    }
+
+    const created = SpreadsheetApp.create(fileName);
+    DriveApp.getFileById(created.getId()).moveTo(folder);
+    props.setProperty(propertyKey, created.getId());
+
+    return {
+      ss: created,
+      isManaged: true
+    };
   }
 
   if (!TEST_ALLOW_DB_CREATE_FALLBACK) {
     throw new Error(
-      '固定DBテスト用Spreadsheet IDが未設定です。' +
+      '固定DBテスト用Spreadsheetが見つかりません。' +
       'key=' + key +
-      ' / Script Properties の TEST_FIXED_DB_SPREADSHEET_ID_' + key.toUpperCase() +
-      ' または test_temp_db_helpers.gs の TEST_FIXED_DB_SPREADSHEET_IDS_BY_KEY を設定してください。'
+      ' / ' + propertyKey +
+      ' または TEST_DB_RESOURCE_FOLDER_ID / TEST_RESOURCE_FOLDER_ID を設定してください。'
     );
   }
 
   const ss = SpreadsheetApp.create('tmp_' + key + '_' + Utilities.getUuid());
-  __TEST_SUITE_TEMP_DB_SPREADSHEET_IDS_BY_KEY__[key] = ss.getId();
-  __TEST_SUITE_TEMP_DB_SPREADSHEET_IS_FIXED_BY_KEY__[key] = false;
-  return ss;
+  return {
+    ss: ss,
+    isManaged: false
+  };
 }
 
-function resolveFixedTestDbSpreadsheetId_(key) {
+function getTestDbPropertyKey_(key) {
+  return 'TEST_FIXED_DB_SPREADSHEET_ID_' + String(key).toUpperCase();
+}
+
+function getTestDbFileName_(key) {
+  return TEST_FIXED_DB_SPREADSHEET_FILE_NAMES_BY_KEY[key] || ('株管理ツール_TEST_DB_' + String(key).toUpperCase());
+}
+
+function resolveTestDbResourceFolderId_() {
   const props = PropertiesService.getScriptProperties();
-  const propKey = 'TEST_FIXED_DB_SPREADSHEET_ID_' + String(key).toUpperCase();
-  return props.getProperty(propKey) || TEST_FIXED_DB_SPREADSHEET_IDS_BY_KEY[key] || '';
+  return (
+    text_(props.getProperty('TEST_DB_RESOURCE_FOLDER_ID')) ||
+    TEST_DB_RESOURCE_FOLDER_ID ||
+    text_(props.getProperty('TEST_RESOURCE_FOLDER_ID')) ||
+    ''
+  );
+}
+
+function findGoogleSheetInDbFolderByName_(folder, fileName) {
+  const files = folder.getFilesByName(fileName);
+  while (files.hasNext()) {
+    const file = files.next();
+    if (file.getMimeType() === MimeType.GOOGLE_SHEETS) {
+      return file;
+    }
+  }
+  return null;
 }
 
 function resetTempDbSpreadsheet_(ss) {
@@ -140,4 +208,10 @@ function countNonEmptyRowsByHeader_(sheet, headers, headerName) {
   return values.filter(function(row) {
     return text_(row[0]) !== '';
   }).length;
+}
+
+function ensureManagedScriptPropertiesIfAvailable_() {
+  if (typeof ensureManagedScriptProperties_ === 'function') {
+    ensureManagedScriptProperties_();
+  }
 }

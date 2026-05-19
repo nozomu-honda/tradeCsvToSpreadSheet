@@ -1,53 +1,105 @@
 /**
  * 通常テスト用 固定スプレッドシート再利用ヘルパー
  *
- * 使い方:
- * 1. 手動でテスト専用Spreadsheetを1冊作る
- * 2. そのIDを以下の定数か Script Properties に設定する
- *
- * Script Properties を使う場合:
- *   TEST_FIXED_SPREADSHEET_ID = <spreadsheet id>
- *
- * 定数を使う場合:
- *   TEST_FIXED_SPREADSHEET_ID に直接入れる
- *
- * 固定IDが未設定のときだけ、必要に応じて create にフォールバックします。
+ * 方針:
+ * - まず Script Properties / 定数の固定IDを見る
+ * - なければテスト用フォルダ内をファイル名で探す
+ * - なければ自動作成して Script Properties に登録する
+ * - フォルダ指定も固定IDもない場合だけ、一時 create にフォールバックする
  */
 
 var __TEST_SUITE_TEMP_SPREADSHEET_ID__ = null;
 var __TEST_SUITE_TEMP_SPREADSHEET_IS_FIXED__ = false;
 
 const TEST_FIXED_SPREADSHEET_ID = '';
+const TEST_RESOURCE_FOLDER_ID = '';
 const TEST_ALLOW_CREATE_FALLBACK = true;
+const TEST_FIXED_SPREADSHEET_NAME = '株管理ツール_TEST_SUITE_FIXED';
 
 function getSuiteTempSpreadsheet_() {
+  ensureManagedScriptPropertiesIfAvailable_();
+
   if (__TEST_SUITE_TEMP_SPREADSHEET_ID__) {
     return SpreadsheetApp.openById(__TEST_SUITE_TEMP_SPREADSHEET_ID__);
   }
 
-  const fixedId = resolveFixedTestSpreadsheetId_();
-  if (fixedId) {
-    __TEST_SUITE_TEMP_SPREADSHEET_ID__ = fixedId;
-    __TEST_SUITE_TEMP_SPREADSHEET_IS_FIXED__ = true;
-    return SpreadsheetApp.openById(fixedId);
+  const managed = getOrCreateManagedTestSpreadsheet_(
+    'TEST_FIXED_SPREADSHEET_ID',
+    TEST_FIXED_SPREADSHEET_ID,
+    TEST_FIXED_SPREADSHEET_NAME
+  );
+
+  __TEST_SUITE_TEMP_SPREADSHEET_ID__ = managed.ss.getId();
+  __TEST_SUITE_TEMP_SPREADSHEET_IS_FIXED__ = managed.isManaged;
+  return managed.ss;
+}
+
+function getOrCreateManagedTestSpreadsheet_(propertyKey, fallbackFixedId, fileName) {
+  const props = PropertiesService.getScriptProperties();
+  const savedId = text_(props.getProperty(propertyKey)) || text_(fallbackFixedId);
+
+  if (savedId) {
+    try {
+      return {
+        ss: SpreadsheetApp.openById(savedId),
+        isManaged: true
+      };
+    } catch (e) {
+      props.deleteProperty(propertyKey);
+    }
+  }
+
+  const folderId = resolveTestResourceFolderId_();
+  if (folderId) {
+    const folder = DriveApp.getFolderById(folderId);
+    const existing = findGoogleSheetInFolderByName_(folder, fileName);
+
+    if (existing) {
+      props.setProperty(propertyKey, existing.getId());
+      return {
+        ss: SpreadsheetApp.openById(existing.getId()),
+        isManaged: true
+      };
+    }
+
+    const created = SpreadsheetApp.create(fileName);
+    DriveApp.getFileById(created.getId()).moveTo(folder);
+    props.setProperty(propertyKey, created.getId());
+
+    return {
+      ss: created,
+      isManaged: true
+    };
   }
 
   if (!TEST_ALLOW_CREATE_FALLBACK) {
     throw new Error(
-      '固定テスト用Spreadsheet IDが未設定です。' +
-      'Script Properties の TEST_FIXED_SPREADSHEET_ID または test_temp_spreadsheet_helpers.gs の TEST_FIXED_SPREADSHEET_ID を設定してください。'
+      '固定テスト用Spreadsheetが見つかりません。' +
+      'TEST_FIXED_SPREADSHEET_ID または TEST_RESOURCE_FOLDER_ID を設定してください。'
     );
   }
 
   const ss = SpreadsheetApp.create('tmp_test_suite_' + new Date().getTime());
-  __TEST_SUITE_TEMP_SPREADSHEET_ID__ = ss.getId();
-  __TEST_SUITE_TEMP_SPREADSHEET_IS_FIXED__ = false;
-  return ss;
+  return {
+    ss: ss,
+    isManaged: false
+  };
 }
 
-function resolveFixedTestSpreadsheetId_() {
+function resolveTestResourceFolderId_() {
   const props = PropertiesService.getScriptProperties();
-  return props.getProperty('TEST_FIXED_SPREADSHEET_ID') || TEST_FIXED_SPREADSHEET_ID || '';
+  return text_(props.getProperty('TEST_RESOURCE_FOLDER_ID')) || TEST_RESOURCE_FOLDER_ID || '';
+}
+
+function findGoogleSheetInFolderByName_(folder, fileName) {
+  const files = folder.getFilesByName(fileName);
+  while (files.hasNext()) {
+    const file = files.next();
+    if (file.getMimeType() === MimeType.GOOGLE_SHEETS) {
+      return file;
+    }
+  }
+  return null;
 }
 
 function resetTempSpreadsheet_(ss) {
@@ -118,5 +170,11 @@ function trashFileWithRetry_(fileId, logPrefix) {
 
   if (lastError) {
     Logger.log((logPrefix || 'temp cleanup failed') + ': ' + lastError.message);
+  }
+}
+
+function ensureManagedScriptPropertiesIfAvailable_() {
+  if (typeof ensureManagedScriptProperties_ === 'function') {
+    ensureManagedScriptProperties_();
   }
 }

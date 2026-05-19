@@ -46,6 +46,7 @@ src/
     parser.gs
     config.gs
     db_config.gs
+    script_properties.gs
     utils.gs
 
   test/
@@ -79,7 +80,8 @@ src/
 通常テスト用の一時スプレッドシート管理です。
 
 主な責務:
-- 一時Spreadsheetの作成 / 使い回し
+- 通常テスト用固定Spreadsheetの再利用
+- Script Properties / フォルダ / 自動生成の解決
 - テスト前の初期化
 - テスト後の cleanup
 
@@ -87,7 +89,8 @@ src/
 DB系テスト用の一時Spreadsheet管理です。
 
 主な責務:
-- 一時DB Spreadsheetの作成 / 使い回し
+- key ごとの固定DBテストSpreadsheet再利用
+- Script Properties / フォルダ / 自動生成の解決
 - DBターゲット切替
 - cleanup
 
@@ -182,6 +185,10 @@ DB保存 / ロールバック / リセットのテストです。
 フル実行用です。  
 仕様変更後、まとめて確認するときに使います。
 
+### 目安
+- `runSmokeTests()` は **ロジック破壊を早く検知する** ためのもの
+- `runAllTests()` は **Spreadsheet 実体込みの確認** まで含めるもの
+
 ---
 
 ## クォータ対策
@@ -195,7 +202,7 @@ Apps Script では、テスト中に以下が重いです。
 
 ### ルール
 - テストごとに新しいSpreadsheetを作りすぎない
-- 可能な限り一時Spreadsheetを再利用する
+- 可能な限り固定Spreadsheetを再利用する
 - `runSelectedTests_()` の finally でまとめて cleanup する
 - DB用も通常用も、使い回しヘルパーを通す
 
@@ -273,8 +280,6 @@ Apps Script では、テスト中に以下が重いです。
 - test DB 本体
 - test DB 確認用出力Spreadsheet
 
-これにより、test DB 実行時の `SpreadsheetApp.create()` を大幅に減らせます。
-
 ### メリット
 - test DB でも実際の出力シートを確認できる
 - 出力Spreadsheetの実物を見ながら検証できる
@@ -287,7 +292,7 @@ Apps Script では、テスト中に以下が重いです。
 
 ---
 
-## 固定スプレッドシート再利用テスト運用
+## 固定Spreadsheet再利用テスト運用
 
 ### 目的
 `runSmokeTests()` と `runAllTests()` のたびに `SpreadsheetApp.create()` を多用すると、  
@@ -308,47 +313,111 @@ Apps Script の日次クォータに当たりやすくなります。
 - `src/test/test_temp_spreadsheet_helpers.gs`
 - `src/test/test_temp_db_helpers.gs`
 
-### 設定方法
+### 基本挙動
+- 固定IDが設定されている  
+  → `openById()` で再利用
+- 固定IDが未設定で、フォルダ指定がある  
+  → フォルダ内を名前検索
+- 見つからなければ  
+  → 自動生成して Script Properties に保存
+- それも使えない場合だけ  
+  → 一時 `SpreadsheetApp.create()` にフォールバック
 
-#### 方法1: Script Properties を使う
-Apps Script の Script Properties に以下を設定します。
+---
 
+## テスト用固定Spreadsheetの自動生成・自動登録
+
+### 目的
+テスト用Spreadsheetを手動で毎回用意しなくても、
+
+- Google Drive 上の指定フォルダを見に行く
+- なければ自動生成する
+- 生成したIDを Script Properties に保存する
+- 次回以降は自動再利用する
+
+という運用にします。
+
+### 関連ファイル
+- `src/test/test_temp_spreadsheet_helpers.gs`
+- `src/test/test_temp_db_helpers.gs`
+- `src/app/script_properties.gs`
+
+### まずやること
+
+#### 1. テスト用フォルダを作る
+おすすめは次のどちらかです。
+
+- 1フォルダだけ作って全部まとめる
+- 通常テスト用とDBテスト用で2フォルダに分ける
+
+#### 2. folder ID を設定する
+`script_properties.gs` の `SCRIPT_PROPERTIES_SOURCE` に入れます。
+
+- `TEST_RESOURCE_FOLDER_ID`
+- `TEST_DB_RESOURCE_FOLDER_ID`（省略可）
+
+`TEST_DB_RESOURCE_FOLDER_ID` が空なら、DB helper は `TEST_RESOURCE_FOLDER_ID` を使います。
+
+### 通常テスト用の流れ
+1. `TEST_FIXED_SPREADSHEET_ID` を見る
+2. なければ `TEST_RESOURCE_FOLDER_ID` 配下で `株管理ツール_TEST_SUITE_FIXED` を探す
+3. なければ自動生成する
+4. 作成したIDを `TEST_FIXED_SPREADSHEET_ID` に保存する
+
+### DBテスト用の流れ
+1. `TEST_FIXED_DB_SPREADSHEET_ID_<KEY>` を見る
+2. なければ DB用フォルダで名前検索する
+3. なければ自動生成する
+4. 作成したIDを該当キーに保存する
+
+### 例
+- `TEST_FIXED_DB_SPREADSHEET_ID_CORP_A`
+  - `株管理ツール_TEST_DB_CORP_A`
+- `TEST_FIXED_DB_SPREADSHEET_ID_CORP_B`
+  - `株管理ツール_TEST_DB_CORP_B`
+- `TEST_FIXED_DB_SPREADSHEET_ID_TEST`
+  - `株管理ツール_TEST_DB_TEST`
+
+### メリット
+- 手動でSpreadsheetを先に作らなくていい
+- 初回だけ自動作成
+- 次回以降は `openById()` ベースで軽い
+- Script Properties と相性がいい
+
+### 注意
+- 本番DBのSpreadsheet IDは入れない
+- テスト専用フォルダ / テスト専用Spreadsheetだけを使う
+- 同名ファイルが複数あると意図しないものを拾うので、フォルダ内は整理する
+
+---
+
+## Script Properties 運用
+
+### 目的
+固定テスト用Spreadsheet IDやテスト用フォルダIDを、  
+コードに直書きしすぎずに管理するために使います。
+
+### 管理元
+`src/app/script_properties.gs`
+
+### 主なキー
+- `TEST_RESOURCE_FOLDER_ID`
+- `TEST_DB_RESOURCE_FOLDER_ID`
 - `TEST_FIXED_SPREADSHEET_ID`
 - `TEST_FIXED_DB_SPREADSHEET_ID_CORP_A`
 - `TEST_FIXED_DB_SPREADSHEET_ID_CORP_B`
 - `TEST_FIXED_DB_SPREADSHEET_ID_CORP_C`
 - `TEST_FIXED_DB_SPREADSHEET_ID_TEST`
 
-#### 方法2: ファイル内の定数に直接入れる
-各 helper ファイルの以下の定数に直接IDを入れます。
-
-- `TEST_FIXED_SPREADSHEET_ID`
-- `TEST_FIXED_DB_SPREADSHEET_IDS_BY_KEY`
-
-### 挙動
-- 固定IDが設定されている
-  - `openById()` で再利用
-  - テスト前に初期化
-  - cleanup 時に Trash へ入れない
-- 固定IDが未設定
-  - 必要なら `SpreadsheetApp.create()` にフォールバック
-  - cleanup 時に Trash へ入れる
+### 反映方法
+1. `script_properties.gs` の `SCRIPT_PROPERTIES_SOURCE` を埋める
+2. `syncScriptProperties_()` を実行
+3. `showManagedScriptProperties_()` で確認する
 
 ### 注意
-- 使い回し先は **必ずテスト専用** にする
-- 本番データ入りのSpreadsheetは使わない
-- 毎回初期化される前提なので、結果を残したいときは別に退避する
-- これで減るのは helper 起因の create であって、  
-  「生成そのものを検証する integration テスト」の create は別です
-
-### 効果
-固定IDをすべて埋めた場合、helper 起因の create をかなり削れます。  
-特に Smoke では
-
-- 通常一時Spreadsheet
-- DB一時Spreadsheet
-
-の create をほぼゼロに近づけられます。
+- helper 側が読むのは Script Properties なので、`script_properties.gs` を置いただけでは反映されない
+- `syncScriptProperties_()` を1回実行する必要がある
+- 空文字もそのまま保存される
 
 ---
 
@@ -417,6 +486,7 @@ Apps Script の Script Properties に以下を設定します。
 - test DB の特例が本番DBへ漏れていないか
 - 固定出力Spreadsheetの前提が崩れていないか
 - 固定テストSpreadsheet初期化ロジックが崩れていないか
+- テスト用フォルダ / 自動生成ルールが崩れていないか
 
 ---
 
@@ -463,6 +533,10 @@ test DB の出力先は毎回新規作成されないので、
 ### 固定テストSpreadsheetも使い回し前提
 `runSmokeTests()` / `runAllTests()` の固定Spreadsheetは毎回初期化されます。  
 テスト後の状態を証跡として残したいなら、別にコピーする運用にします。
+
+### 自動生成は最初だけ create が走る
+フォルダ内に対象ファイルがまだない初回だけは `SpreadsheetApp.create()` が走ります。  
+2回目以降は Script Properties に保存された ID を再利用します。
 
 ---
 

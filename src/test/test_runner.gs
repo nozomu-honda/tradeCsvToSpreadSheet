@@ -76,6 +76,8 @@ function runAllTests() {
 }
 
 function runSelectedTests_(tests, label) {
+  ensureManagedScriptPropertiesIfAvailable_();
+
   const results = [];
   let failed = 0;
 
@@ -98,4 +100,10 @@ function runSelectedTests_(tests, label) {
   Logger.log(message);
   if (failed > 0) throw new Error(message);
   return message;
+}
+
+function ensureManagedScriptPropertiesIfAvailable_() {
+  if (typeof ensureManagedScriptProperties_ === 'function') {
+    ensureManagedScriptProperties_();
+  }
 }
