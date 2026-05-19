@@ -1,20 +1,10 @@
 /**
- * safer 版 Script Properties 同期用
+ * safer + once-per-execution 版 Script Properties 同期用
  *
  * 目的:
  * - 固定テスト用Spreadsheet IDとテスト用フォルダIDをコード管理する
  * - 空欄で既存の Script Properties を上書きしない
- * - 必要に応じて安全に一括反映する
- *
- * 使い方:
- * 1. 必要な値だけ SCRIPT_PROPERTIES_SOURCE に入れる
- * 2. syncScriptProperties_() を実行する
- *    - 空欄は既存値を上書きしない
- * 3. showManagedScriptProperties_() で確認する
- *
- * 補足:
- * - 明示的に空欄へ戻したい場合は clearManagedScriptProperties_() を使う
- * - 強制上書きしたい場合は forceSyncScriptProperties_() を使う
+ * - ensureManagedScriptProperties_() を同一実行中に何度呼ばれても1回だけ同期する
  */
 
 const SCRIPT_PROPERTIES_SOURCE = {
@@ -27,6 +17,8 @@ const SCRIPT_PROPERTIES_SOURCE = {
   TEST_FIXED_DB_SPREADSHEET_ID_CORP_C: '',
   TEST_FIXED_DB_SPREADSHEET_ID_TEST: '',
 };
+
+var __MANAGED_SCRIPT_PROPERTIES_ENSURED__ = false;
 
 /**
  * 安全同期
@@ -60,17 +52,22 @@ function syncScriptProperties_() {
 }
 
 /**
- * 毎回安全に存在確認だけしたいときのエイリアス
- * - 実体は safe sync と同じ
+ * 毎回安全に存在確認したいとき用
+ * - 同一実行中は1回だけ sync を実行
+ * - 2回目以降は何もしない
  */
 function ensureManagedScriptProperties_() {
+  if (__MANAGED_SCRIPT_PROPERTIES_ENSURED__) {
+    return;
+  }
+
+  __MANAGED_SCRIPT_PROPERTIES_ENSURED__ = true;
   syncScriptProperties_();
 }
 
 /**
  * 強制同期
  * - 空欄も含めて source の内容で上書きする
- * - 既存の自動登録済みIDを消したいとき以外は通常使わない
  */
 function forceSyncScriptProperties_() {
   const props = PropertiesService.getScriptProperties();
@@ -92,7 +89,16 @@ function clearManagedScriptProperties_() {
     props.deleteProperty(key);
   });
 
+  __MANAGED_SCRIPT_PROPERTIES_ENSURED__ = false;
   Logger.log('Managed Script Properties cleared.');
+}
+
+/**
+ * 手動で再評価したいとき用
+ */
+function resetManagedScriptPropertiesEnsureFlag_() {
+  __MANAGED_SCRIPT_PROPERTIES_ENSURED__ = false;
+  Logger.log('Managed Script Properties ensure flag reset.');
 }
 
 /**
