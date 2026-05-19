@@ -287,6 +287,71 @@ Apps Script では、テスト中に以下が重いです。
 
 ---
 
+## 固定スプレッドシート再利用テスト運用
+
+### 目的
+`runSmokeTests()` と `runAllTests()` のたびに `SpreadsheetApp.create()` を多用すると、  
+Apps Script の日次クォータに当たりやすくなります。
+
+そのため、テスト専用の固定Spreadsheetをあらかじめ用意し、  
+毎回それを初期化して使い回す方式にします。
+
+### 対象
+- 通常テスト用 1冊
+- DBテスト用 key ごとに 1冊
+  - `corp_a`
+  - `corp_b`
+  - 必要なら `corp_c`
+  - `test`
+
+### 反映するファイル
+- `src/test/test_temp_spreadsheet_helpers.gs`
+- `src/test/test_temp_db_helpers.gs`
+
+### 設定方法
+
+#### 方法1: Script Properties を使う
+Apps Script の Script Properties に以下を設定します。
+
+- `TEST_FIXED_SPREADSHEET_ID`
+- `TEST_FIXED_DB_SPREADSHEET_ID_CORP_A`
+- `TEST_FIXED_DB_SPREADSHEET_ID_CORP_B`
+- `TEST_FIXED_DB_SPREADSHEET_ID_CORP_C`
+- `TEST_FIXED_DB_SPREADSHEET_ID_TEST`
+
+#### 方法2: ファイル内の定数に直接入れる
+各 helper ファイルの以下の定数に直接IDを入れます。
+
+- `TEST_FIXED_SPREADSHEET_ID`
+- `TEST_FIXED_DB_SPREADSHEET_IDS_BY_KEY`
+
+### 挙動
+- 固定IDが設定されている
+  - `openById()` で再利用
+  - テスト前に初期化
+  - cleanup 時に Trash へ入れない
+- 固定IDが未設定
+  - 必要なら `SpreadsheetApp.create()` にフォールバック
+  - cleanup 時に Trash へ入れる
+
+### 注意
+- 使い回し先は **必ずテスト専用** にする
+- 本番データ入りのSpreadsheetは使わない
+- 毎回初期化される前提なので、結果を残したいときは別に退避する
+- これで減るのは helper 起因の create であって、  
+  「生成そのものを検証する integration テスト」の create は別です
+
+### 効果
+固定IDをすべて埋めた場合、helper 起因の create をかなり削れます。  
+特に Smoke では
+
+- 通常一時Spreadsheet
+- DB一時Spreadsheet
+
+の create をほぼゼロに近づけられます。
+
+---
+
 ## 命名ルール
 
 ### テスト関数
@@ -351,6 +416,7 @@ Apps Script では、テスト中に以下が重いです。
 - README / docs と整合しているか
 - test DB の特例が本番DBへ漏れていないか
 - 固定出力Spreadsheetの前提が崩れていないか
+- 固定テストSpreadsheet初期化ロジックが崩れていないか
 
 ---
 
@@ -393,6 +459,10 @@ test DB は、あくまで**検証を進めるための安全弁**です。
 test DB の出力先は毎回新規作成されないので、  
 前回結果を残したまま比較したい用途には向きません。  
 必要なら別名で退避する運用にします。
+
+### 固定テストSpreadsheetも使い回し前提
+`runSmokeTests()` / `runAllTests()` の固定Spreadsheetは毎回初期化されます。  
+テスト後の状態を証跡として残したいなら、別にコピーする運用にします。
 
 ---
 

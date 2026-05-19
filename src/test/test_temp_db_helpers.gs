@@ -1,17 +1,64 @@
 /**
- * DBテスト用 一時スプレッドシートヘルパー
+ * DBテスト用 固定スプレッドシート再利用ヘルパー
+ *
+ * 使い方:
+ * 1. key ごとにテスト専用Spreadsheetを手動で作る
+ * 2. IDを以下の定数か Script Properties に設定する
+ *
+ * Script Properties の例:
+ *   TEST_FIXED_DB_SPREADSHEET_ID_CORP_A = <spreadsheet id>
+ *   TEST_FIXED_DB_SPREADSHEET_ID_CORP_B = <spreadsheet id>
+ *   TEST_FIXED_DB_SPREADSHEET_ID_TEST = <spreadsheet id>
+ *
+ * 定数を使う場合:
+ *   TEST_FIXED_DB_SPREADSHEET_IDS_BY_KEY に直接入れる
+ *
+ * 固定IDが未設定のときだけ、必要に応じて create にフォールバックします。
  */
 
 var __TEST_SUITE_TEMP_DB_SPREADSHEET_IDS_BY_KEY__ = {};
+var __TEST_SUITE_TEMP_DB_SPREADSHEET_IS_FIXED_BY_KEY__ = {};
+
+const TEST_FIXED_DB_SPREADSHEET_IDS_BY_KEY = {
+  corp_a: '',
+  corp_b: '',
+  corp_c: '',
+  test: '',
+};
+
+const TEST_ALLOW_DB_CREATE_FALLBACK = true;
 
 function getSuiteTempDbSpreadsheetByKey_(key) {
   if (__TEST_SUITE_TEMP_DB_SPREADSHEET_IDS_BY_KEY__[key]) {
     return SpreadsheetApp.openById(__TEST_SUITE_TEMP_DB_SPREADSHEET_IDS_BY_KEY__[key]);
   }
 
+  const fixedId = resolveFixedTestDbSpreadsheetId_(key);
+  if (fixedId) {
+    __TEST_SUITE_TEMP_DB_SPREADSHEET_IDS_BY_KEY__[key] = fixedId;
+    __TEST_SUITE_TEMP_DB_SPREADSHEET_IS_FIXED_BY_KEY__[key] = true;
+    return SpreadsheetApp.openById(fixedId);
+  }
+
+  if (!TEST_ALLOW_DB_CREATE_FALLBACK) {
+    throw new Error(
+      '固定DBテスト用Spreadsheet IDが未設定です。' +
+      'key=' + key +
+      ' / Script Properties の TEST_FIXED_DB_SPREADSHEET_ID_' + key.toUpperCase() +
+      ' または test_temp_db_helpers.gs の TEST_FIXED_DB_SPREADSHEET_IDS_BY_KEY を設定してください。'
+    );
+  }
+
   const ss = SpreadsheetApp.create('tmp_' + key + '_' + Utilities.getUuid());
   __TEST_SUITE_TEMP_DB_SPREADSHEET_IDS_BY_KEY__[key] = ss.getId();
+  __TEST_SUITE_TEMP_DB_SPREADSHEET_IS_FIXED_BY_KEY__[key] = false;
   return ss;
+}
+
+function resolveFixedTestDbSpreadsheetId_(key) {
+  const props = PropertiesService.getScriptProperties();
+  const propKey = 'TEST_FIXED_DB_SPREADSHEET_ID_' + String(key).toUpperCase();
+  return props.getProperty(propKey) || TEST_FIXED_DB_SPREADSHEET_IDS_BY_KEY[key] || '';
 }
 
 function resetTempDbSpreadsheet_(ss) {
@@ -54,9 +101,13 @@ function createTempDbTargets_(keys) {
 
 function cleanupSuiteTempDbSpreadsheets_() {
   Object.keys(__TEST_SUITE_TEMP_DB_SPREADSHEET_IDS_BY_KEY__).forEach(function(key) {
-    trashFileWithRetry_(__TEST_SUITE_TEMP_DB_SPREADSHEET_IDS_BY_KEY__[key], 'temp db cleanup failed');
+    if (!__TEST_SUITE_TEMP_DB_SPREADSHEET_IS_FIXED_BY_KEY__[key]) {
+      trashFileWithRetry_(__TEST_SUITE_TEMP_DB_SPREADSHEET_IDS_BY_KEY__[key], 'temp db cleanup failed');
+    }
   });
+
   __TEST_SUITE_TEMP_DB_SPREADSHEET_IDS_BY_KEY__ = {};
+  __TEST_SUITE_TEMP_DB_SPREADSHEET_IS_FIXED_BY_KEY__ = {};
 }
 
 function withTempDbTargets_(targets, defaultKey, fn) {
@@ -90,4 +141,3 @@ function countNonEmptyRowsByHeader_(sheet, headers, headerName) {
     return text_(row[0]) !== '';
   }).length;
 }
-
