@@ -27,6 +27,18 @@ function test_writeSheet_usStockHiddenColumns_() {
   });
 }
 
+function test_writeSheet_foreignBondHiddenColumns_() {
+  withTempSpreadsheet_(function(ss) {
+    const rows = [buildTradeRowForWriterTest_({銘柄名: 'BOND', 商品: '外債', 保有数: 0, helper: ''})];
+    writeSheet_(ss, CONFIG.OUTPUT_FOREIGN_BOND, TRADE_HEADERS, rows, true);
+    const sheet = ss.getSheetByName(CONFIG.OUTPUT_FOREIGN_BOND);
+    assertTrue_(sheet.isColumnHiddenByUser(getColumnIndexByHeader_(TRADE_HEADERS, '摘要')), '外債: 摘要は非表示');
+    assertFalse_(sheet.isColumnHiddenByUser(getColumnIndexByHeader_(TRADE_HEADERS, '発行通貨')), '外債: 発行通貨は表示');
+    assertFalse_(sheet.isColumnHiddenByUser(getColumnIndexByHeader_(TRADE_HEADERS, 'レート')), '外債: レートは表示');
+    assertFalse_(sheet.isColumnHiddenByUser(getColumnIndexByHeader_(TRADE_HEADERS, '決済通貨')), '外債: 決済通貨は表示');
+  });
+}
+
 function test_writeSheet_fundHiddenColumns_() {
   withTempSpreadsheet_(function(ss) {
     const rows = [buildTradeRowForWriterTest_({銘柄名: 'CCC', 商品: '投信', 保有数: 0, helper: ''})];

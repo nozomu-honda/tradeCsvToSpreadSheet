@@ -24,7 +24,7 @@
   </head>
   <body>
     <div class="card">
-      <h2>CSV / スプレッドシートから5シート生成</h2>
+      <h2>CSV / スプレッドシートから6シート生成</h2>
       <p class="muted">法人ごとに追加先DBを選べます。誤って登録した場合は、取込単位でロールバックできます。</p>
 
       <div class="row">
@@ -53,7 +53,7 @@
       </div>
 
       <div class="row button-row">
-        <button id="runButton" onclick="run()">5シート生成</button>
+        <button id="runButton" onclick="run()">6シート生成</button>
         <button id="stagingButton" class="secondary" onclick="createStaging()">一次受け枠を作成</button>
         <button id="resetDbButton" class="danger" onclick="resetDb()">選択中DBをリセット</button>
       </div>
@@ -287,9 +287,11 @@
           '全件数: ' + res.counts.all + '\n' +
           '日本株: ' + res.counts.japanStocks + '\n' +
           '米国株: ' + res.counts.usStocks + '\n' +
+          '外債: ' + (res.counts.foreignBonds || 0) + '\n' +
           '投信: ' + res.counts.funds + '\n' +
           '金銭残高（円）: ' + res.counts.cashJpy + '\n' +
-          '金銭残高（ドル）: ' + res.counts.cashUsd +
+          '金銭残高（ドル）: ' + res.counts.cashUsd + '\n' +
+          '出力タブ順: 日本株 → 米国株 → 外債 → 投信' +
           dbText +
           alertText;
 

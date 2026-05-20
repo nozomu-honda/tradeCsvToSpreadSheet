@@ -122,6 +122,7 @@ function hideColumnsByName_(sheet, headers, sheetName) {
   const hideMap = {};
   hideMap[CONFIG.OUTPUT_JAPAN_STOCK] = ['摘要', '発行通貨', 'レート', '決済通貨'];
   hideMap[CONFIG.OUTPUT_US_STOCK] = ['摘要'];
+  hideMap[CONFIG.OUTPUT_FOREIGN_BOND] = ['摘要'];
   hideMap[CONFIG.OUTPUT_FUND] = ['摘要', '発行通貨', 'レート', '決済通貨'];
 
   const targetNames = hideMap[sheetName] || [];
