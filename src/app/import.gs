@@ -1,3 +1,22 @@
+function getAdditionalManualHeaders_() {
+  return [
+    '国内消費税等（円）',
+    '現地源泉税（円）',
+    '国内源泉所得税（円）',
+    '国内源泉地方税（円）',
+    '国内手数料（円）',
+    '現地手数料（円）',
+    '元本払戻金'
+  ];
+}
+
+function getStagingHighlightColors_() {
+  return {
+    red: '#f4cccc',
+    yellow: '#fff2cc'
+  };
+}
+
 function createSpreadsheetFromCsvUrl_(csvUrl, options) {
   return createSpreadsheetFromCsvUrlUsingDb_(csvUrl, options);
 }
@@ -8,6 +27,352 @@ function createSpreadsheetFromCsvText_(csvText, sourceName, normalizedUrl, optio
 
 function createSpreadsheetFromSourceSpreadsheet_(spreadsheetUrlOrId, options) {
   return createSpreadsheetFromSourceSpreadsheetUsingDb_(spreadsheetUrlOrId, options);
+}
+
+function isTestDbTarget_(targetDbKey) {
+  return text_(targetDbKey) === 'test';
+}
+
+function shouldSkipRequiredManualValidationForTarget_(targetDbKey) {
+  return isTestDbTarget_(targetDbKey);
+}
+
+function createStagingSpreadsheetFromCsvUrl_(csvUrl) {
+  if (!csvUrl) {
+    throw new Error('CSVリンクを入力してください。');
+  }
+
+  const normalizedUrl = normalizeCsvUrl_(csvUrl);
+  const csvText = fetchCsvText_(normalizedUrl);
+  return createStagingSpreadsheetFromCsvText_(csvText, 'link.csv', normalizedUrl);
+}
+
+function createStagingSpreadsheetFromCsvText_(csvText, sourceName, normalizedUrl) {
+  if (!csvText || String(csvText).trim() === '') {
+    throw new Error('CSVの内容が空です。');
+  }
+
+  const rows = parseCsvWithFallback_(csvText);
+  if (!rows || rows.length === 0) {
+    throw new Error('CSVを読み込めませんでした。');
+  }
+
+  const outputRows = buildRowsWithAdditionalManualHeaders_(rows);
+
+  const ss = SpreadsheetApp.create(buildSpreadsheetName_((sourceName || 'CSV') + '_一次受け'));
+  const sheet = ss.getSheets()[0];
+  sheet.setName('取引履歴_一次受け枠');
+  sheet.getRange(1, 1, outputRows.length, outputRows[0].length).setValues(outputRows);
+
+  applyStagingManualHighlights_(sheet);
+
+  return {
+    ok: true,
+    spreadsheetId: ss.getId(),
+    spreadsheetUrl: ss.getUrl(),
+    spreadsheetName: ss.getName(),
+    sheetName: sheet.getName(),
+    inputType: normalizedUrl ? 'url' : 'upload',
+    normalizedUrl: normalizedUrl || '',
+    sourceName: sourceName || ''
+  };
+}
+
+function createStagingSpreadsheetFromSourceSpreadsheet_(spreadsheetUrlOrId) {
+  if (!spreadsheetUrlOrId) {
+    throw new Error('スプレッドシートURLまたはIDを入力してください。');
+  }
+
+  const sourceSs = openSpreadsheetByUrlOrId_(spreadsheetUrlOrId);
+  const sourceSheet = findInputSheetByHeader_(sourceSs);
+  const sourceValues = sourceSheet.getDataRange().getValues();
+
+  if (!sourceValues || sourceValues.length === 0) {
+    throw new Error('入力元シートが空です。');
+  }
+
+  const outputRows = buildRowsWithAdditionalManualHeaders_(sourceValues);
+
+  const ss = SpreadsheetApp.create(buildSpreadsheetName_(sourceSs.getName() + '_一次受け'));
+  const sheet = ss.getSheets()[0];
+  sheet.setName('取引履歴_一次受け枠');
+  sheet.getRange(1, 1, outputRows.length, outputRows[0].length).setValues(outputRows);
+
+  applyStagingManualHighlights_(sheet);
+
+  return {
+    ok: true,
+    spreadsheetId: ss.getId(),
+    spreadsheetUrl: ss.getUrl(),
+    spreadsheetName: ss.getName(),
+    sheetName: sheet.getName(),
+    inputType: 'spreadsheet',
+    normalizedUrl: text_(spreadsheetUrlOrId),
+    sourceName: sourceSs.getName(),
+    sourceSheetName: sourceSheet.getName(),
+    sourceSpreadsheetName: sourceSs.getName()
+  };
+}
+
+function buildRowsWithAdditionalManualHeaders_(rows) {
+  const paddedRows = padRows_(rows);
+  const headerRowIndex = findHeaderRowIndex_(paddedRows);
+
+  if (headerRowIndex < 0) {
+    throw new Error('実データのヘッダー行が見つかりません。');
+  }
+
+  validateHeaderPlacement_(paddedRows, headerRowIndex);
+
+  const originalHeaders = paddedRows[headerRowIndex].map(function(v) {
+    return String(v).trim();
+  });
+
+  validateHeaderNames_(originalHeaders);
+
+  const additionalHeaders = getAdditionalManualHeaders_();
+  const missingHeaders = additionalHeaders.filter(function(header) {
+    return originalHeaders.indexOf(header) < 0;
+  });
+
+  const finalHeaders = originalHeaders.concat(missingHeaders);
+  const finalWidth = finalHeaders.length;
+
+  return paddedRows.map(function(row, index) {
+    if (index === headerRowIndex) {
+      return finalHeaders.slice();
+    }
+
+    const newRow = row.slice();
+    while (newRow.length < finalWidth) {
+      newRow.push('');
+    }
+    return newRow;
+  });
+}
+
+function applyStagingManualHighlights_(sheet) {
+  const values = sheet.getDataRange().getValues();
+  const headerRowIndex = findHeaderRowIndex_(values);
+
+  if (headerRowIndex < 0) {
+    throw new Error('実データのヘッダー行が見つかりません。');
+  }
+
+  const headers = values[headerRowIndex].map(function(v) {
+    return String(v).trim();
+  });
+  const colors = getStagingHighlightColors_();
+
+  const colIndex = {
+    product: headers.indexOf('商品'),
+    tx: headers.indexOf('取引区分'),
+    settlementCurrency: headers.indexOf('決済通貨'),
+    rate: headers.indexOf('レート'),
+    domesticTax: headers.indexOf('国内消費税等（円）'),
+    foreignWithholding: headers.indexOf('現地源泉税（円）'),
+    domesticIncomeTax: headers.indexOf('国内源泉所得税（円）'),
+    domesticLocalTax: headers.indexOf('国内源泉地方税（円）'),
+    domesticFee: headers.indexOf('国内手数料（円）'),
+    foreignFee: headers.indexOf('現地手数料（円）'),
+    principalReturn: headers.indexOf('元本払戻金')
+  };
+
+  const redRanges = [];
+  const yellowRanges = [];
+
+  for (var r = headerRowIndex + 1; r < values.length; r++) {
+    const row = values[r];
+    if (!row || isEmptyRow_(row)) continue;
+    if (!row[0]) continue;
+
+    const product = text_(row[colIndex.product]);
+    const tx = text_(row[colIndex.tx]);
+    const settlementCurrency = normalizeCurrency_(row[colIndex.settlementCurrency]);
+
+    if (product === '外株') {
+      if (settlementCurrency === 'USD' && colIndex.rate >= 0) {
+        redRanges.push(a1_(r + 1, colIndex.rate + 1));
+      }
+
+      if (tx === '現物買付' || tx === '現物売却') {
+        if (colIndex.domesticFee >= 0) redRanges.push(a1_(r + 1, colIndex.domesticFee + 1));
+        if (colIndex.domesticTax >= 0) redRanges.push(a1_(r + 1, colIndex.domesticTax + 1));
+        if (colIndex.foreignFee >= 0) redRanges.push(a1_(r + 1, colIndex.foreignFee + 1));
+      }
+
+      if (tx === '入金（配当金）' || tx === '入金（分配金）') {
+        if (colIndex.foreignWithholding >= 0) yellowRanges.push(a1_(r + 1, colIndex.foreignWithholding + 1));
+        if (colIndex.domesticIncomeTax >= 0) redRanges.push(a1_(r + 1, colIndex.domesticIncomeTax + 1));
+        if (colIndex.domesticLocalTax >= 0) yellowRanges.push(a1_(r + 1, colIndex.domesticLocalTax + 1));
+      }
+    }
+
+    if (product === '投信') {
+      if (tx === '現物売却' || tx === '現物買取') {
+        if (colIndex.domesticIncomeTax >= 0) yellowRanges.push(a1_(r + 1, colIndex.domesticIncomeTax + 1));
+        if (colIndex.domesticLocalTax >= 0) yellowRanges.push(a1_(r + 1, colIndex.domesticLocalTax + 1));
+      }
+
+      if (tx === '入金（分配金）') {
+        if (colIndex.domesticIncomeTax >= 0) yellowRanges.push(a1_(r + 1, colIndex.domesticIncomeTax + 1));
+        if (colIndex.domesticLocalTax >= 0) yellowRanges.push(a1_(r + 1, colIndex.domesticLocalTax + 1));
+        if (colIndex.principalReturn >= 0) yellowRanges.push(a1_(r + 1, colIndex.principalReturn + 1));
+      }
+    }
+  }
+
+  if (redRanges.length > 0) {
+    sheet.getRangeList(unique_(redRanges)).setBackground(colors.red);
+  }
+
+  if (yellowRanges.length > 0) {
+    sheet.getRangeList(unique_(yellowRanges)).setBackground(colors.yellow);
+  }
+}
+
+function validateRequiredManualInputsOnSheet_(sheet) {
+  const values = sheet.getDataRange().getValues();
+  const headerRowIndex = findHeaderRowIndex_(values);
+
+  if (headerRowIndex < 0) {
+    throw new Error('実データのヘッダー行が見つかりません。');
+  }
+
+  const headers = values[headerRowIndex].map(function(v) {
+    return String(v).trim();
+  });
+
+  const colIndex = {
+    product: headers.indexOf('商品'),
+    tx: headers.indexOf('取引区分'),
+    settlementCurrency: headers.indexOf('決済通貨'),
+    rate: headers.indexOf('レート'),
+    domesticTax: headers.indexOf('国内消費税等（円）'),
+    domesticIncomeTax: headers.indexOf('国内源泉所得税（円）'),
+    domesticFee: headers.indexOf('国内手数料（円）'),
+    foreignFee: headers.indexOf('現地手数料（円）')
+  };
+
+  const errors = [];
+
+  for (var r = headerRowIndex + 1; r < values.length; r++) {
+    const row = values[r];
+    if (!row || isEmptyRow_(row)) continue;
+    if (!row[0]) continue;
+
+    const product = text_(row[colIndex.product]);
+    const tx = text_(row[colIndex.tx]);
+    const settlementCurrency = normalizeCurrency_(row[colIndex.settlementCurrency]);
+
+    if (product === '外株') {
+      if (settlementCurrency === 'USD' && isBlankCell_(row[colIndex.rate])) {
+        errors.push(buildManualRequiredError_(r + 1, 'レート', product, tx));
+      }
+
+      if (tx === '現物買付' || tx === '現物売却') {
+        if (isBlankCell_(row[colIndex.domesticFee])) {
+          errors.push(buildManualRequiredError_(r + 1, '国内手数料（円）', product, tx));
+        }
+        if (isBlankCell_(row[colIndex.domesticTax])) {
+          errors.push(buildManualRequiredError_(r + 1, '国内消費税等（円）', product, tx));
+        }
+        if (isBlankCell_(row[colIndex.foreignFee])) {
+          errors.push(buildManualRequiredError_(r + 1, '現地手数料（円）', product, tx));
+        }
+      }
+
+      if (tx === '入金（配当金）' || tx === '入金（分配金）') {
+        if (isBlankCell_(row[colIndex.domesticIncomeTax])) {
+          errors.push(buildManualRequiredError_(r + 1, '国内源泉所得税（円）', product, tx));
+        }
+      }
+    }
+  }
+
+  if (errors.length > 0) {
+    throw new Error(
+      '一次受け枠の必須入力が未入力です。赤色のセルを入力してください。\n' +
+      errors.join('\n')
+    );
+  }
+}
+
+function buildManualRequiredError_(rowNo, headerName, product, tx) {
+  return '行' + rowNo + ': ' + headerName + ' が未入力です'
+    + ' / 商品: ' + (product || '(空欄)')
+    + ' / 取引区分: ' + (tx || '(空欄)');
+}
+
+function isBlankCell_(value) {
+  return value === '' || value === null || value === undefined;
+}
+
+function unique_(items) {
+  const seen = {};
+  const result = [];
+  items.forEach(function(item) {
+    if (seen[item]) return;
+    seen[item] = true;
+    result.push(item);
+  });
+  return result;
+}
+
+function a1_(row, col) {
+  return columnToLetter_(col) + row;
+}
+
+function getManagedOutputSpreadsheet_(targetDbKey, sourceNameForNewFile) {
+  if (!isTestDbTarget_(targetDbKey)) {
+    return {
+      ss: SpreadsheetApp.create(buildSpreadsheetName_(sourceNameForNewFile)),
+      reused: false,
+      mode: 'created'
+    };
+  }
+
+  const outputConfig = DB_CONFIG.TEST_OUTPUT_SPREADSHEET || {};
+  const fixedId = text_(outputConfig.spreadsheetId);
+  const fixedName = text_(outputConfig.spreadsheetName) || '株管理ツール_TEST_OUTPUT';
+
+  if (fixedId) {
+    return {
+      ss: SpreadsheetApp.openById(fixedId),
+      reused: true,
+      mode: 'fixed_id'
+    };
+  }
+
+  const existing = findSpreadsheetByName_(fixedName);
+  if (existing) {
+    return {
+      ss: existing,
+      reused: true,
+      mode: 'fixed_name'
+    };
+  }
+
+  return {
+    ss: SpreadsheetApp.create(fixedName),
+    reused: false,
+    mode: 'created_test_output'
+  };
+}
+
+function findSpreadsheetByName_(spreadsheetName) {
+  if (!spreadsheetName) {
+    return null;
+  }
+
+  const files = DriveApp.getFilesByName(spreadsheetName);
+  while (files.hasNext()) {
+    const file = files.next();
+    if (file.getMimeType() === MimeType.GOOGLE_SHEETS) {
+      return SpreadsheetApp.openById(file.getId());
+    }
+  }
+  return null;
 }
 
 function createSpreadsheetFromCsvUrlLegacy_(csvUrl) {
@@ -35,9 +400,7 @@ function createSpreadsheetFromCsvTextLegacy_(csvText, sourceName, normalizedUrl)
   const sourceSheet = ss.getSheets()[0];
   sourceSheet.setName(CONFIG.SOURCE_SHEET_NAME);
 
-  sourceSheet
-    .getRange(1, 1, paddedRows.length, paddedRows[0].length)
-    .setValues(paddedRows);
+  sourceSheet.getRange(1, 1, paddedRows.length, paddedRows[0].length).setValues(paddedRows);
 
   const result = buildOutputSheetsFromSourceSheet_(ss, sourceSheet);
   result.inputType = normalizedUrl ? 'url' : 'upload';
@@ -67,23 +430,23 @@ function createSpreadsheetFromCsvTextUsingDb_(csvText, sourceName, normalizedUrl
   }
 
   const paddedRows = padRows_(rows);
+  const targetDbKey = options && options.targetDbKey ? options.targetDbKey : getDefaultDbTargetKey_();
+  const outputMeta = getManagedOutputSpreadsheet_(targetDbKey, sourceName);
+  const ss = outputMeta.ss;
 
-  const ss = SpreadsheetApp.create(buildSpreadsheetName_(sourceName));
-  const sourceSheet = ss.getSheets()[0];
+  let sourceSheet = ss.getSheetByName(CONFIG.SOURCE_SHEET_NAME);
+  if (!sourceSheet) {
+    sourceSheet = ss.insertSheet(CONFIG.SOURCE_SHEET_NAME, 0);
+  } else {
+    sourceSheet.clear();
+  }
   sourceSheet.setName(CONFIG.SOURCE_SHEET_NAME);
-  sourceSheet
-    .getRange(1, 1, paddedRows.length, paddedRows[0].length)
-    .setValues(paddedRows);
+  sourceSheet.getRange(1, 1, paddedRows.length, paddedRows[0].length).setValues(paddedRows);
 
   const records = readInputRecords_(sourceSheet);
 
   const inputAlerts = [];
   collectInputAlerts_(records, inputAlerts);
-
-  const targetDbKey =
-    options && options.targetDbKey
-      ? options.targetDbKey
-      : getDefaultDbTargetKey_();
 
   const dbAppendResult = appendRecordsToDb_(records, {
     sourceName: sourceName || '',
@@ -100,6 +463,8 @@ function createSpreadsheetFromCsvTextUsingDb_(csvText, sourceName, normalizedUrl
   result.normalizedUrl = normalizedUrl || '';
   result.sourceName = sourceName || '';
   result.sourceSheetName = sourceSheet.getName();
+  result.outputSpreadsheetReused = outputMeta.reused;
+  result.outputSpreadsheetMode = outputMeta.mode;
 
   result.db = {
     dbSpreadsheetId: dbAppendResult.dbSpreadsheetId,
@@ -129,22 +494,33 @@ function createSpreadsheetFromSourceSpreadsheetUsingDb_(spreadsheetUrlOrId, opti
   }
 
   const paddedRows = padRows_(sourceValues);
-  const ss = SpreadsheetApp.create(buildSpreadsheetName_(sourceSs.getName()));
-  const outputSourceSheet = ss.getSheets()[0];
-  outputSourceSheet.setName(CONFIG.SOURCE_SHEET_NAME);
-  outputSourceSheet
-    .getRange(1, 1, paddedRows.length, paddedRows[0].length)
-    .setValues(paddedRows);
+  const targetDbKey = options && options.targetDbKey ? options.targetDbKey : getDefaultDbTargetKey_();
+  const outputMeta = getManagedOutputSpreadsheet_(targetDbKey, sourceSs.getName());
+  const ss = outputMeta.ss;
 
-  const records = readInputRecords_(outputSourceSheet);
+  let outputSourceSheet = ss.getSheetByName(CONFIG.SOURCE_SHEET_NAME);
+  if (!outputSourceSheet) {
+    outputSourceSheet = ss.insertSheet(CONFIG.SOURCE_SHEET_NAME, 0);
+  } else {
+    outputSourceSheet.clear();
+  }
+  outputSourceSheet.setName(CONFIG.SOURCE_SHEET_NAME);
+  outputSourceSheet.getRange(1, 1, paddedRows.length, paddedRows[0].length).setValues(paddedRows);
+
+  const validationBypassed = shouldSkipRequiredManualValidationForTarget_(targetDbKey);
+  if (!validationBypassed) {
+    validateRequiredManualInputsOnSheet_(sourceSheet);
+  }
+
+  // 日付ずれ対策:
+  // 元の入力シートの Date 値をいったん別Spreadsheetへ setValues() してから
+  // そのコピー先を再読込すると、Spreadsheet間のタイムゾーン差で
+  // 約定日 / 受渡日が前倒しに見えることがある。
+  // そのため、DB投入用レコードは元の sourceSheet から直接読む。
+  const records = readInputRecords_(sourceSheet);
 
   const inputAlerts = [];
   collectInputAlerts_(records, inputAlerts);
-
-  const targetDbKey =
-    options && options.targetDbKey
-      ? options.targetDbKey
-      : getDefaultDbTargetKey_();
 
   const dbAppendResult = appendRecordsToDb_(records, {
     sourceName: sourceSs.getName() + ' / ' + sourceSheet.getName(),
@@ -162,6 +538,9 @@ function createSpreadsheetFromSourceSpreadsheetUsingDb_(spreadsheetUrlOrId, opti
   result.sourceName = sourceSs.getName();
   result.sourceSheetName = sourceSheet.getName();
   result.sourceSpreadsheetName = sourceSs.getName();
+  result.validationBypassed = validationBypassed;
+  result.outputSpreadsheetReused = outputMeta.reused;
+  result.outputSpreadsheetMode = outputMeta.mode;
 
   result.db = {
     dbSpreadsheetId: dbAppendResult.dbSpreadsheetId,
@@ -398,12 +777,16 @@ function buildOutputSheetsFromSourceSheet_(ss, sourceSheet) {
 
   collectInputAlerts_(records, alerts);
 
-  const domestic = records
-    .filter(function(r) { return ['株式', '投信'].includes(r['商品']); })
+  const japanStocks = records
+    .filter(function(r) { return r['商品'] === '株式'; })
     .sort(sortTradeRows_);
 
-  const foreign = records
+  const usStocks = records
     .filter(function(r) { return ['外株', '外債'].includes(r['商品']); })
+    .sort(sortTradeRows_);
+
+  const funds = records
+    .filter(function(r) { return r['商品'] === '投信'; })
     .sort(sortTradeRows_);
 
   const cashJpy = records
@@ -417,8 +800,9 @@ function buildOutputSheetsFromSourceSheet_(ss, sourceSheet) {
     .filter(function(r) { return normalizeCurrency_(r['決済通貨']) === 'USD'; })
     .sort(sortCashRows_);
 
-  writeSheet_(ss, CONFIG.OUTPUT_DOMESTIC, TRADE_HEADERS, buildTradeRows_(domestic, alerts), true);
-  writeSheet_(ss, CONFIG.OUTPUT_FOREIGN, TRADE_HEADERS, buildTradeRows_(foreign, alerts), true);
+  writeSheet_(ss, CONFIG.OUTPUT_JAPAN_STOCK, TRADE_HEADERS, buildTradeRows_(japanStocks, alerts), true);
+  writeSheet_(ss, CONFIG.OUTPUT_US_STOCK, TRADE_HEADERS, buildTradeRows_(usStocks, alerts), true);
+  writeSheet_(ss, CONFIG.OUTPUT_FUND, TRADE_HEADERS, buildTradeRows_(funds, alerts), true);
   writeSheet_(ss, CONFIG.OUTPUT_CASH_JPY, CASH_HEADERS, buildCashRows_(cashJpy), false);
   writeSheet_(ss, CONFIG.OUTPUT_CASH_USD, CASH_HEADERS, buildCashRows_(cashUsd), false);
 
@@ -431,8 +815,9 @@ function buildOutputSheetsFromSourceSheet_(ss, sourceSheet) {
     alerts: alerts,
     counts: {
       all: records.length,
-      domestic: domestic.length,
-      foreign: foreign.length,
+      japanStocks: japanStocks.length,
+      usStocks: usStocks.length,
+      funds: funds.length,
       cashJpy: cashJpy.length,
       cashUsd: cashUsd.length,
     }

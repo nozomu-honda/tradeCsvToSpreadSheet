@@ -449,12 +449,16 @@ function buildOutputSheetsFromDbRecords_(ss, records) {
 
   collectInputAlerts_(records, alerts);
 
-  const domestic = records
-    .filter(function(r) { return ['株式', '投信'].includes(r['商品']); })
+  const japanStocks = records
+    .filter(function(r) { return r['商品'] === '株式'; })
     .sort(sortTradeRows_);
 
-  const foreign = records
+  const usStocks = records
     .filter(function(r) { return ['外株', '外債'].includes(r['商品']); })
+    .sort(sortTradeRows_);
+
+  const funds = records
+    .filter(function(r) { return r['商品'] === '投信'; })
     .sort(sortTradeRows_);
 
   const cashJpy = records
@@ -468,8 +472,9 @@ function buildOutputSheetsFromDbRecords_(ss, records) {
     .filter(function(r) { return normalizeCurrency_(r['決済通貨']) === 'USD'; })
     .sort(sortCashRows_);
 
-  writeSheet_(ss, CONFIG.OUTPUT_DOMESTIC, TRADE_HEADERS, buildTradeRows_(domestic, alerts), true);
-  writeSheet_(ss, CONFIG.OUTPUT_FOREIGN, TRADE_HEADERS, buildTradeRows_(foreign, alerts), true);
+  writeSheet_(ss, CONFIG.OUTPUT_JAPAN_STOCK, TRADE_HEADERS, buildTradeRows_(japanStocks, alerts), true);
+  writeSheet_(ss, CONFIG.OUTPUT_US_STOCK, TRADE_HEADERS, buildTradeRows_(usStocks, alerts), true);
+  writeSheet_(ss, CONFIG.OUTPUT_FUND, TRADE_HEADERS, buildTradeRows_(funds, alerts), true);
   writeSheet_(ss, CONFIG.OUTPUT_CASH_JPY, CASH_HEADERS, buildCashRows_(cashJpy), false);
   writeSheet_(ss, CONFIG.OUTPUT_CASH_USD, CASH_HEADERS, buildCashRows_(cashUsd), false);
 
@@ -481,8 +486,9 @@ function buildOutputSheetsFromDbRecords_(ss, records) {
     alerts: alerts,
     counts: {
       all: records.length,
-      domestic: domestic.length,
-      foreign: foreign.length,
+      japanStocks: japanStocks.length,
+      usStocks: usStocks.length,
+      funds: funds.length,
       cashJpy: cashJpy.length,
       cashUsd: cashUsd.length,
     }
