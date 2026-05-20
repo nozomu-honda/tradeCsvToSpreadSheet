@@ -4,7 +4,7 @@ function doGet(e) {
   template.initialSpreadsheetUrl = (e && e.parameter && e.parameter.spreadsheetUrl) ? e.parameter.spreadsheetUrl : '';
   template.dbTargetsJson = JSON.stringify(getDbTargetList_());
   template.defaultTargetDbKey = getDefaultDbTargetKey_();
-  return template.evaluate().setTitle('CSV / スプレッドシートから4シート生成');
+  return template.evaluate().setTitle('CSV / スプレッドシートから6シート生成');
 }
 
 function runFromWebApp(payload) {
@@ -69,38 +69,6 @@ function rollbackImportFromWebApp(payload) {
   }
 
   return rollbackImport_(payload.targetDbKey, payload.importId);
-}
-
-function runStagingSheetFromWebApp(payload) {
-  if (!payload) {
-    throw new Error('入力がありません。');
-  }
-
-  const csvUrl = (payload.csvUrl || '').trim();
-  const uploadedCsvText = payload.uploadedCsvText || '';
-  const uploadedFileName = (payload.uploadedFileName || '').trim();
-
-  if (!csvUrl && !uploadedCsvText) {
-    throw new Error('CSVリンクまたはCSVファイルを指定してください。');
-  }
-
-  if (csvUrl && uploadedCsvText) {
-    throw new Error('CSVリンクとCSVファイルは同時に指定せず、どちらか一方だけ指定してください。');
-  }
-
-  if (payload.spreadsheetUrl && String(payload.spreadsheetUrl).trim()) {
-    throw new Error('一次受け枠を作成できるのはCSVリンクまたはCSVファイルのみです。');
-  }
-
-  if (uploadedCsvText) {
-    return createStagingSpreadsheetFromCsvText_(
-      uploadedCsvText,
-      uploadedFileName || 'uploaded.csv',
-      ''
-    );
-  }
-
-  return createStagingSpreadsheetFromCsvUrl_(csvUrl);
 }
 
 function runStagingSheetFromWebApp(payload) {
