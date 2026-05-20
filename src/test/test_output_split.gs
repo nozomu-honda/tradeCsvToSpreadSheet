@@ -1,8 +1,8 @@
 /**
- * 5シート出力の振り分けテスト
+ * 6シート出力の振り分けテスト
  */
 
-function test_buildOutputSheetsFromDbRecords_splitsIntoFiveSheets_() {
+function test_buildOutputSheetsFromDbRecords_splitsIntoSixSheets_() {
   withTempSpreadsheet_(function(ss) {
     const records = [
       makeTradeRecord_({
@@ -56,23 +56,27 @@ function test_buildOutputSheetsFromDbRecords_splitsIntoFiveSheets_() {
 
     assertEquals_(4, result.counts.all, '全件数');
     assertEquals_(1, result.counts.japanStocks, '日本株件数');
-    assertEquals_(2, result.counts.usStocks, '米国株件数（外債を含む）');
+    assertEquals_(1, result.counts.usStocks, '米国株件数');
+    assertEquals_(1, result.counts.foreignBonds, '外債件数');
     assertEquals_(1, result.counts.funds, '投信件数');
     assertEquals_(2, result.counts.cashJpy, '円残高件数');
     assertEquals_(2, result.counts.cashUsd, 'ドル残高件数');
 
     assertTrue_(!!ss.getSheetByName(CONFIG.OUTPUT_JAPAN_STOCK), '日本株シートを作成');
     assertTrue_(!!ss.getSheetByName(CONFIG.OUTPUT_US_STOCK), '米国株シートを作成');
+    assertTrue_(!!ss.getSheetByName(CONFIG.OUTPUT_FOREIGN_BOND), '外債シートを作成');
     assertTrue_(!!ss.getSheetByName(CONFIG.OUTPUT_FUND), '投信シートを作成');
     assertTrue_(!!ss.getSheetByName(CONFIG.OUTPUT_CASH_JPY), '金銭残高（円）シートを作成');
     assertTrue_(!!ss.getSheetByName(CONFIG.OUTPUT_CASH_USD), '金銭残高（ドル）シートを作成');
 
     const japanSheet = ss.getSheetByName(CONFIG.OUTPUT_JAPAN_STOCK);
     const usSheet = ss.getSheetByName(CONFIG.OUTPUT_US_STOCK);
+    const bondSheet = ss.getSheetByName(CONFIG.OUTPUT_FOREIGN_BOND);
     const fundSheet = ss.getSheetByName(CONFIG.OUTPUT_FUND);
 
     assertEquals_('JP_STOCK', japanSheet.getRange(2, getColumnIndexByHeader_(TRADE_HEADERS, '銘柄名')).getValue(), '日本株の中身');
-    assertEquals_('US_STOCK', usSheet.getRange(2, getColumnIndexByHeader_(TRADE_HEADERS, '銘柄名')).getValue(), '米国株1行目の中身');
+    assertEquals_('US_STOCK', usSheet.getRange(2, getColumnIndexByHeader_(TRADE_HEADERS, '銘柄名')).getValue(), '米国株の中身');
+    assertEquals_('US_BOND', bondSheet.getRange(2, getColumnIndexByHeader_(TRADE_HEADERS, '銘柄名')).getValue(), '外債の中身');
     assertEquals_('FUND_A', fundSheet.getRange(2, getColumnIndexByHeader_(TRADE_HEADERS, '銘柄名')).getValue(), '投信の中身');
   });
 }

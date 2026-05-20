@@ -2,6 +2,7 @@ const CONFIG = {
   SOURCE_SHEET_NAME: '元データ',
   OUTPUT_JAPAN_STOCK: '日本株',
   OUTPUT_US_STOCK: '米国株',
+  OUTPUT_FOREIGN_BOND: '外債',
   OUTPUT_FUND: '投信',
   OUTPUT_CASH_JPY: '金銭残高（円）',
   OUTPUT_CASH_USD: '金銭残高（ドル）',

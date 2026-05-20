@@ -512,11 +512,6 @@ function createSpreadsheetFromSourceSpreadsheetUsingDb_(spreadsheetUrlOrId, opti
     validateRequiredManualInputsOnSheet_(sourceSheet);
   }
 
-  // 日付ずれ対策:
-  // 元の入力シートの Date 値をいったん別Spreadsheetへ setValues() してから
-  // そのコピー先を再読込すると、Spreadsheet間のタイムゾーン差で
-  // 約定日 / 受渡日が前倒しに見えることがある。
-  // そのため、DB投入用レコードは元の sourceSheet から直接読む。
   const records = readInputRecords_(sourceSheet);
 
   const inputAlerts = [];
@@ -782,7 +777,11 @@ function buildOutputSheetsFromSourceSheet_(ss, sourceSheet) {
     .sort(sortTradeRows_);
 
   const usStocks = records
-    .filter(function(r) { return ['外株', '外債'].includes(r['商品']); })
+    .filter(function(r) { return r['商品'] === '外株'; })
+    .sort(sortTradeRows_);
+
+  const foreignBonds = records
+    .filter(function(r) { return r['商品'] === '外債'; })
     .sort(sortTradeRows_);
 
   const funds = records
@@ -802,6 +801,7 @@ function buildOutputSheetsFromSourceSheet_(ss, sourceSheet) {
 
   writeSheet_(ss, CONFIG.OUTPUT_JAPAN_STOCK, TRADE_HEADERS, buildTradeRows_(japanStocks, alerts), true);
   writeSheet_(ss, CONFIG.OUTPUT_US_STOCK, TRADE_HEADERS, buildTradeRows_(usStocks, alerts), true);
+  writeSheet_(ss, CONFIG.OUTPUT_FOREIGN_BOND, TRADE_HEADERS, buildTradeRows_(foreignBonds, alerts), true);
   writeSheet_(ss, CONFIG.OUTPUT_FUND, TRADE_HEADERS, buildTradeRows_(funds, alerts), true);
   writeSheet_(ss, CONFIG.OUTPUT_CASH_JPY, CASH_HEADERS, buildCashRows_(cashJpy), false);
   writeSheet_(ss, CONFIG.OUTPUT_CASH_USD, CASH_HEADERS, buildCashRows_(cashUsd), false);
@@ -817,6 +817,7 @@ function buildOutputSheetsFromSourceSheet_(ss, sourceSheet) {
       all: records.length,
       japanStocks: japanStocks.length,
       usStocks: usStocks.length,
+      foreignBonds: foreignBonds.length,
       funds: funds.length,
       cashJpy: cashJpy.length,
       cashUsd: cashUsd.length,
