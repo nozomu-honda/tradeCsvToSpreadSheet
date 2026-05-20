@@ -132,7 +132,7 @@ function buildTradeRows_(records, alerts) {
       }
 
     } else if (tx === '入金（分配金）') {
-      bookValue = amount;
+      bookValue = '';
 
     } else if (['現物売却', '現物買取', '強制償還（売）'].includes(tx)) {
       if (acquisitionPrice !== '') {
@@ -167,7 +167,7 @@ function buildTradeRows_(records, alerts) {
     } else if (tx === '償還') {
       symbolBalance = prevHolding === 0 ? prevBalance : prevBalance + (bookValue === '' ? 0 : bookValue);
     } else if (tx === '入金（分配金）') {
-      symbolBalance = isPrincipalReturn ? prevBalance : prevBalance + (bookValue === '' ? 0 : bookValue);
+      symbolBalance = prevBalance;
     } else if (['株転換取得（買）', '入庫（増減資）', '入金（利金）', '入金（配当金）'].includes(tx)) {
       symbolBalance = prevBalance;
     } else {

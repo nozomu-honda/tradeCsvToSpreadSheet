@@ -44,6 +44,7 @@ const CORE_TESTS_ = [
   test_buildTradeRows_bookValue_foreignBuy_minusFeeTaxOnly_20260511_,
   test_buildTradeRows_avgUnitPrice_updatesOnStockTransferIn_20260511_,
   test_buildTradeRows_principalReturn_distributionDoesNotChangeBalance_20260511_,
+  test_buildTradeRows_distributionDoesNotChangeBalance_20260515_,
   test_buildRowHash_changesWhenManualColumnsChange_20260511_,
   test_findInputSheetByHeader_singleCandidate_,
   test_findInputSheetByHeader_noCandidate_throws_,
