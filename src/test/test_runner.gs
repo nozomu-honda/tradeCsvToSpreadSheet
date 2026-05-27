@@ -8,7 +8,7 @@ const CORE_TESTS_ = [
   test_bookValue_usesAcquisitionPrice_,
   test_sellWithoutAvg_addsAlert_,
   test_sortTradeRows_usesPriority_,
-  test_stockConversionBuy_updatesHoldingAndAvg_20260526_,
+  test_buildTradeRows_avgUnitPrice_updatesOnStockConversionBuy_20260526_,
   test_forcedRedemptionSell_updatesHoldingAndBookValue_,
   test_redemption_tradeRowAndCashRow_withNoPreviousHolding_,
   test_redemption_tradeRowAndCashRow_withPreviousHolding_,
