@@ -209,14 +209,24 @@ function applyStagingManualHighlights_(sheet) {
     }
 
     if (product === '投信') {
-      if (tx === '現物売却' || tx === '現物買取') {
+      if (tx === '現物売却') {
         if (colIndex.domesticIncomeTax >= 0) yellowRanges.push(a1_(r + 1, colIndex.domesticIncomeTax + 1));
         if (colIndex.domesticLocalTax >= 0) yellowRanges.push(a1_(r + 1, colIndex.domesticLocalTax + 1));
+      }
+
+      if (tx === '現物買取') {
+        if (colIndex.domesticIncomeTax >= 0) yellowRanges.push(a1_(r + 1, colIndex.domesticIncomeTax + 1));
+        if (colIndex.domesticLocalTax >= 0) yellowRanges.push(a1_(r + 1, colIndex.domesticLocalTax + 1));
+        if (colIndex.domesticTax >= 0) yellowRanges.push(a1_(r + 1, colIndex.domesticTax + 1));
+        if (colIndex.domesticFee >= 0) yellowRanges.push(a1_(r + 1, colIndex.domesticFee + 1));
       }
 
       if (tx === '入金（分配金）') {
         if (colIndex.domesticIncomeTax >= 0) yellowRanges.push(a1_(r + 1, colIndex.domesticIncomeTax + 1));
         if (colIndex.domesticLocalTax >= 0) yellowRanges.push(a1_(r + 1, colIndex.domesticLocalTax + 1));
+      }
+
+      if (tx === '現物再投') {
         if (colIndex.principalReturn >= 0) yellowRanges.push(a1_(r + 1, colIndex.principalReturn + 1));
       }
     }

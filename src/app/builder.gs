@@ -177,12 +177,12 @@ function buildTradeRows_(records, alerts) {
     symbolBalance = normalizeZero_(symbolBalance);
 
     if (holding > 0) {
-      if (product === '投信' && ['現物買付', '現物再投'].includes(tx)) {
+      if (product === '投信' && ['現物買付', '現物再投', '現物募集'].includes(tx)) {
         const balanceBase = prevBalance > 0
           ? (prevBalance + (bookValue === '' ? 0 : bookValue))
           : (bookValue === '' ? 0 : bookValue);
         avgUnitPrice = balanceBase / holding * 10000;
-      } else if (product !== '投信' && ['現物買付', '現物再投', '現物募集', '入庫（増減資）'].includes(tx)) {
+      } else if (product !== '投信' && ['現物買付', '現物再投', '現物募集', '入庫（増減資）', '株転換取得（買）'].includes(tx)) {
         const balanceBase = prevBalance > 0
           ? (prevBalance + (bookValue === '' ? 0 : bookValue))
           : (bookValue === '' ? 0 : bookValue);
