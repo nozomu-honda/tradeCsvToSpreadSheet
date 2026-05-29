@@ -41,7 +41,7 @@ const CORE_TESTS_ = [
   test_readInputRecords_manualColumns_20260511_,
   test_readInputRecords_manualColumnHeaderMismatch_20260511_,
   test_buildTradeRows_foreignStockSellNet_usesRate_20260511_,
-  test_buildTradeRows_bookValue_foreignBuy_multipliesFeeTaxByRate_20260515_,
+  test_buildTradeRows_bookValue_foreignBuy_minusFeeTaxOnly_20260529_,
   test_buildTradeRows_avgUnitPrice_updatesOnStockTransferIn_20260511_,
   test_buildTradeRows_avgUnitPrice_updatesOnFundOffering_20260526_,
   test_buildTradeRows_principalReturn_distributionDoesNotChangeBalance_20260511_,
@@ -59,7 +59,7 @@ const CORE_TESTS_ = [
   test_shouldSkipRequiredManualValidationForTarget_testDb_true_,
   test_shouldSkipRequiredManualValidationForTarget_normalDb_false_,
   test_createSpreadsheetFromSourceSpreadsheetUsingDb_testDb_skipsManualValidation_,
-  test_applyStagingManualHighlights_fundCashInAndReinvest_20260526_,
+  test_applyStagingManualHighlights_fundBuyAndReinvest_20260529_,
 ];
 
 const FULL_ONLY_TESTS_ = [

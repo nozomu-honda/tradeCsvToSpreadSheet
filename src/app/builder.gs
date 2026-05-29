@@ -110,7 +110,7 @@ function buildTradeRows_(records, alerts) {
 
       if (settlementCurrency && settlementCurrency !== 'JPY') {
         if (rate && rate !== 0) {
-          bookValue = amount * rate - tax * rate;
+          bookValue = amount * rate - tax;
         } else {
           alerts.push(`簿価: レート未入力: ${symbol || '(空欄)'} / 受渡日: ${formatDateForAlert_(r['受渡日'])} / 決済通貨: ${settlementCurrency}`);
           bookValue = amount - tax;

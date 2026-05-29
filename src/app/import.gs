@@ -209,12 +209,12 @@ function applyStagingManualHighlights_(sheet) {
     }
 
     if (product === '投信') {
-      if (tx === '現物売却') {
+      if (tx === '現物売却' || tx === '現物買取') {
         if (colIndex.domesticIncomeTax >= 0) yellowRanges.push(a1_(r + 1, colIndex.domesticIncomeTax + 1));
         if (colIndex.domesticLocalTax >= 0) yellowRanges.push(a1_(r + 1, colIndex.domesticLocalTax + 1));
       }
 
-      if (tx === '現物買取') {
+      if (tx === '現物買付') {
         if (colIndex.domesticIncomeTax >= 0) yellowRanges.push(a1_(r + 1, colIndex.domesticIncomeTax + 1));
         if (colIndex.domesticLocalTax >= 0) yellowRanges.push(a1_(r + 1, colIndex.domesticLocalTax + 1));
         if (colIndex.domesticTax >= 0) yellowRanges.push(a1_(r + 1, colIndex.domesticTax + 1));
@@ -240,6 +240,7 @@ function applyStagingManualHighlights_(sheet) {
     sheet.getRangeList(unique_(yellowRanges)).setBackground(colors.yellow);
   }
 }
+
 
 function validateRequiredManualInputsOnSheet_(sheet) {
   const values = sheet.getDataRange().getValues();
