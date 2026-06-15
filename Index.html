@@ -63,7 +63,12 @@
       </div>
 
       <div class="section-title">ロールバック</div>
-      <p class="muted">選択中DBの最近の取込から、戻したい取込IDを選んでロールバックします。</p>
+      <p class="muted">DBフォルダ内のファイルから、戻したい取込IDを選んでロールバックします。</p>
+
+      <div class="row">
+        <label for="rollbackDbSpreadsheetId">ロールバック対象DBファイル</label>
+        <select id="rollbackDbSpreadsheetId" onchange="loadRecentImports()"></select>
+      </div>
 
       <div class="row">
         <label for="rollbackImportId">ロールバック対象の取込ID</label>
@@ -86,7 +91,7 @@
 
       document.addEventListener('DOMContentLoaded', function() {
         initDbTargets_();
-        loadRecentImports();
+        loadRollbackDbFiles();
       });
 
       function initDbTargets_() {
@@ -108,7 +113,17 @@
       }
 
       function onTargetDbChanged() {
-        loadRecentImports();
+      }
+
+      function getSelectedRollbackDbFile_() {
+        const select = document.getElementById('rollbackDbSpreadsheetId');
+        if (!select || !select.value) return null;
+        return {
+          spreadsheetId: select.value,
+          spreadsheetName: select.options[select.selectedIndex]
+            ? select.options[select.selectedIndex].textContent
+            : ''
+        };
       }
 
       function buildInputPayloadBase_(uploadedCsvText, uploadedFileName) {
@@ -179,7 +194,7 @@
               setBusy_(false);
               document.getElementById('status').textContent = '';
               renderMainResult_(res);
-              loadRecentImports();
+              loadRollbackDbFiles();
             })
             .withFailureHandler(function(err) {
               setBusy_(false);
@@ -258,6 +273,9 @@
         if (res.db) {
           dbText =
             '\n\nDB取込結果:\n' +
+            '検出形式: ' + (res.detectedSourceType || '') + '\n' +
+            '選択DBキー: ' + (res.requestedTargetDbKey || '') + '\n' +
+            '実際の追加先DBキー: ' + (res.routedTargetDbKey || res.db.dbTargetKey || '') + '\n' +
             '追加先DB: ' + (res.db.dbTargetLabel || '') + '\n' +
             '取込ID: ' + (res.db.importId || '') + '\n' +
             '読込件数: ' + (res.db.rowCount || 0) + '\n' +
@@ -326,7 +344,7 @@
             if (res.dbSpreadsheetUrl) {
               appendLink(linkArea, res.dbSpreadsheetUrl, '選択中DBを開く');
             }
-            loadRecentImports();
+            loadRollbackDbFiles();
           })
           .withFailureHandler(function(err) {
             setBusy_(false);
@@ -336,11 +354,55 @@
           .resetDbFromWebApp(target.key);
       }
 
+      function loadRollbackDbFiles() {
+        const fileSelect = document.getElementById('rollbackDbSpreadsheetId');
+        const select = document.getElementById('rollbackImportId');
+        fileSelect.innerHTML = '';
+        select.innerHTML = '';
+
+        const loadingFile = document.createElement('option');
+        loadingFile.value = '';
+        loadingFile.textContent = 'DBファイル読込中...';
+        fileSelect.appendChild(loadingFile);
+
+        google.script.run
+          .withSuccessHandler(function(res) {
+            try {
+              fileSelect.innerHTML = '';
+              const files = Array.isArray(res && res.files) ? res.files : [];
+              if (!files.length) {
+                const empty = document.createElement('option');
+                empty.value = '';
+                empty.textContent = 'DBファイルがありません';
+                fileSelect.appendChild(empty);
+                const emptyImport = document.createElement('option');
+                emptyImport.value = '';
+                emptyImport.textContent = '最近の取込はありません';
+                select.appendChild(emptyImport);
+                return;
+              }
+              files.forEach(function(file) {
+                const option = document.createElement('option');
+                option.value = file.spreadsheetId || '';
+                option.textContent = file.spreadsheetName || file.spreadsheetId || '(ファイル名なし)';
+                fileSelect.appendChild(option);
+              });
+              loadRecentImports();
+            } catch (e) {
+              renderError_(e);
+            }
+          })
+          .withFailureHandler(function(err) {
+            renderError_(err);
+          })
+          .listRollbackDbFilesFromWebApp();
+      }
+
       function loadRecentImports() {
-        const target = getSelectedDbTarget_();
+        const dbFile = getSelectedRollbackDbFile_();
         const select = document.getElementById('rollbackImportId');
         select.innerHTML = '';
-        if (!target) return;
+        if (!dbFile) return;
 
         const option = document.createElement('option');
         option.value = '';
@@ -372,19 +434,22 @@
           .withFailureHandler(function(err) {
             renderError_(err);
           })
-          .listRecentImportsFromWebApp(target.key);
+          .listRecentImportsByDbFileFromWebApp(dbFile.spreadsheetId);
       }
 
       function rollbackImport() {
-        const target = getSelectedDbTarget_();
+        const dbFile = getSelectedRollbackDbFile_();
         const importId = document.getElementById('rollbackImportId').value;
-        if (!target) return;
+        if (!dbFile) {
+          renderError_({ message: 'ロールバック対象DBファイルを選択してください。' });
+          return;
+        }
         if (!importId) {
           renderError_({ message: 'ロールバック対象の取込IDを選択してください。' });
           return;
         }
 
-        const confirmed = window.confirm('この取込をロールバックしますか？\n\n対象DB: ' + target.label + '\n取込ID: ' + importId);
+        const confirmed = window.confirm('この取込をロールバックしますか？\n\n対象DBファイル: ' + dbFile.spreadsheetName + '\n取込ID: ' + importId);
         if (!confirmed) return;
 
         clearOutput_();
@@ -413,7 +478,7 @@
             document.getElementById('status').textContent = '';
             renderError_(err);
           })
-          .rollbackImportFromWebApp({ targetDbKey: target.key, importId: importId });
+          .rollbackImportFromWebApp({ dbSpreadsheetId: dbFile.spreadsheetId, importId: importId });
       }
 
       function setBusy_(isBusy) {
@@ -423,6 +488,7 @@
         document.getElementById('resetDbButton').disabled = isBusy;
         document.getElementById('refreshImportsButton').disabled = isBusy;
         document.getElementById('rollbackButton').disabled = isBusy;
+        document.getElementById('rollbackDbSpreadsheetId').disabled = isBusy;
         document.getElementById('rollbackImportId').disabled = isBusy;
       }
 
