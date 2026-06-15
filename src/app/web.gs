@@ -63,9 +63,32 @@ function listRecentImportsFromWebApp(targetDbKey) {
   };
 }
 
+function listRollbackDbFilesFromWebApp() {
+  return {
+    files: listDbSpreadsheetFilesInFolder_(),
+  };
+}
+
+function listRecentImportsByDbFileFromWebApp(spreadsheetId) {
+  const dbSs = openDbSpreadsheetById_(spreadsheetId);
+  return {
+    dbSpreadsheetId: dbSs.getId(),
+    dbSpreadsheetUrl: dbSs.getUrl(),
+    dbTargetLabel: dbSs.getName(),
+    imports: listRecentImportsFromSpreadsheet_(dbSs, DB_CONFIG.MAX_RECENT_IMPORTS, {
+      key: '',
+      label: dbSs.getName(),
+    }),
+  };
+}
+
 function rollbackImportFromWebApp(payload) {
   if (!payload) {
     throw new Error('ロールバック対象が指定されていません。');
+  }
+
+  if (payload.dbSpreadsheetId) {
+    return rollbackImportBySpreadsheetId_(payload.dbSpreadsheetId, payload.importId);
   }
 
   return rollbackImport_(payload.targetDbKey, payload.importId);

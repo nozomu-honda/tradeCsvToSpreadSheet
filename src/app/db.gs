@@ -62,6 +62,35 @@ function getDbTargetList_() {
     });
 }
 
+function listDbSpreadsheetFilesInFolder_() {
+  const folder = getDbFolder_({ folderId: DB_CONFIG.DB_FOLDER_ID });
+  if (!folder) {
+    throw new Error('DB_CONFIG.DB_FOLDER_ID が未設定です。');
+  }
+
+  const files = folder.getFiles();
+  const result = [];
+
+  while (files.hasNext()) {
+    const file = files.next();
+    if (file.getMimeType() !== MimeType.GOOGLE_SHEETS) {
+      continue;
+    }
+
+    result.push({
+      spreadsheetId: file.getId(),
+      spreadsheetName: file.getName(),
+      spreadsheetUrl: file.getUrl(),
+    });
+  }
+
+  result.sort(function(a, b) {
+    return compareText_(a.spreadsheetName, b.spreadsheetName);
+  });
+
+  return result;
+}
+
 function getOrCreateDbSpreadsheet_(targetDbKey) {
   const target = resolveDbTarget_(targetDbKey);
 
@@ -96,6 +125,15 @@ function findDbSpreadsheet_(target) {
   }
 
   return null;
+}
+
+function openDbSpreadsheetById_(spreadsheetId) {
+  const id = text_(spreadsheetId);
+  if (!id) {
+    throw new Error('DBファイルを選択してください。');
+  }
+
+  return SpreadsheetApp.openById(id);
 }
 
 function getDbFolder_(target) {
@@ -539,7 +577,19 @@ function buildOutputSheetsFromDbRecords_(ss, records) {
 
 function readImportLogs_(targetDbKey) {
   const dbSs = getOrCreateDbSpreadsheet_(targetDbKey);
-  const logSheet = getOrCreateDbSheet_(dbSs, DB_CONFIG.SHEET_IMPORT_LOGS, IMPORT_LOG_HEADERS);
+  return readImportLogsFromSpreadsheet_(dbSs, true);
+}
+
+function readImportLogsFromSpreadsheet_(dbSs, createIfMissing) {
+  let logSheet = dbSs.getSheetByName(DB_CONFIG.SHEET_IMPORT_LOGS);
+
+  if (!logSheet) {
+    if (!createIfMissing) {
+      return [];
+    }
+    logSheet = getOrCreateDbSheet_(dbSs, DB_CONFIG.SHEET_IMPORT_LOGS, IMPORT_LOG_HEADERS);
+  }
+
   const lastRow = logSheet.getLastRow();
 
   if (lastRow <= 1) {
@@ -560,10 +610,24 @@ function readImportLogs_(targetDbKey) {
 
 function listRecentImports_(targetDbKey, maxCount) {
   const target = resolveDbTarget_(targetDbKey);
+  const dbSs = getOrCreateDbSpreadsheet_(target.key);
+  return listRecentImportsFromSpreadsheet_(dbSs, maxCount, target);
+}
+
+function listRecentImportsBySpreadsheetId_(spreadsheetId, maxCount) {
+  const dbSs = openDbSpreadsheetById_(spreadsheetId);
+  return listRecentImportsFromSpreadsheet_(dbSs, maxCount, {
+    key: '',
+    label: dbSs.getName(),
+  });
+}
+
+function listRecentImportsFromSpreadsheet_(dbSs, maxCount, fallbackTarget) {
   const count = maxCount || DB_CONFIG.MAX_RECENT_IMPORTS || 30;
   const tz = Session.getScriptTimeZone() || 'Asia/Tokyo';
+  const fallback = fallbackTarget || {};
 
-  return readImportLogs_(target.key)
+  return readImportLogsFromSpreadsheet_(dbSs, false)
     .filter(function(log) {
       return text_(log.importId) !== '';
     })
@@ -590,8 +654,8 @@ function listRecentImports_(targetDbKey, maxCount) {
       return {
         importId: text_(log.importId),
         importedAtText: importedAtText,
-        targetDbKey: target.key,
-        targetDbLabel: target.label,
+        targetDbKey: text_(log.targetDbKey) || text_(fallback.key),
+        targetDbLabel: text_(log.targetDbLabel) || text_(fallback.label) || dbSs.getName(),
         sourceName: sourceName,
         rowCount: toNumber_(log.rowCount),
         insertedCount: insertedCount,
@@ -611,17 +675,39 @@ function listRecentImports_(targetDbKey, maxCount) {
 
 function rollbackImport_(targetDbKey, importId) {
   const target = resolveDbTarget_(targetDbKey);
+  const dbSs = getOrCreateDbSpreadsheet_(target.key);
+  return rollbackImportInSpreadsheet_(dbSs, target, importId);
+}
+
+function rollbackImportBySpreadsheetId_(spreadsheetId, importId) {
+  const dbSs = openDbSpreadsheetById_(spreadsheetId);
+  return rollbackImportInSpreadsheet_(dbSs, {
+    key: '',
+    label: dbSs.getName(),
+  }, importId);
+}
+
+function rollbackImportInSpreadsheet_(dbSs, target, importId) {
   const rollbackImportId = text_(importId);
 
   if (!rollbackImportId) {
     throw new Error('ロールバック対象の取込IDを選択してください。');
   }
 
-  const dbSs = getOrCreateDbSpreadsheet_(target.key);
-  const txSheet = getOrCreateDbSheet_(dbSs, DB_CONFIG.SHEET_TRANSACTIONS, DB_HEADERS);
-  const logSheet = getOrCreateDbSheet_(dbSs, DB_CONFIG.SHEET_IMPORT_LOGS, IMPORT_LOG_HEADERS);
+  const txSheet = dbSs.getSheetByName(DB_CONFIG.SHEET_TRANSACTIONS);
+  const logSheet = dbSs.getSheetByName(DB_CONFIG.SHEET_IMPORT_LOGS);
 
-  const logs = readImportLogs_(target.key);
+  if (!txSheet || !logSheet) {
+    throw new Error(
+      '選択したファイルにDBシートが見つかりません。' +
+      ' 必要なシート: ' + DB_CONFIG.SHEET_TRANSACTIONS + ', ' + DB_CONFIG.SHEET_IMPORT_LOGS +
+      ' / ファイル: ' + dbSs.getName()
+    );
+  }
+
+  assertDbSheetCompatible_(txSheet, DB_HEADERS);
+
+  const logs = readImportLogsFromSpreadsheet_(dbSs, false);
   const targetLog = logs.find(function(log) {
     return text_(log.importId) === rollbackImportId;
   });
@@ -694,8 +780,8 @@ function rollbackImport_(targetDbKey, importId) {
     ok: true,
     dbSpreadsheetId: dbSs.getId(),
     dbSpreadsheetUrl: dbSs.getUrl(),
-    dbTargetKey: target.key,
-    dbTargetLabel: target.label,
+    dbTargetKey: text_(target.key) || text_(targetLog.targetDbKey),
+    dbTargetLabel: text_(target.label) || text_(targetLog.targetDbLabel) || dbSs.getName(),
     importId: rollbackImportId,
     rolledBackCount: rolledBackCount,
   };
