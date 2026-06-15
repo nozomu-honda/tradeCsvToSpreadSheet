@@ -60,6 +60,11 @@ const CORE_TESTS_ = [
   test_shouldSkipRequiredManualValidationForTarget_normalDb_false_,
   test_createSpreadsheetFromSourceSpreadsheetUsingDb_testDb_skipsManualValidation_,
   test_applyStagingManualHighlights_fundBuyAndReinvest_20260529_,
+  test_detectInputSourceTypeFromRows_rakutenJapanStock_20260615_,
+  test_detectInputSourceTypeFromRows_rakutenUsStock_20260615_,
+  test_normalizeRakutenJapanStockRowsToRecords_buy_20260615_,
+  test_normalizeRakutenUsStockRowsToRecords_yenSettlement_20260615_,
+  test_routeTargetDbKeyBySource_rakuten_20260615_,
 ];
 
 const FULL_ONLY_TESTS_ = [

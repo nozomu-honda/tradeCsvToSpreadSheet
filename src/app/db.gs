@@ -47,14 +47,18 @@ function resolveDbTarget_(targetDbKey) {
 }
 
 function getDbTargetList_() {
-  return getDbTargets_().map(function(target) {
-    return {
-      key: target.key,
-      label: target.label,
-      spreadsheetId: text_(target.spreadsheetId),
-      spreadsheetName: text_(target.spreadsheetName),
-    };
-  });
+  return getDbTargets_()
+    .filter(function(target) {
+      return target.uiVisible !== false;
+    })
+    .map(function(target) {
+      return {
+        key: target.key,
+        label: target.label,
+        spreadsheetId: text_(target.spreadsheetId),
+        spreadsheetName: text_(target.spreadsheetName),
+      };
+    });
 }
 
 function getOrCreateDbSpreadsheet_(targetDbKey) {
