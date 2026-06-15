@@ -18,7 +18,27 @@ function parseDate_(v) {
     .replace(/月/g, '/')
     .replace(/日/g, '')
     .replace(/\./g, '/')
-    .replace(/-/g, '/');
+    .replace(/-/g, '/')
+    .trim();
+
+  const ymd = normalized.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})$/);
+  if (ymd) {
+    const year = Number(ymd[1]);
+    const month = Number(ymd[2]);
+    const day = Number(ymd[3]);
+
+    if (
+      Number.isFinite(year) &&
+      Number.isFinite(month) &&
+      Number.isFinite(day) &&
+      month >= 1 && month <= 12 &&
+      day >= 1 && day <= 31
+    ) {
+      // 日付列は時刻を持たないため、タイムゾーンずれ回避で 12:00 固定にする
+      const d = new Date(year, month - 1, day, 12, 0, 0, 0);
+      return isNaN(d.getTime()) ? '' : d;
+    }
+  }
 
   const d = new Date(normalized);
   return isNaN(d.getTime()) ? '' : d;
@@ -68,10 +88,10 @@ function toNullableBooleanFlag_(v, label) {
   }
 
   const raw = String(v)
-    .replace(/\u00A0/g, ' ')   // NBSP
-    .replace(/\u200B/g, '')    // zero-width space
-    .replace(/\uFEFF/g, '')    // BOM
-    .replace(/\u3000/g, ' ')   // 全角スペース
+    .replace(/\u00A0/g, ' ')
+    .replace(/\u200B/g, '')
+    .replace(/\uFEFF/g, '')
+    .replace(/\u3000/g, ' ')
     .trim();
 
   if (!raw) return '';

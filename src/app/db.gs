@@ -43,18 +43,23 @@ function resolveDbTarget_(targetDbKey) {
     label: target.label,
     spreadsheetId: text_(target.spreadsheetId),
     spreadsheetName: text_(target.spreadsheetName),
+    folderId: text_(target.folderId || DB_CONFIG.DB_FOLDER_ID || ''),
   };
 }
 
 function getDbTargetList_() {
-  return getDbTargets_().map(function(target) {
-    return {
-      key: target.key,
-      label: target.label,
-      spreadsheetId: text_(target.spreadsheetId),
-      spreadsheetName: text_(target.spreadsheetName),
-    };
-  });
+  return getDbTargets_()
+    .filter(function(target) {
+      return target.uiVisible !== false;
+    })
+    .map(function(target) {
+      return {
+        key: target.key,
+        label: target.label,
+        spreadsheetId: text_(target.spreadsheetId),
+        spreadsheetName: text_(target.spreadsheetName),
+      };
+    });
 }
 
 function getOrCreateDbSpreadsheet_(targetDbKey) {
@@ -74,19 +79,14 @@ function getOrCreateDbSpreadsheet_(targetDbKey) {
     return existing;
   }
 
-  const ss = SpreadsheetApp.create(target.spreadsheetName);
-  const firstSheet = ss.getSheets()[0];
-  firstSheet.setName(DB_CONFIG.SHEET_TRANSACTIONS);
-  ensureHeaderRow_(firstSheet, DB_HEADERS);
-
-  const logSheet = ss.insertSheet(DB_CONFIG.SHEET_IMPORT_LOGS);
-  ensureHeaderRow_(logSheet, IMPORT_LOG_HEADERS);
-
-  return ss;
+  return createDbSpreadsheet_(target);
 }
 
 function findDbSpreadsheet_(target) {
-  const files = DriveApp.getFilesByName(target.spreadsheetName);
+  const folder = getDbFolder_(target);
+  const files = folder
+    ? folder.getFilesByName(target.spreadsheetName)
+    : DriveApp.getFilesByName(target.spreadsheetName);
 
   while (files.hasNext()) {
     const file = files.next();
@@ -96,6 +96,42 @@ function findDbSpreadsheet_(target) {
   }
 
   return null;
+}
+
+function getDbFolder_(target) {
+  const folderId = text_((target && target.folderId) || DB_CONFIG.DB_FOLDER_ID || '');
+  if (!folderId) {
+    return null;
+  }
+
+  try {
+    return DriveApp.getFolderById(folderId);
+  } catch (e) {
+    throw new Error(
+      'DB作成先フォルダを開けません。DB_CONFIG.DB_FOLDER_ID または target.folderId を確認してください。' +
+      ' folderId=' + folderId +
+      ' / error=' + (e && e.message ? e.message : String(e))
+    );
+  }
+}
+
+function createDbSpreadsheet_(target) {
+  const ss = SpreadsheetApp.create(target.spreadsheetName);
+
+  const folder = getDbFolder_(target);
+  if (folder) {
+    const file = DriveApp.getFileById(ss.getId());
+    file.moveTo(folder);
+  }
+
+  const firstSheet = ss.getSheets()[0];
+  firstSheet.setName(DB_CONFIG.SHEET_TRANSACTIONS);
+  ensureHeaderRow_(firstSheet, DB_HEADERS);
+
+  const logSheet = ss.insertSheet(DB_CONFIG.SHEET_IMPORT_LOGS);
+  ensureHeaderRow_(logSheet, IMPORT_LOG_HEADERS);
+
+  return ss;
 }
 
 function getOrCreateDbSheet_(ss, sheetName, headers) {

@@ -30,7 +30,8 @@ function createSpreadsheetFromSourceSpreadsheet_(spreadsheetUrlOrId, options) {
 }
 
 function isTestDbTarget_(targetDbKey) {
-  return text_(targetDbKey) === 'test';
+  const key = text_(targetDbKey);
+  return key === 'test' || key === 'rakuten_test';
 }
 
 function shouldSkipRequiredManualValidationForTarget_(targetDbKey) {
@@ -57,7 +58,8 @@ function createStagingSpreadsheetFromCsvText_(csvText, sourceName, normalizedUrl
     throw new Error('CSVを読み込めませんでした。');
   }
 
-  const outputRows = buildRowsWithAdditionalManualHeaders_(rows);
+  const normalizedInput = normalizeRowsForImport_(rows);
+  const outputRows = buildRowsWithAdditionalManualHeaders_(normalizedInput.normalizedRows);
 
   const ss = SpreadsheetApp.create(buildSpreadsheetName_((sourceName || 'CSV') + '_一次受け'));
   const sheet = ss.getSheets()[0];
@@ -74,7 +76,8 @@ function createStagingSpreadsheetFromCsvText_(csvText, sourceName, normalizedUrl
     sheetName: sheet.getName(),
     inputType: normalizedUrl ? 'url' : 'upload',
     normalizedUrl: normalizedUrl || '',
-    sourceName: sourceName || ''
+    sourceName: sourceName || '',
+    detectedSourceType: normalizedInput.sourceType
   };
 }
 
@@ -84,14 +87,15 @@ function createStagingSpreadsheetFromSourceSpreadsheet_(spreadsheetUrlOrId) {
   }
 
   const sourceSs = openSpreadsheetByUrlOrId_(spreadsheetUrlOrId);
-  const sourceSheet = findInputSheetByHeader_(sourceSs);
+  const sourceSheet = findSupportedImportSheet_(sourceSs);
   const sourceValues = sourceSheet.getDataRange().getValues();
 
   if (!sourceValues || sourceValues.length === 0) {
     throw new Error('入力元シートが空です。');
   }
 
-  const outputRows = buildRowsWithAdditionalManualHeaders_(sourceValues);
+  const normalizedInput = normalizeRowsForImport_(sourceValues);
+  const outputRows = buildRowsWithAdditionalManualHeaders_(normalizedInput.normalizedRows);
 
   const ss = SpreadsheetApp.create(buildSpreadsheetName_(sourceSs.getName() + '_一次受け'));
   const sheet = ss.getSheets()[0];
@@ -110,7 +114,8 @@ function createStagingSpreadsheetFromSourceSpreadsheet_(spreadsheetUrlOrId) {
     normalizedUrl: text_(spreadsheetUrlOrId),
     sourceName: sourceSs.getName(),
     sourceSheetName: sourceSheet.getName(),
-    sourceSpreadsheetName: sourceSs.getName()
+    sourceSpreadsheetName: sourceSs.getName(),
+    detectedSourceType: normalizedInput.sourceType
   };
 }
 
@@ -214,9 +219,19 @@ function applyStagingManualHighlights_(sheet) {
         if (colIndex.domesticLocalTax >= 0) yellowRanges.push(a1_(r + 1, colIndex.domesticLocalTax + 1));
       }
 
+      if (tx === '現物買付') {
+        if (colIndex.domesticIncomeTax >= 0) yellowRanges.push(a1_(r + 1, colIndex.domesticIncomeTax + 1));
+        if (colIndex.domesticLocalTax >= 0) yellowRanges.push(a1_(r + 1, colIndex.domesticLocalTax + 1));
+        if (colIndex.domesticTax >= 0) yellowRanges.push(a1_(r + 1, colIndex.domesticTax + 1));
+        if (colIndex.domesticFee >= 0) yellowRanges.push(a1_(r + 1, colIndex.domesticFee + 1));
+      }
+
       if (tx === '入金（分配金）') {
         if (colIndex.domesticIncomeTax >= 0) yellowRanges.push(a1_(r + 1, colIndex.domesticIncomeTax + 1));
         if (colIndex.domesticLocalTax >= 0) yellowRanges.push(a1_(r + 1, colIndex.domesticLocalTax + 1));
+      }
+
+      if (tx === '現物再投') {
         if (colIndex.principalReturn >= 0) yellowRanges.push(a1_(r + 1, colIndex.principalReturn + 1));
       }
     }
@@ -395,7 +410,8 @@ function createSpreadsheetFromCsvTextLegacy_(csvText, sourceName, normalizedUrl)
     throw new Error('CSVを読み込めませんでした。');
   }
 
-  const paddedRows = padRows_(rows);
+  const normalizedInput = normalizeRowsForImport_(rows);
+  const paddedRows = padRows_(normalizedInput.normalizedRows);
   const ss = SpreadsheetApp.create(buildSpreadsheetName_(sourceName));
   const sourceSheet = ss.getSheets()[0];
   sourceSheet.setName(CONFIG.SOURCE_SHEET_NAME);
@@ -406,6 +422,7 @@ function createSpreadsheetFromCsvTextLegacy_(csvText, sourceName, normalizedUrl)
   result.inputType = normalizedUrl ? 'url' : 'upload';
   result.normalizedUrl = normalizedUrl || '';
   result.sourceName = sourceName || '';
+  result.detectedSourceType = normalizedInput.sourceType;
   return result;
 }
 
@@ -429,8 +446,9 @@ function createSpreadsheetFromCsvTextUsingDb_(csvText, sourceName, normalizedUrl
     throw new Error('CSVを読み込めませんでした。');
   }
 
-  const paddedRows = padRows_(rows);
-  const targetDbKey = options && options.targetDbKey ? options.targetDbKey : getDefaultDbTargetKey_();
+  const normalizedInput = normalizeRowsForImport_(rows);
+  const selectedTargetDbKey = options && options.targetDbKey ? options.targetDbKey : getDefaultDbTargetKey_();
+  const targetDbKey = routeTargetDbKeyBySource_(selectedTargetDbKey, normalizedInput.sourceType);
   const outputMeta = getManagedOutputSpreadsheet_(targetDbKey, sourceName);
   const ss = outputMeta.ss;
 
@@ -441,7 +459,9 @@ function createSpreadsheetFromCsvTextUsingDb_(csvText, sourceName, normalizedUrl
     sourceSheet.clear();
   }
   sourceSheet.setName(CONFIG.SOURCE_SHEET_NAME);
-  sourceSheet.getRange(1, 1, paddedRows.length, paddedRows[0].length).setValues(paddedRows);
+  sourceSheet
+    .getRange(1, 1, normalizedInput.normalizedRows.length, normalizedInput.normalizedRows[0].length)
+    .setValues(normalizedInput.normalizedRows);
 
   const records = readInputRecords_(sourceSheet);
 
@@ -465,6 +485,9 @@ function createSpreadsheetFromCsvTextUsingDb_(csvText, sourceName, normalizedUrl
   result.sourceSheetName = sourceSheet.getName();
   result.outputSpreadsheetReused = outputMeta.reused;
   result.outputSpreadsheetMode = outputMeta.mode;
+  result.detectedSourceType = normalizedInput.sourceType;
+  result.requestedTargetDbKey = selectedTargetDbKey;
+  result.routedTargetDbKey = targetDbKey;
 
   result.db = {
     dbSpreadsheetId: dbAppendResult.dbSpreadsheetId,
@@ -486,15 +509,16 @@ function createSpreadsheetFromSourceSpreadsheetUsingDb_(spreadsheetUrlOrId, opti
   }
 
   const sourceSs = openSpreadsheetByUrlOrId_(spreadsheetUrlOrId);
-  const sourceSheet = findInputSheetByHeader_(sourceSs);
+  const sourceSheet = findSupportedImportSheet_(sourceSs);
   const sourceValues = sourceSheet.getDataRange().getValues();
 
   if (!sourceValues || sourceValues.length === 0) {
     throw new Error('入力元シートが空です。');
   }
 
-  const paddedRows = padRows_(sourceValues);
-  const targetDbKey = options && options.targetDbKey ? options.targetDbKey : getDefaultDbTargetKey_();
+  const normalizedInput = normalizeRowsForImport_(sourceValues);
+  const selectedTargetDbKey = options && options.targetDbKey ? options.targetDbKey : getDefaultDbTargetKey_();
+  const targetDbKey = routeTargetDbKeyBySource_(selectedTargetDbKey, normalizedInput.sourceType);
   const outputMeta = getManagedOutputSpreadsheet_(targetDbKey, sourceSs.getName());
   const ss = outputMeta.ss;
 
@@ -505,14 +529,16 @@ function createSpreadsheetFromSourceSpreadsheetUsingDb_(spreadsheetUrlOrId, opti
     outputSourceSheet.clear();
   }
   outputSourceSheet.setName(CONFIG.SOURCE_SHEET_NAME);
-  outputSourceSheet.getRange(1, 1, paddedRows.length, paddedRows[0].length).setValues(paddedRows);
+  outputSourceSheet
+    .getRange(1, 1, normalizedInput.normalizedRows.length, normalizedInput.normalizedRows[0].length)
+    .setValues(normalizedInput.normalizedRows);
 
   const validationBypassed = shouldSkipRequiredManualValidationForTarget_(targetDbKey);
-  if (!validationBypassed) {
-    validateRequiredManualInputsOnSheet_(sourceSheet);
+  if (!validationBypassed && normalizedInput.hasManualColumns) {
+    validateRequiredManualInputsOnSheet_(outputSourceSheet);
   }
 
-  const records = readInputRecords_(sourceSheet);
+  const records = readInputRecords_(outputSourceSheet);
 
   const inputAlerts = [];
   collectInputAlerts_(records, inputAlerts);
@@ -536,6 +562,9 @@ function createSpreadsheetFromSourceSpreadsheetUsingDb_(spreadsheetUrlOrId, opti
   result.validationBypassed = validationBypassed;
   result.outputSpreadsheetReused = outputMeta.reused;
   result.outputSpreadsheetMode = outputMeta.mode;
+  result.detectedSourceType = normalizedInput.sourceType;
+  result.requestedTargetDbKey = selectedTargetDbKey;
+  result.routedTargetDbKey = targetDbKey;
 
   result.db = {
     dbSpreadsheetId: dbAppendResult.dbSpreadsheetId,

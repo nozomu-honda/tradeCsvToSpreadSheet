@@ -8,7 +8,7 @@ const CORE_TESTS_ = [
   test_bookValue_usesAcquisitionPrice_,
   test_sellWithoutAvg_addsAlert_,
   test_sortTradeRows_usesPriority_,
-  test_stockConversionBuy_updatesHoldingAndAvg_,
+  test_buildTradeRows_avgUnitPrice_updatesOnStockConversionBuy_20260526_,
   test_forcedRedemptionSell_updatesHoldingAndBookValue_,
   test_redemption_tradeRowAndCashRow_withNoPreviousHolding_,
   test_redemption_tradeRowAndCashRow_withPreviousHolding_,
@@ -41,8 +41,9 @@ const CORE_TESTS_ = [
   test_readInputRecords_manualColumns_20260511_,
   test_readInputRecords_manualColumnHeaderMismatch_20260511_,
   test_buildTradeRows_foreignStockSellNet_usesRate_20260511_,
-  test_buildTradeRows_bookValue_foreignBuy_multipliesFeeTaxByRate_20260515_,
+  test_buildTradeRows_bookValue_foreignBuy_minusFeeTaxOnly_20260529_,
   test_buildTradeRows_avgUnitPrice_updatesOnStockTransferIn_20260511_,
+  test_buildTradeRows_avgUnitPrice_updatesOnFundOffering_20260526_,
   test_buildTradeRows_principalReturn_distributionDoesNotChangeBalance_20260511_,
   test_buildTradeRows_distributionDoesNotChangeBalance_20260515_,
   test_buildRowHash_changesWhenManualColumnsChange_20260511_,
@@ -58,6 +59,12 @@ const CORE_TESTS_ = [
   test_shouldSkipRequiredManualValidationForTarget_testDb_true_,
   test_shouldSkipRequiredManualValidationForTarget_normalDb_false_,
   test_createSpreadsheetFromSourceSpreadsheetUsingDb_testDb_skipsManualValidation_,
+  test_applyStagingManualHighlights_fundBuyAndReinvest_20260529_,
+  test_detectInputSourceTypeFromRows_rakutenJapanStock_20260615_,
+  test_detectInputSourceTypeFromRows_rakutenUsStock_20260615_,
+  test_normalizeRakutenJapanStockRowsToRecords_buy_20260615_,
+  test_normalizeRakutenUsStockRowsToRecords_yenSettlement_20260615_,
+  test_routeTargetDbKeyBySource_rakuten_20260615_,
 ];
 
 const FULL_ONLY_TESTS_ = [

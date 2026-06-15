@@ -3,41 +3,61 @@
  *
  * 方針:
  * - 法人ごと / 口座グループごとにDBスプレッドシートを分ける
- * - Web UI からどのDBへ追加するかを選ぶ
- * - 誤って追加した場合は、取込単位(importId単位)でロールバックする
+ * - Web UI では従来どおり 法人A / 法人B / test を選ぶ
+ * - 入力ヘッダーを見て 野村 / 楽天 を自動判定し、対応するDBへ振り分ける
  * - test DB は赤セル必須入力バリデーションをスキップできる
  * - test DB は固定の確認用Spreadsheetへ出力する
  */
 const DB_CONFIG = {
   DEFAULT_TARGET_DB_KEY: 'corp_a',
-
+  DB_FOLDER_ID: '1T7vfpPMgmk8auy22ZA9OWuMtC4Nswhaq',
+  
   TARGET_DBS: [
     {
       key: 'corp_a',
       label: '（株）本田土地建物',
       spreadsheetId: '1XqCr8PpcENcx_-krJV1jRKb5_yU9tVBVXvEtypCSLGY',
       spreadsheetName: '取引DB_法人A',
+      uiVisible: true,
     },
     {
       key: 'corp_b',
       label: '（株）本田',
       spreadsheetId: '1i9pU8D8J-vRVP6uMfaIbMtX9lC4DFw3jw1AfbASCvlw',
       spreadsheetName: '取引DB_法人B',
+      uiVisible: true,
     },
     {
       key: 'test',
       label: 'テスト用DB（赤セルバリデーション無視）',
       spreadsheetId: '1IEwnXis7WiFJ9jRl3E-llZanhjkwlyOafWqSXCxkI3M',
       spreadsheetName: '株管理ツール_TEST_DB',
+      uiVisible: true,
+    },
+
+    {
+      key: 'rakuten_corp_a',
+      label: '（株）本田土地建物（楽天）',
+      spreadsheetId: '',
+      spreadsheetName: '取引DB_法人A_楽天',
+      uiVisible: false,
+    },
+    {
+      key: 'rakuten_corp_b',
+      label: '（株）本田（楽天）',
+      spreadsheetId: '',
+      spreadsheetName: '取引DB_法人B_楽天',
+      uiVisible: false,
+    },
+    {
+      key: 'rakuten_test',
+      label: 'テスト用DB（楽天・赤セルバリデーション無視）',
+      spreadsheetId: '',
+      spreadsheetName: '株管理ツール_TEST_DB_楽天',
+      uiVisible: false,
     }
   ],
 
-  /**
-   * test DB 選択時の固定確認用Spreadsheet
-   *
-   * spreadsheetId を設定すると create を使わず openById だけで更新できる。
-   * spreadsheetId が空欄かつ該当名のSpreadsheetが存在しない場合だけ、初回に create する。
-   */
   TEST_OUTPUT_SPREADSHEET: {
     spreadsheetId: '1BvDhQ9Osd2ZLx3dINbM7v3-ulIW8PQHMAR2CysXf2JQ',
     spreadsheetName: '株管理ツール_TEST_OUTPUT',
