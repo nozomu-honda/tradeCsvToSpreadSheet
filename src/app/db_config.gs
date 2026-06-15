@@ -10,7 +10,8 @@
  */
 const DB_CONFIG = {
   DEFAULT_TARGET_DB_KEY: 'corp_a',
-
+  DB_FOLDER_ID: '1T7vfpPMgmk8auy22ZA9OWuMtC4Nswhaq',
+  
   TARGET_DBS: [
     {
       key: 'corp_a',
