@@ -52,14 +52,20 @@ function getDbTargetList_() {
     .filter(function(target) {
       return target.uiVisible !== false;
     })
-    .map(function(target) {
-      return {
-        key: target.key,
-        label: target.label,
-        spreadsheetId: text_(target.spreadsheetId),
-        spreadsheetName: text_(target.spreadsheetName),
-      };
-    });
+    .map(serializeDbTargetForUi_);
+}
+
+function getResetDbTargetList_() {
+  return getDbTargets_().map(serializeDbTargetForUi_);
+}
+
+function serializeDbTargetForUi_(target) {
+  return {
+    key: target.key,
+    label: target.label,
+    spreadsheetId: text_(target.spreadsheetId),
+    spreadsheetName: text_(target.spreadsheetName),
+  };
 }
 
 function listDbSpreadsheetFilesInFolder_() {

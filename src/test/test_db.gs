@@ -151,6 +151,28 @@ function test_dbTargets_defaultSelection_() {
   }
 }
 
+function test_getResetDbTargetList_includesHiddenTargets_20260616_() {
+  const temp = createTempDbTargets_(['corp_a', 'rakuten_corp_a']);
+  try {
+    temp.targets[0].uiVisible = true;
+    temp.targets[1].uiVisible = false;
+
+    withTempDbTargets_(temp.targets, 'corp_a', function() {
+      const importTargets = getDbTargetList_().map(function(target) {
+        return target.key;
+      });
+      const resetTargets = getResetDbTargetList_().map(function(target) {
+        return target.key;
+      });
+
+      assertArrayEquals_(['corp_a'], importTargets, '取込用DBリストは非表示DBを含めない');
+      assertArrayEquals_(['corp_a', 'rakuten_corp_a'], resetTargets, 'リセット用DBリストは楽天DBも含める');
+    });
+  } finally {
+    temp.cleanup();
+  }
+}
+
 function test_appendRecordsToDb_writesOnlySelectedDb_() {
   const temp = createTempDbTargets_(['corp_a', 'corp_b']);
   try {
@@ -582,4 +604,3 @@ function test_createSpreadsheetFromSourceSpreadsheetUsingDb_readsDetectedSheet_(
     temp.cleanup();
   }
 }
-

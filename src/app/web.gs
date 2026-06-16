@@ -3,6 +3,7 @@ function doGet(e) {
   template.initialCsvUrl = (e && e.parameter && e.parameter.csvUrl) ? e.parameter.csvUrl : '';
   template.initialSpreadsheetUrl = (e && e.parameter && e.parameter.spreadsheetUrl) ? e.parameter.spreadsheetUrl : '';
   template.dbTargetsJson = JSON.stringify(getDbTargetList_());
+  template.resetDbTargetsJson = JSON.stringify(getResetDbTargetList_());
   template.defaultTargetDbKey = getDefaultDbTargetKey_();
   return template.evaluate().setTitle('CSV / スプレッドシートから6シート生成');
 }
