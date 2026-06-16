@@ -3,6 +3,7 @@ function doGet(e) {
   template.initialCsvUrl = (e && e.parameter && e.parameter.csvUrl) ? e.parameter.csvUrl : '';
   template.initialSpreadsheetUrl = (e && e.parameter && e.parameter.spreadsheetUrl) ? e.parameter.spreadsheetUrl : '';
   template.dbTargetsJson = JSON.stringify(getDbTargetList_());
+  template.resetDbTargetsJson = JSON.stringify(getResetDbTargetList_());
   template.defaultTargetDbKey = getDefaultDbTargetKey_();
   return template.evaluate().setTitle('CSV / スプレッドシートから6シート生成');
 }
@@ -54,6 +55,10 @@ function resetDbFromWebApp(targetDbKey) {
   return resetDbData_(targetDbKey);
 }
 
+function getDbSpreadsheetFromWebApp(targetDbKey) {
+  return getDbSpreadsheetMeta_(targetDbKey);
+}
+
 function listRecentImportsFromWebApp(targetDbKey) {
   const target = resolveDbTarget_(targetDbKey);
   return {
@@ -63,32 +68,9 @@ function listRecentImportsFromWebApp(targetDbKey) {
   };
 }
 
-function listRollbackDbFilesFromWebApp() {
-  return {
-    files: listDbSpreadsheetFilesInFolder_(),
-  };
-}
-
-function listRecentImportsByDbFileFromWebApp(spreadsheetId) {
-  const dbSs = openDbSpreadsheetById_(spreadsheetId);
-  return {
-    dbSpreadsheetId: dbSs.getId(),
-    dbSpreadsheetUrl: dbSs.getUrl(),
-    dbTargetLabel: dbSs.getName(),
-    imports: listRecentImportsFromSpreadsheet_(dbSs, DB_CONFIG.MAX_RECENT_IMPORTS, {
-      key: '',
-      label: dbSs.getName(),
-    }),
-  };
-}
-
 function rollbackImportFromWebApp(payload) {
   if (!payload) {
     throw new Error('ロールバック対象が指定されていません。');
-  }
-
-  if (payload.dbSpreadsheetId) {
-    return rollbackImportBySpreadsheetId_(payload.dbSpreadsheetId, payload.importId);
   }
 
   return rollbackImport_(payload.targetDbKey, payload.importId);

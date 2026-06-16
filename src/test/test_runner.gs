@@ -31,6 +31,7 @@ const CORE_TESTS_ = [
   test_normalizeRecordForDb_setsMetadata_,
   test_dbRecordToRow_mapsHeaders_,
   test_dbTargets_defaultSelection_,
+  test_getResetDbTargetList_includesHiddenTargets_20260616_,
   test_appendRecordsToDb_writesOnlySelectedDb_,
   test_listRecentImports_returnsOnlySelectedDbLogs_,
   test_rollbackImport_marksImportInactive_,

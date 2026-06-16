@@ -3,35 +3,35 @@
  *
  * 方針:
  * - 法人ごと / 口座グループごとにDBスプレッドシートを分ける
- * - Web UI では従来どおり 法人A / 法人B / test を選ぶ
+ * - Web UI では従来どおり 法人A / 法人B / test 用DBを選ぶ
  * - 入力ヘッダーを見て 野村 / 楽天 を自動判定し、対応するDBへ振り分ける
- * - test DB は赤セル必須入力バリデーションをスキップできる
- * - test DB は固定の確認用Spreadsheetへ出力する
+ * - nomura_test / rakuten_test DB は赤セル必須入力バリデーションをスキップできる
+ * - nomura_test / rakuten_test DB は固定の確認用Spreadsheetへ出力する
  */
 const DB_CONFIG = {
-  DEFAULT_TARGET_DB_KEY: 'corp_a',
+  DEFAULT_TARGET_DB_KEY: 'nomura_corp_a',
   DB_FOLDER_ID: '1T7vfpPMgmk8auy22ZA9OWuMtC4Nswhaq',
   
   TARGET_DBS: [
     {
-      key: 'corp_a',
-      label: '（株）本田土地建物',
+      key: 'nomura_corp_a',
+      label: '（株）本田土地建物（野村）',
       spreadsheetId: '1XqCr8PpcENcx_-krJV1jRKb5_yU9tVBVXvEtypCSLGY',
-      spreadsheetName: '取引DB_法人A',
+      spreadsheetName: '取引DB_（株）本田土地建物_野村',
       uiVisible: true,
     },
     {
-      key: 'corp_b',
-      label: '（株）本田',
+      key: 'nomura_corp_b',
+      label: '（株）本田（野村）',
       spreadsheetId: '1i9pU8D8J-vRVP6uMfaIbMtX9lC4DFw3jw1AfbASCvlw',
-      spreadsheetName: '取引DB_法人B',
+      spreadsheetName: '取引DB_（株）本田_野村',
       uiVisible: true,
     },
     {
-      key: 'test',
-      label: 'テスト用DB（赤セルバリデーション無視）',
+      key: 'nomura_test',
+      label: 'テスト用DB（野村・赤セルバリデーション無視）',
       spreadsheetId: '1IEwnXis7WiFJ9jRl3E-llZanhjkwlyOafWqSXCxkI3M',
-      spreadsheetName: '株管理ツール_TEST_DB',
+      spreadsheetName: '株管理ツール_テスト用DB_野村',
       uiVisible: true,
     },
 
@@ -39,21 +39,21 @@ const DB_CONFIG = {
       key: 'rakuten_corp_a',
       label: '（株）本田土地建物（楽天）',
       spreadsheetId: '',
-      spreadsheetName: '取引DB_法人A_楽天',
+      spreadsheetName: '取引DB_（株）本田土地建物_楽天',
       uiVisible: false,
     },
     {
       key: 'rakuten_corp_b',
       label: '（株）本田（楽天）',
       spreadsheetId: '',
-      spreadsheetName: '取引DB_法人B_楽天',
+      spreadsheetName: '取引DB_（株）本田_楽天',
       uiVisible: false,
     },
     {
       key: 'rakuten_test',
       label: 'テスト用DB（楽天・赤セルバリデーション無視）',
       spreadsheetId: '',
-      spreadsheetName: '株管理ツール_TEST_DB_楽天',
+      spreadsheetName: '株管理ツール_テスト用DB_楽天',
       uiVisible: false,
     }
   ],

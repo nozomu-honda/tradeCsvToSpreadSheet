@@ -52,43 +52,20 @@ function getDbTargetList_() {
     .filter(function(target) {
       return target.uiVisible !== false;
     })
-    .map(function(target) {
-      return {
-        key: target.key,
-        label: target.label,
-        spreadsheetId: text_(target.spreadsheetId),
-        spreadsheetName: text_(target.spreadsheetName),
-      };
-    });
+    .map(serializeDbTargetForUi_);
 }
 
-function listDbSpreadsheetFilesInFolder_() {
-  const folder = getDbFolder_({ folderId: DB_CONFIG.DB_FOLDER_ID });
-  if (!folder) {
-    throw new Error('DB_CONFIG.DB_FOLDER_ID が未設定です。');
-  }
+function getResetDbTargetList_() {
+  return getDbTargets_().map(serializeDbTargetForUi_);
+}
 
-  const files = folder.getFiles();
-  const result = [];
-
-  while (files.hasNext()) {
-    const file = files.next();
-    if (file.getMimeType() !== MimeType.GOOGLE_SHEETS) {
-      continue;
-    }
-
-    result.push({
-      spreadsheetId: file.getId(),
-      spreadsheetName: file.getName(),
-      spreadsheetUrl: file.getUrl(),
-    });
-  }
-
-  result.sort(function(a, b) {
-    return compareText_(a.spreadsheetName, b.spreadsheetName);
-  });
-
-  return result;
+function serializeDbTargetForUi_(target) {
+  return {
+    key: target.key,
+    label: target.label,
+    spreadsheetId: text_(target.spreadsheetId),
+    spreadsheetName: text_(target.spreadsheetName),
+  };
 }
 
 function getOrCreateDbSpreadsheet_(targetDbKey) {
@@ -125,15 +102,6 @@ function findDbSpreadsheet_(target) {
   }
 
   return null;
-}
-
-function openDbSpreadsheetById_(spreadsheetId) {
-  const id = text_(spreadsheetId);
-  if (!id) {
-    throw new Error('DBファイルを選択してください。');
-  }
-
-  return SpreadsheetApp.openById(id);
 }
 
 function getDbFolder_(target) {
@@ -614,12 +582,15 @@ function listRecentImports_(targetDbKey, maxCount) {
   return listRecentImportsFromSpreadsheet_(dbSs, maxCount, target);
 }
 
-function listRecentImportsBySpreadsheetId_(spreadsheetId, maxCount) {
-  const dbSs = openDbSpreadsheetById_(spreadsheetId);
-  return listRecentImportsFromSpreadsheet_(dbSs, maxCount, {
-    key: '',
-    label: dbSs.getName(),
-  });
+function getDbSpreadsheetMeta_(targetDbKey) {
+  const target = resolveDbTarget_(targetDbKey);
+  const dbSs = getOrCreateDbSpreadsheet_(target.key);
+  return {
+    dbSpreadsheetId: dbSs.getId(),
+    dbSpreadsheetUrl: dbSs.getUrl(),
+    dbTargetKey: target.key,
+    dbTargetLabel: target.label,
+  };
 }
 
 function listRecentImportsFromSpreadsheet_(dbSs, maxCount, fallbackTarget) {
@@ -677,14 +648,6 @@ function rollbackImport_(targetDbKey, importId) {
   const target = resolveDbTarget_(targetDbKey);
   const dbSs = getOrCreateDbSpreadsheet_(target.key);
   return rollbackImportInSpreadsheet_(dbSs, target, importId);
-}
-
-function rollbackImportBySpreadsheetId_(spreadsheetId, importId) {
-  const dbSs = openDbSpreadsheetById_(spreadsheetId);
-  return rollbackImportInSpreadsheet_(dbSs, {
-    key: '',
-    label: dbSs.getName(),
-  }, importId);
 }
 
 function rollbackImportInSpreadsheet_(dbSs, target, importId) {

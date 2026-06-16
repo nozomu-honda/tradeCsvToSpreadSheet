@@ -12,17 +12,17 @@ var __TEST_SUITE_TEMP_DB_SPREADSHEET_IDS_BY_KEY__ = {};
 var __TEST_SUITE_TEMP_DB_SPREADSHEET_IS_FIXED_BY_KEY__ = {};
 
 const TEST_FIXED_DB_SPREADSHEET_IDS_BY_KEY = {
-  corp_a: '',
-  corp_b: '',
+  nomura_corp_a: '',
+  nomura_corp_b: '',
   corp_c: '',
-  test: '',
+  nomura_test: '',
 };
 
 const TEST_FIXED_DB_SPREADSHEET_FILE_NAMES_BY_KEY = {
-  corp_a: '株管理ツール_TEST_DB_CORP_A',
-  corp_b: '株管理ツール_TEST_DB_CORP_B',
+  nomura_corp_a: '株管理ツール_TEST_DB_CORP_A',
+  nomura_corp_b: '株管理ツール_TEST_DB_CORP_B',
   corp_c: '株管理ツール_TEST_DB_CORP_C',
-  test: '株管理ツール_TEST_DB_TEST',
+  nomura_test: '株管理ツール_TEST_DB_NOMURA_TEST',
 };
 
 const TEST_DB_RESOURCE_FOLDER_ID = '';
