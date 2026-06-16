@@ -8,7 +8,7 @@
 
 - 野村證券
 - 楽天証券 Phase 1: 日本株・米国株
-- 将来対応予定: 楽天 投信、配当金・分配金、入出金履歴
+- 楽天証券 Phase 2: 投信、配当金・分配金、入出金履歴
 
 ## 技術前提
 
@@ -48,6 +48,12 @@ Phase 1 実装対象:
 - 楽天日本株
 - 楽天米国株
 
+Phase 2 実装対象:
+
+- 楽天投資信託
+- 楽天配当金・分配金
+- 楽天入出金履歴
+
 主な追加/変更関数:
 
 - `isRakutenSourceType_(sourceType)`
@@ -57,6 +63,9 @@ Phase 1 実装対象:
 - `detectInputSourceTypeFromRows_(rows)`
 - `normalizeRakutenJapanStockRowsToRecords_(rows, headerRowIndex)`
 - `normalizeRakutenUsStockRowsToRecords_(rows, headerRowIndex)`
+- `normalizeRakutenFundRowsToRecords_(rows, headerRowIndex)`
+- `normalizeRakutenDividendRowsToRecords_(rows, headerRowIndex)`
+- `normalizeRakutenCashRowsToRecords_(rows, headerRowIndex)`
 
 ## テスト方針
 

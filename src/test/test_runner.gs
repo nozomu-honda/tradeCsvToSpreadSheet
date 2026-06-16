@@ -65,6 +65,12 @@ const CORE_TESTS_ = [
   test_normalizeRakutenJapanStockRowsToRecords_buy_20260615_,
   test_normalizeRakutenUsStockRowsToRecords_yenSettlement_20260615_,
   test_routeTargetDbKeyBySource_rakuten_20260615_,
+  test_detectInputSourceTypeFromRows_rakutenFund_20260616_,
+  test_normalizeRakutenFundRowsToRecords_buyAndSell_20260616_,
+  test_detectInputSourceTypeFromRows_rakutenDividend_20260616_,
+  test_normalizeRakutenDividendRowsToRecords_usStockDividend_20260616_,
+  test_detectInputSourceTypeFromRows_rakutenCash_20260616_,
+  test_normalizeRakutenCashRowsToRecords_depositAndWithdrawal_20260616_,
 ];
 
 const FULL_ONLY_TESTS_ = [

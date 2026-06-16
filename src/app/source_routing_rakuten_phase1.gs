@@ -3,6 +3,9 @@
  * - 野村共通フォーマット
  * - 楽天日本株
  * - 楽天米国株
+ * - 楽天投資信託
+ * - 楽天配当金・分配金
+ * - 楽天入出金履歴
  * を自動判定し、既存の BASE_HEADERS 形式へ正規化する
  */
 
@@ -45,8 +48,14 @@ function normalizeRowsForImport_(rows) {
     records = normalizeRakutenJapanStockRowsToRecords_(paddedRows, detected.headerRowIndex);
   } else if (detected.sourceType === 'rakuten_us_stock') {
     records = normalizeRakutenUsStockRowsToRecords_(paddedRows, detected.headerRowIndex);
+  } else if (detected.sourceType === 'rakuten_fund') {
+    records = normalizeRakutenFundRowsToRecords_(paddedRows, detected.headerRowIndex);
+  } else if (detected.sourceType === 'rakuten_dividend') {
+    records = normalizeRakutenDividendRowsToRecords_(paddedRows, detected.headerRowIndex);
+  } else if (detected.sourceType === 'rakuten_cash') {
+    records = normalizeRakutenCashRowsToRecords_(paddedRows, detected.headerRowIndex);
   } else {
-    throw new Error('Phase 1 未対応のフォーマットです: ' + detected.sourceType);
+    throw new Error('未対応の楽天フォーマットです: ' + detected.sourceType);
   }
 
   return {
@@ -120,6 +129,18 @@ function detectInputSourceTypeFromRows_(rows) {
     {
       sourceType: 'rakuten_us_stock',
       markers: ['約定日', '受渡日', 'ティッカー', '約定代金[USドル]', '為替レート', '受渡金額[USドル]', '受渡金額[円]']
+    },
+    {
+      sourceType: 'rakuten_fund',
+      markers: ['約定日', '受渡日', 'ファンド名', '取引', '数量[口]', '単価', '受渡金額/(ポイント利用)[円]', '決済通貨']
+    },
+    {
+      sourceType: 'rakuten_dividend',
+      markers: ['入金日', '商品', '銘柄コード', '銘柄', '受取通貨', '配当・分配金合計(税引前)[円/現地通貨]', '受取金額[円/現地通貨]']
+    },
+    {
+      sourceType: 'rakuten_cash',
+      markers: ['入出金日', '入金額[円]', '出金額[円]', '内容']
     }
   ];
 
@@ -331,4 +352,165 @@ function mapRakutenUsStockTradeType_(row, headerIndexMap) {
   if (merged.indexOf('売') >= 0) return '現物売却';
 
   throw new Error('楽天米国株の取引区分を判定できません。 actual=' + merged);
+}
+
+function normalizeRakutenFundRowsToRecords_(rows, headerRowIndex) {
+  const headers = rows[headerRowIndex].map(function(v) { return String(v).trim(); });
+  const headerIndexMap = buildHeaderIndexMap_(headers);
+  const records = [];
+
+  for (var r = headerRowIndex + 1; r < rows.length; r++) {
+    const row = rows[r];
+    if (!row || isEmptyRow_(row)) continue;
+
+    const tradeDate = getByHeaderCandidates_(row, headerIndexMap, ['約定日']);
+    const settlementDate = getByHeaderCandidates_(row, headerIndexMap, ['受渡日']);
+    const symbolName = getByHeaderCandidates_(row, headerIndexMap, ['ファンド名']);
+    if (!tradeDate && !settlementDate && !symbolName) continue;
+
+    const record = buildEmptyBaseRecord_();
+    const tradeType = mapRakutenFundTradeType_(row, headerIndexMap);
+
+    record['約定日'] = tradeDate;
+    record['受渡日'] = settlementDate;
+    record['商品'] = '投信';
+    record['銘柄コード'] = '';
+    record['銘柄名'] = symbolName;
+    record['摘要'] = getByHeaderCandidates_(row, headerIndexMap, ['買付方法']);
+    record['取引区分'] = tradeType;
+    record['預り区分'] = getByHeaderCandidates_(row, headerIndexMap, ['口座']);
+    record['発行通貨'] = '';
+    record['数量'] = getByHeaderCandidates_(row, headerIndexMap, ['数量[口]', '数量［口］']);
+    record['単価'] = getByHeaderCandidates_(row, headerIndexMap, ['単価']);
+    record['受渡金額/決済損益'] = getByHeaderCandidates_(row, headerIndexMap, ['受渡金額/(ポイント利用)[円]', '受渡金額／(ポイント利用)[円]']);
+    record['手数料（税込）'] = getByHeaderCandidates_(row, headerIndexMap, ['経費']);
+    record['レート'] = getByHeaderCandidates_(row, headerIndexMap, ['為替レート']);
+    record['決済通貨'] = normalizeCurrency_(getByHeaderCandidates_(row, headerIndexMap, ['決済通貨'])) || 'JPY';
+    record['売買損益（円）'] = '';
+    record['国内消費税等（円）'] = '';
+    record['現地源泉税（円）'] = '';
+    record['国内源泉所得税（円）'] = '';
+    record['国内源泉地方税（円）'] = '';
+    record['元本払戻金'] = '';
+    record['国内手数料（円）'] = getByHeaderCandidates_(row, headerIndexMap, ['経費']);
+    record['現地手数料（円）'] = '';
+
+    records.push(record);
+  }
+
+  return records;
+}
+
+function mapRakutenFundTradeType_(row, headerIndexMap) {
+  const tx = text_(getByHeaderCandidates_(row, headerIndexMap, ['取引']));
+
+  if (tx.indexOf('買付') >= 0) return '現物買付';
+  if (tx.indexOf('解約') >= 0) return '現物買取';
+  if (tx.indexOf('再投資') >= 0) return '現物再投';
+
+  throw new Error('楽天投資信託の取引区分を判定できません。 actual=' + tx);
+}
+
+function normalizeRakutenDividendRowsToRecords_(rows, headerRowIndex) {
+  const headers = rows[headerRowIndex].map(function(v) { return String(v).trim(); });
+  const headerIndexMap = buildHeaderIndexMap_(headers);
+  const records = [];
+
+  for (var r = headerRowIndex + 1; r < rows.length; r++) {
+    const row = rows[r];
+    if (!row || isEmptyRow_(row)) continue;
+
+    const paymentDate = getByHeaderCandidates_(row, headerIndexMap, ['入金日']);
+    const symbolName = getByHeaderCandidates_(row, headerIndexMap, ['銘柄']);
+    if (!paymentDate && !symbolName) continue;
+
+    const productRaw = text_(getByHeaderCandidates_(row, headerIndexMap, ['商品']));
+    const currency = normalizeCurrency_(getByHeaderCandidates_(row, headerIndexMap, ['受取通貨']));
+    const record = buildEmptyBaseRecord_();
+
+    record['約定日'] = paymentDate;
+    record['受渡日'] = paymentDate;
+    record['商品'] = mapRakutenDividendProduct_(productRaw);
+    record['銘柄コード'] = getByHeaderCandidates_(row, headerIndexMap, ['銘柄コード']);
+    record['銘柄名'] = symbolName;
+    record['摘要'] = productRaw;
+    record['取引区分'] = productRaw.indexOf('投資信託') >= 0 ? '入金（分配金）' : '入金（配当金）';
+    record['預り区分'] = getByHeaderCandidates_(row, headerIndexMap, ['口座']);
+    record['発行通貨'] = currency;
+    record['数量'] = getByHeaderCandidates_(row, headerIndexMap, ['数量[株/口]', '数量［株/口］']);
+    record['単価'] = getByHeaderCandidates_(row, headerIndexMap, ['単価[円/現地通貨]', '単価［円/現地通貨］']);
+    record['受渡金額/決済損益'] = getByHeaderCandidates_(row, headerIndexMap, ['受取金額[円/現地通貨]', '受取金額［円/現地通貨］']);
+    record['手数料（税込）'] = 0;
+    record['レート'] = '';
+    record['決済通貨'] = currency || 'JPY';
+    record['売買損益（円）'] = '';
+    record['国内消費税等（円）'] = '';
+    record['現地源泉税（円）'] = '';
+    record['国内源泉所得税（円）'] = '';
+    record['国内源泉地方税（円）'] = '';
+    record['元本払戻金'] = '';
+    record['国内手数料（円）'] = '';
+    record['現地手数料（円）'] = '';
+
+    records.push(record);
+  }
+
+  return records;
+}
+
+function mapRakutenDividendProduct_(productRaw) {
+  const product = text_(productRaw);
+  if (product.indexOf('米国株') >= 0 || product.indexOf('外国株') >= 0) return '外株';
+  if (product.indexOf('投資信託') >= 0 || product.indexOf('投信') >= 0) return '投信';
+  if (product.indexOf('株') >= 0) return '株式';
+  return product || '現金';
+}
+
+function normalizeRakutenCashRowsToRecords_(rows, headerRowIndex) {
+  const headers = rows[headerRowIndex].map(function(v) { return String(v).trim(); });
+  const headerIndexMap = buildHeaderIndexMap_(headers);
+  const records = [];
+
+  for (var r = headerRowIndex + 1; r < rows.length; r++) {
+    const row = rows[r];
+    if (!row || isEmptyRow_(row)) continue;
+
+    const cashDate = getByHeaderCandidates_(row, headerIndexMap, ['入出金日']);
+    const deposit = toOptionalNumber_(getByHeaderCandidates_(row, headerIndexMap, ['入金額[円]', '入金額［円］']));
+    const withdrawal = toOptionalNumber_(getByHeaderCandidates_(row, headerIndexMap, ['出金額[円]', '出金額［円］']));
+    const description = getByHeaderCandidates_(row, headerIndexMap, ['内容']);
+    if (!cashDate && deposit === '' && withdrawal === '' && !description) continue;
+
+    const isWithdrawal = withdrawal !== '' && withdrawal !== 0;
+    const amount = isWithdrawal ? withdrawal : deposit;
+    const record = buildEmptyBaseRecord_();
+
+    record['約定日'] = cashDate;
+    record['受渡日'] = cashDate;
+    record['商品'] = '現金';
+    record['銘柄コード'] = '';
+    record['銘柄名'] = '';
+    record['摘要'] = description || getByHeaderCandidates_(row, headerIndexMap, ['出金先']);
+    record['取引区分'] = isWithdrawal ? '出金（振込）' : '入金（振込）';
+    record['預り区分'] = '';
+    record['発行通貨'] = '';
+    record['数量'] = '';
+    record['単価'] = '';
+    record['受渡金額/決済損益'] = amount;
+    record['手数料（税込）'] = 0;
+    record['レート'] = '';
+    record['決済通貨'] = 'JPY';
+    record['売買損益（円）'] = '';
+    record['国内消費税等（円）'] = '';
+    record['現地源泉税（円）'] = '';
+    record['国内源泉所得税（円）'] = '';
+    record['国内源泉地方税（円）'] = '';
+    record['元本払戻金'] = '';
+    record['国内手数料（円）'] = '';
+    record['現地手数料（円）'] = '';
+
+    records.push(record);
+  }
+
+  return records;
 }

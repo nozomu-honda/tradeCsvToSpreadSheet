@@ -48,6 +48,8 @@ function normalizeCurrency_(v) {
   const s = text_(v).toUpperCase();
   if (s === '円') return 'JPY';
   if (s === 'ドル') return 'USD';
+  if (s === 'USドル') return 'USD';
+  if (s === '米ドル') return 'USD';
   if (s === 'ＵＳＤ') return 'USD';
   if (s === 'ＵＳドル') return 'USD';
   return s;
