@@ -68,35 +68,6 @@ function serializeDbTargetForUi_(target) {
   };
 }
 
-function listDbSpreadsheetFilesInFolder_() {
-  const folder = getDbFolder_({ folderId: DB_CONFIG.DB_FOLDER_ID });
-  if (!folder) {
-    throw new Error('DB_CONFIG.DB_FOLDER_ID が未設定です。');
-  }
-
-  const files = folder.getFiles();
-  const result = [];
-
-  while (files.hasNext()) {
-    const file = files.next();
-    if (file.getMimeType() !== MimeType.GOOGLE_SHEETS) {
-      continue;
-    }
-
-    result.push({
-      spreadsheetId: file.getId(),
-      spreadsheetName: file.getName(),
-      spreadsheetUrl: file.getUrl(),
-    });
-  }
-
-  result.sort(function(a, b) {
-    return compareText_(a.spreadsheetName, b.spreadsheetName);
-  });
-
-  return result;
-}
-
 function getOrCreateDbSpreadsheet_(targetDbKey) {
   const target = resolveDbTarget_(targetDbKey);
 
@@ -131,15 +102,6 @@ function findDbSpreadsheet_(target) {
   }
 
   return null;
-}
-
-function openDbSpreadsheetById_(spreadsheetId) {
-  const id = text_(spreadsheetId);
-  if (!id) {
-    throw new Error('DBファイルを選択してください。');
-  }
-
-  return SpreadsheetApp.openById(id);
 }
 
 function getDbFolder_(target) {
@@ -620,14 +582,6 @@ function listRecentImports_(targetDbKey, maxCount) {
   return listRecentImportsFromSpreadsheet_(dbSs, maxCount, target);
 }
 
-function listRecentImportsBySpreadsheetId_(spreadsheetId, maxCount) {
-  const dbSs = openDbSpreadsheetById_(spreadsheetId);
-  return listRecentImportsFromSpreadsheet_(dbSs, maxCount, {
-    key: '',
-    label: dbSs.getName(),
-  });
-}
-
 function listRecentImportsFromSpreadsheet_(dbSs, maxCount, fallbackTarget) {
   const count = maxCount || DB_CONFIG.MAX_RECENT_IMPORTS || 30;
   const tz = Session.getScriptTimeZone() || 'Asia/Tokyo';
@@ -683,14 +637,6 @@ function rollbackImport_(targetDbKey, importId) {
   const target = resolveDbTarget_(targetDbKey);
   const dbSs = getOrCreateDbSpreadsheet_(target.key);
   return rollbackImportInSpreadsheet_(dbSs, target, importId);
-}
-
-function rollbackImportBySpreadsheetId_(spreadsheetId, importId) {
-  const dbSs = openDbSpreadsheetById_(spreadsheetId);
-  return rollbackImportInSpreadsheet_(dbSs, {
-    key: '',
-    label: dbSs.getName(),
-  }, importId);
 }
 
 function rollbackImportInSpreadsheet_(dbSs, target, importId) {
