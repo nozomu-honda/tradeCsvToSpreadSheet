@@ -155,6 +155,7 @@ function test_getResetDbTargetList_includesHiddenTargets_20260616_() {
   const temp = createTempDbTargets_(['nomura_corp_a', 'rakuten_corp_a']);
   try {
     temp.targets[0].uiVisible = true;
+    temp.targets[0].importLabel = 'Temp 法人A';
     temp.targets[1].uiVisible = false;
 
     withTempDbTargets_(temp.targets, 'nomura_corp_a', function() {
@@ -167,6 +168,8 @@ function test_getResetDbTargetList_includesHiddenTargets_20260616_() {
 
       assertArrayEquals_(['nomura_corp_a'], importTargets, '取込用DBリストは非表示DBを含めない');
       assertArrayEquals_(['nomura_corp_a', 'rakuten_corp_a'], resetTargets, 'リセット用DBリストは楽天DBも含める');
+      assertEquals_('Temp 法人A', getDbTargetList_()[0].label, '取込用DBリストは importLabel を表示する');
+      assertEquals_('Temp nomura_corp_a', getResetDbTargetList_()[0].label, 'リセット用DBリストは通常ラベルを表示する');
     });
   } finally {
     temp.cleanup();

@@ -16,6 +16,7 @@ const DB_CONFIG = {
     {
       key: 'nomura_corp_a',
       label: '（株）本田土地建物（野村）',
+      importLabel: '（株）本田土地建物',
       spreadsheetId: '1XqCr8PpcENcx_-krJV1jRKb5_yU9tVBVXvEtypCSLGY',
       spreadsheetName: '取引DB_（株）本田土地建物_野村',
       uiVisible: true,
@@ -23,6 +24,7 @@ const DB_CONFIG = {
     {
       key: 'nomura_corp_b',
       label: '（株）本田（野村）',
+      importLabel: '（株）本田',
       spreadsheetId: '1i9pU8D8J-vRVP6uMfaIbMtX9lC4DFw3jw1AfbASCvlw',
       spreadsheetName: '取引DB_（株）本田_野村',
       uiVisible: true,
@@ -30,6 +32,7 @@ const DB_CONFIG = {
     {
       key: 'nomura_test',
       label: 'テスト用DB（野村・赤セルバリデーション無視）',
+      importLabel: 'テスト用DB（赤セルバリデーション無視）',
       spreadsheetId: '1IEwnXis7WiFJ9jRl3E-llZanhjkwlyOafWqSXCxkI3M',
       spreadsheetName: '株管理ツール_テスト用DB_野村',
       uiVisible: true,

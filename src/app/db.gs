@@ -52,17 +52,23 @@ function getDbTargetList_() {
     .filter(function(target) {
       return target.uiVisible !== false;
     })
-    .map(serializeDbTargetForUi_);
+    .map(function(target) {
+      return serializeDbTargetForUi_(target, { preferImportLabel: true });
+    });
 }
 
 function getResetDbTargetList_() {
   return getDbTargets_().map(serializeDbTargetForUi_);
 }
 
-function serializeDbTargetForUi_(target) {
+function serializeDbTargetForUi_(target, options) {
+  const label = options && options.preferImportLabel
+    ? text_(target.importLabel) || target.label
+    : target.label;
+
   return {
     key: target.key,
-    label: target.label,
+    label: label,
     spreadsheetId: text_(target.spreadsheetId),
     spreadsheetName: text_(target.spreadsheetName),
   };
