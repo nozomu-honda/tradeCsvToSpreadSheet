@@ -61,8 +61,8 @@ function test_normalizeRakutenUsStockRowsToRecords_yenSettlement_20260615_() {
 }
 
 function test_routeTargetDbKeyBySource_rakuten_20260615_() {
-  assertEquals_('rakuten_corp_a', routeTargetDbKeyBySource_('corp_a', 'rakuten_jp_stock'), '法人A');
-  assertEquals_('rakuten_corp_b', routeTargetDbKeyBySource_('corp_b', 'rakuten_us_stock'), '法人B');
-  assertEquals_('rakuten_test', routeTargetDbKeyBySource_('test', 'rakuten_us_stock'), 'test');
-  assertEquals_('corp_a', routeTargetDbKeyBySource_('corp_a', 'nomura_common'), '野村はそのまま');
+  assertEquals_('rakuten_corp_a', routeTargetDbKeyBySource_('nomura_corp_a', 'rakuten_jp_stock'), '法人A');
+  assertEquals_('rakuten_corp_b', routeTargetDbKeyBySource_('nomura_corp_b', 'rakuten_us_stock'), '法人B');
+  assertEquals_('rakuten_test', routeTargetDbKeyBySource_('nomura_test', 'rakuten_us_stock'), 'nomura_test');
+  assertEquals_('nomura_corp_a', routeTargetDbKeyBySource_('nomura_corp_a', 'nomura_common'), '野村はそのまま');
 }

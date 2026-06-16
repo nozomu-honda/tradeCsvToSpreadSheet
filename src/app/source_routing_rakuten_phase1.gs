@@ -16,8 +16,14 @@ function routeTargetDbKeyBySource_(selectedTargetDbKey, sourceType) {
     return key;
   }
 
-  if (key === 'corp_a' || key === 'corp_b' || key === 'test') {
-    return 'rakuten_' + key;
+  const rakutenTargetByNomuraTarget = {
+    nomura_corp_a: 'rakuten_corp_a',
+    nomura_corp_b: 'rakuten_corp_b',
+    nomura_test: 'rakuten_test',
+  };
+
+  if (rakutenTargetByNomuraTarget[key]) {
+    return rakutenTargetByNomuraTarget[key];
   }
 
   return key;

@@ -138,13 +138,13 @@ function test_dbRecordToRow_mapsHeaders_() {
 }
 
 function test_dbTargets_defaultSelection_() {
-  const temp = createTempDbTargets_(['corp_a', 'corp_b']);
+  const temp = createTempDbTargets_(['nomura_corp_a', 'nomura_corp_b']);
   try {
-    withTempDbTargets_(temp.targets, 'corp_b', function() {
-      assertEquals_('corp_b', getDefaultDbTargetKey_(), 'DEFAULT_TARGET_DB_KEY を返す');
-      const resolved = resolveDbTarget_('corp_b');
-      assertEquals_('corp_b', resolved.key, '選択したDBキーを解決できる');
-      assertEquals_('Temp corp_b', resolved.label, '選択したDBラベルを解決できる');
+    withTempDbTargets_(temp.targets, 'nomura_corp_b', function() {
+      assertEquals_('nomura_corp_b', getDefaultDbTargetKey_(), 'DEFAULT_TARGET_DB_KEY を返す');
+      const resolved = resolveDbTarget_('nomura_corp_b');
+      assertEquals_('nomura_corp_b', resolved.key, '選択したDBキーを解決できる');
+      assertEquals_('Temp nomura_corp_b', resolved.label, '選択したDBラベルを解決できる');
     });
   } finally {
     temp.cleanup();
@@ -152,12 +152,12 @@ function test_dbTargets_defaultSelection_() {
 }
 
 function test_getResetDbTargetList_includesHiddenTargets_20260616_() {
-  const temp = createTempDbTargets_(['corp_a', 'rakuten_corp_a']);
+  const temp = createTempDbTargets_(['nomura_corp_a', 'rakuten_corp_a']);
   try {
     temp.targets[0].uiVisible = true;
     temp.targets[1].uiVisible = false;
 
-    withTempDbTargets_(temp.targets, 'corp_a', function() {
+    withTempDbTargets_(temp.targets, 'nomura_corp_a', function() {
       const importTargets = getDbTargetList_().map(function(target) {
         return target.key;
       });
@@ -165,8 +165,8 @@ function test_getResetDbTargetList_includesHiddenTargets_20260616_() {
         return target.key;
       });
 
-      assertArrayEquals_(['corp_a'], importTargets, '取込用DBリストは非表示DBを含めない');
-      assertArrayEquals_(['corp_a', 'rakuten_corp_a'], resetTargets, 'リセット用DBリストは楽天DBも含める');
+      assertArrayEquals_(['nomura_corp_a'], importTargets, '取込用DBリストは非表示DBを含めない');
+      assertArrayEquals_(['nomura_corp_a', 'rakuten_corp_a'], resetTargets, 'リセット用DBリストは楽天DBも含める');
     });
   } finally {
     temp.cleanup();
@@ -174,9 +174,9 @@ function test_getResetDbTargetList_includesHiddenTargets_20260616_() {
 }
 
 function test_appendRecordsToDb_writesOnlySelectedDb_() {
-  const temp = createTempDbTargets_(['corp_a', 'corp_b']);
+  const temp = createTempDbTargets_(['nomura_corp_a', 'nomura_corp_b']);
   try {
-    withTempDbTargets_(temp.targets, 'corp_a', function() {
+    withTempDbTargets_(temp.targets, 'nomura_corp_a', function() {
       const res = appendRecordsToDb_([
         makeTradeRecord_({
           銘柄名: 'AAA',
@@ -188,15 +188,15 @@ function test_appendRecordsToDb_writesOnlySelectedDb_() {
           決済通貨: 'JPY'
         })
       ], {
-        targetDbKey: 'corp_a',
-        sourceName: 'corp_a.csv',
+        targetDbKey: 'nomura_corp_a',
+        sourceName: 'nomura_corp_a.csv',
         inputType: 'upload'
       });
 
-      assertEquals_('corp_a', res.dbTargetKey, '追加先DBキーが返る');
-      assertEquals_('Temp corp_a', res.dbTargetLabel, '追加先DBラベルが返る');
-      assertEquals_(1, readDbRecords_('corp_a').length, '選択したDBには追加される');
-      assertEquals_(0, readDbRecords_('corp_b').length, '別DBには追加されない');
+      assertEquals_('nomura_corp_a', res.dbTargetKey, '追加先DBキーが返る');
+      assertEquals_('Temp nomura_corp_a', res.dbTargetLabel, '追加先DBラベルが返る');
+      assertEquals_(1, readDbRecords_('nomura_corp_a').length, '選択したDBには追加される');
+      assertEquals_(0, readDbRecords_('nomura_corp_b').length, '別DBには追加されない');
     });
   } finally {
     temp.cleanup();
@@ -204,9 +204,9 @@ function test_appendRecordsToDb_writesOnlySelectedDb_() {
 }
 
 function test_listRecentImports_returnsOnlySelectedDbLogs_() {
-  const temp = createTempDbTargets_(['corp_a', 'corp_b']);
+  const temp = createTempDbTargets_(['nomura_corp_a', 'nomura_corp_b']);
   try {
-    withTempDbTargets_(temp.targets, 'corp_a', function() {
+    withTempDbTargets_(temp.targets, 'nomura_corp_a', function() {
       appendRecordsToDb_([
         makeTradeRecord_({
           銘柄名: 'AAA',
@@ -218,8 +218,8 @@ function test_listRecentImports_returnsOnlySelectedDbLogs_() {
           決済通貨: 'JPY'
         })
       ], {
-        targetDbKey: 'corp_a',
-        sourceName: 'corp_a.csv',
+        targetDbKey: 'nomura_corp_a',
+        sourceName: 'nomura_corp_a.csv',
         inputType: 'upload'
       });
 
@@ -234,20 +234,20 @@ function test_listRecentImports_returnsOnlySelectedDbLogs_() {
           決済通貨: 'JPY'
         })
       ], {
-        targetDbKey: 'corp_b',
-        sourceName: 'corp_b.csv',
+        targetDbKey: 'nomura_corp_b',
+        sourceName: 'nomura_corp_b.csv',
         inputType: 'upload'
       });
 
-      const logsA = listRecentImports_('corp_a', 10);
-      const logsB = listRecentImports_('corp_b', 10);
+      const logsA = listRecentImports_('nomura_corp_a', 10);
+      const logsB = listRecentImports_('nomura_corp_b', 10);
 
-      assertEquals_(1, logsA.length, 'corp_a のログだけ返る');
-      assertEquals_(1, logsB.length, 'corp_b のログだけ返る');
-      assertEquals_('corp_a.csv', logsA[0].sourceName, 'corp_a の sourceName');
-      assertEquals_('corp_b.csv', logsB[0].sourceName, 'corp_b の sourceName');
-      assertEquals_('corp_a', logsA[0].targetDbKey, 'corp_a の targetDbKey');
-      assertEquals_('corp_b', logsB[0].targetDbKey, 'corp_b の targetDbKey');
+      assertEquals_(1, logsA.length, 'nomura_corp_a のログだけ返る');
+      assertEquals_(1, logsB.length, 'nomura_corp_b のログだけ返る');
+      assertEquals_('nomura_corp_a.csv', logsA[0].sourceName, 'nomura_corp_a の sourceName');
+      assertEquals_('nomura_corp_b.csv', logsB[0].sourceName, 'nomura_corp_b の sourceName');
+      assertEquals_('nomura_corp_a', logsA[0].targetDbKey, 'nomura_corp_a の targetDbKey');
+      assertEquals_('nomura_corp_b', logsB[0].targetDbKey, 'nomura_corp_b の targetDbKey');
     });
   } finally {
     temp.cleanup();
@@ -255,9 +255,9 @@ function test_listRecentImports_returnsOnlySelectedDbLogs_() {
 }
 
 function test_rollbackImport_marksImportInactive_() {
-  const temp = createTempDbTargets_(['corp_a', 'corp_b']);
+  const temp = createTempDbTargets_(['nomura_corp_a', 'nomura_corp_b']);
   try {
-    withTempDbTargets_(temp.targets, 'corp_a', function() {
+    withTempDbTargets_(temp.targets, 'nomura_corp_a', function() {
       const first = appendRecordsToDb_([
         makeTradeRecord_({
           銘柄名: 'AAA',
@@ -269,7 +269,7 @@ function test_rollbackImport_marksImportInactive_() {
           決済通貨: 'JPY'
         })
       ], {
-        targetDbKey: 'corp_a',
+        targetDbKey: 'nomura_corp_a',
         sourceName: 'first.csv',
         inputType: 'upload'
       });
@@ -285,21 +285,21 @@ function test_rollbackImport_marksImportInactive_() {
           決済通貨: 'JPY'
         })
       ], {
-        targetDbKey: 'corp_a',
+        targetDbKey: 'nomura_corp_a',
         sourceName: 'second.csv',
         inputType: 'upload'
       });
 
-      assertEquals_(2, readDbRecords_('corp_a').length, 'ロールバック前は2件');
+      assertEquals_(2, readDbRecords_('nomura_corp_a').length, 'ロールバック前は2件');
 
-      const rollback = rollbackImport_('corp_a', first.importId);
+      const rollback = rollbackImport_('nomura_corp_a', first.importId);
       assertEquals_(1, rollback.rolledBackCount, '1件ロールバック');
 
-      const after = readDbRecords_('corp_a');
+      const after = readDbRecords_('nomura_corp_a');
       assertEquals_(1, after.length, 'ロールバック後は有効レコード1件');
       assertEquals_('BBB', after[0]['銘柄名'], '後から入れた取引は残る');
 
-      const logs = listRecentImports_('corp_a', 10);
+      const logs = listRecentImports_('nomura_corp_a', 10);
       const rolled = logs.find(function(item) {
         return item.importId === first.importId;
       });
@@ -314,9 +314,9 @@ function test_rollbackImport_marksImportInactive_() {
 }
 
 function test_rollbackImport_setsRolledBackAt_() {
-  const temp = createTempDbTargets_(['corp_a', 'corp_b']);
+  const temp = createTempDbTargets_(['nomura_corp_a', 'nomura_corp_b']);
   try {
-    withTempDbTargets_(temp.targets, 'corp_a', function() {
+    withTempDbTargets_(temp.targets, 'nomura_corp_a', function() {
       const first = appendRecordsToDb_([
         makeTradeRecord_({
           銘柄名: 'AAA',
@@ -328,14 +328,14 @@ function test_rollbackImport_setsRolledBackAt_() {
           決済通貨: 'JPY'
         })
       ], {
-        targetDbKey: 'corp_a',
+        targetDbKey: 'nomura_corp_a',
         sourceName: 'first.csv',
         inputType: 'upload'
       });
 
-      rollbackImport_('corp_a', first.importId);
+      rollbackImport_('nomura_corp_a', first.importId);
 
-      const ssA = getOrCreateDbSpreadsheet_('corp_a');
+      const ssA = getOrCreateDbSpreadsheet_('nomura_corp_a');
       const txA = getOrCreateDbSheet_(ssA, DB_CONFIG.SHEET_TRANSACTIONS, DB_HEADERS);
       const lastRow = txA.getLastRow();
       assertEquals_(2, lastRow, 'ヘッダー+1行');
@@ -353,9 +353,9 @@ function test_rollbackImport_setsRolledBackAt_() {
 }
 
 function test_rollbackImport_twice_throws_() {
-  const temp = createTempDbTargets_(['corp_a', 'corp_b']);
+  const temp = createTempDbTargets_(['nomura_corp_a', 'nomura_corp_b']);
   try {
-    withTempDbTargets_(temp.targets, 'corp_a', function() {
+    withTempDbTargets_(temp.targets, 'nomura_corp_a', function() {
       const first = appendRecordsToDb_([
         makeTradeRecord_({
           銘柄名: 'AAA',
@@ -367,15 +367,15 @@ function test_rollbackImport_twice_throws_() {
           決済通貨: 'JPY'
         })
       ], {
-        targetDbKey: 'corp_a',
+        targetDbKey: 'nomura_corp_a',
         sourceName: 'first.csv',
         inputType: 'upload'
       });
 
-      rollbackImport_('corp_a', first.importId);
+      rollbackImport_('nomura_corp_a', first.importId);
 
       assertThrowsContains_(function() {
-        rollbackImport_('corp_a', first.importId);
+        rollbackImport_('nomura_corp_a', first.importId);
       }, 'すでにロールバック済み', '2回目のロールバックはエラー');
     });
   } finally {
@@ -384,10 +384,10 @@ function test_rollbackImport_twice_throws_() {
 }
 
 function test_resetDbData_recreatesSheetsAndClearsFormats_() {
-  const temp = createTempDbTargets_(['corp_a']);
+  const temp = createTempDbTargets_(['nomura_corp_a']);
   try {
-    withTempDbTargets_(temp.targets, 'corp_a', function() {
-      const beforeSs = getOrCreateDbSpreadsheet_('corp_a');
+    withTempDbTargets_(temp.targets, 'nomura_corp_a', function() {
+      const beforeSs = getOrCreateDbSpreadsheet_('nomura_corp_a');
       const beforeTx = getOrCreateDbSheet_(beforeSs, DB_CONFIG.SHEET_TRANSACTIONS, DB_HEADERS);
       const beforeLog = getOrCreateDbSheet_(beforeSs, DB_CONFIG.SHEET_IMPORT_LOGS, IMPORT_LOG_HEADERS);
 
@@ -422,8 +422,8 @@ function test_resetDbData_recreatesSheetsAndClearsFormats_() {
       const log = {
         importId: 'import_test',
         importedAt: new Date(),
-        targetDbKey: 'corp_a',
-        targetDbLabel: 'corp_a',
+        targetDbKey: 'nomura_corp_a',
+        targetDbLabel: 'nomura_corp_a',
         sourceName: 'test.csv',
         inputType: 'upload',
         normalizedUrl: '',
@@ -444,7 +444,7 @@ function test_resetDbData_recreatesSheetsAndClearsFormats_() {
 
       SpreadsheetApp.flush();
 
-      const result = resetDbData_('corp_a');
+      const result = resetDbData_('nomura_corp_a');
 
       const afterSs = SpreadsheetApp.openById(result.dbSpreadsheetId);
       const afterTx = afterSs.getSheetByName(DB_CONFIG.SHEET_TRANSACTIONS);
@@ -475,9 +475,9 @@ function test_resetDbData_recreatesSheetsAndClearsFormats_() {
 }
 
 function test_resetDbData_resetsOnlySelectedDb_() {
-  const temp = createTempDbTargets_(['corp_a', 'corp_b']);
+  const temp = createTempDbTargets_(['nomura_corp_a', 'nomura_corp_b']);
   try {
-    withTempDbTargets_(temp.targets, 'corp_a', function() {
+    withTempDbTargets_(temp.targets, 'nomura_corp_a', function() {
       appendRecordsToDb_([
         makeTradeRecord_({
           銘柄名: 'AAA',
@@ -489,8 +489,8 @@ function test_resetDbData_resetsOnlySelectedDb_() {
           決済通貨: 'JPY'
         })
       ], {
-        targetDbKey: 'corp_a',
-        sourceName: 'corp_a.csv',
+        targetDbKey: 'nomura_corp_a',
+        sourceName: 'nomura_corp_a.csv',
         inputType: 'upload'
       });
 
@@ -505,26 +505,26 @@ function test_resetDbData_resetsOnlySelectedDb_() {
           決済通貨: 'JPY'
         })
       ], {
-        targetDbKey: 'corp_b',
-        sourceName: 'corp_b.csv',
+        targetDbKey: 'nomura_corp_b',
+        sourceName: 'nomura_corp_b.csv',
         inputType: 'upload'
       });
 
-      const reset = resetDbData_('corp_a');
-      assertEquals_('corp_a', reset.dbTargetKey, 'リセット対象DBキー');
-      assertEquals_('Temp corp_a', reset.dbTargetLabel, 'リセット対象DBラベル');
+      const reset = resetDbData_('nomura_corp_a');
+      assertEquals_('nomura_corp_a', reset.dbTargetKey, 'リセット対象DBキー');
+      assertEquals_('Temp nomura_corp_a', reset.dbTargetLabel, 'リセット対象DBラベル');
 
-      const ssA = getOrCreateDbSpreadsheet_('corp_a');
-      const ssB = getOrCreateDbSpreadsheet_('corp_b');
+      const ssA = getOrCreateDbSpreadsheet_('nomura_corp_a');
+      const ssB = getOrCreateDbSpreadsheet_('nomura_corp_b');
       const txA = getOrCreateDbSheet_(ssA, DB_CONFIG.SHEET_TRANSACTIONS, DB_HEADERS);
       const txB = getOrCreateDbSheet_(ssB, DB_CONFIG.SHEET_TRANSACTIONS, DB_HEADERS);
       const logA = getOrCreateDbSheet_(ssA, DB_CONFIG.SHEET_IMPORT_LOGS, IMPORT_LOG_HEADERS);
       const logB = getOrCreateDbSheet_(ssB, DB_CONFIG.SHEET_IMPORT_LOGS, IMPORT_LOG_HEADERS);
 
-      assertEquals_(0, countNonEmptyRowsByHeader_(txA, DB_HEADERS, 'recordId'), 'corp_a の取引DBは空になる');
-      assertEquals_(0, countNonEmptyRowsByHeader_(logA, IMPORT_LOG_HEADERS, 'importId'), 'corp_a の取込履歴は空になる');
-      assertEquals_(1, countNonEmptyRowsByHeader_(txB, DB_HEADERS, 'recordId'), 'corp_b の取引DBは残る');
-      assertEquals_(1, countNonEmptyRowsByHeader_(logB, IMPORT_LOG_HEADERS, 'importId'), 'corp_b の取込履歴は残る');
+      assertEquals_(0, countNonEmptyRowsByHeader_(txA, DB_HEADERS, 'recordId'), 'nomura_corp_a の取引DBは空になる');
+      assertEquals_(0, countNonEmptyRowsByHeader_(logA, IMPORT_LOG_HEADERS, 'importId'), 'nomura_corp_a の取込履歴は空になる');
+      assertEquals_(1, countNonEmptyRowsByHeader_(txB, DB_HEADERS, 'recordId'), 'nomura_corp_b の取引DBは残る');
+      assertEquals_(1, countNonEmptyRowsByHeader_(logB, IMPORT_LOG_HEADERS, 'importId'), 'nomura_corp_b の取込履歴は残る');
     });
   } finally {
     temp.cleanup();
@@ -570,9 +570,9 @@ function test_buildRowHash_changesWhenManualColumnsChange_20260511_() {
 }
 
 function test_createSpreadsheetFromSourceSpreadsheetUsingDb_readsDetectedSheet_() {
-  const temp = createTempDbTargets_(['corp_a']);
+  const temp = createTempDbTargets_(['nomura_corp_a']);
   try {
-    withTempDbTargets_(temp.targets, 'corp_a', function() {
+    withTempDbTargets_(temp.targets, 'nomura_corp_a', function() {
       withTempSpreadsheet_(function(sourceSs) {
         const memo = sourceSs.getSheets()[0];
         memo.setName('メモ');
@@ -587,7 +587,7 @@ function test_createSpreadsheetFromSourceSpreadsheetUsingDb_readsDetectedSheet_(
         inputSheet.getRange(1, 1, 2, headers.length).setValues([headers, row]);
 
         const result = createSpreadsheetFromSourceSpreadsheetUsingDb_(sourceSs.getUrl(), {
-          targetDbKey: 'corp_a'
+          targetDbKey: 'nomura_corp_a'
         });
 
         try {

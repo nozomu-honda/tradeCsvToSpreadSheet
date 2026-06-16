@@ -6,31 +6,31 @@
 
 function test_shouldSkipRequiredManualValidationForTarget_testDb_true_() {
   assertTrue_(
-    shouldSkipRequiredManualValidationForTarget_('test'),
+    shouldSkipRequiredManualValidationForTarget_('nomura_test'),
     'test DB では必須入力バリデーションをスキップする'
   );
 }
 
 function test_shouldSkipRequiredManualValidationForTarget_normalDb_false_() {
   assertFalse_(
-    shouldSkipRequiredManualValidationForTarget_('corp_a'),
+    shouldSkipRequiredManualValidationForTarget_('nomura_corp_a'),
     '通常DBでは必須入力バリデーションをスキップしない'
   );
 }
 
 function test_createSpreadsheetFromSourceSpreadsheetUsingDb_testDb_skipsManualValidation_() {
-  const temp = createTempDbTargets_(['test']);
+  const temp = createTempDbTargets_(['nomura_test']);
   try {
     const patchedTargets = temp.targets.map(function(target) {
       return {
         key: target.key,
-        label: target.key === 'test' ? 'テスト用DB（赤セルバリデーション無視）' : target.label,
+        label: target.key === 'nomura_test' ? 'テスト用DB（赤セルバリデーション無視）' : target.label,
         spreadsheetId: target.spreadsheetId,
         spreadsheetName: target.spreadsheetName
       };
     });
 
-    withTempDbTargets_(patchedTargets, 'test', function() {
+    withTempDbTargets_(patchedTargets, 'nomura_test', function() {
       const sourceSs = getSuiteTempSpreadsheet_();
       resetTempSpreadsheet_(sourceSs);
       const sheet = sourceSs.getSheets()[0];
@@ -53,11 +53,11 @@ function test_createSpreadsheetFromSourceSpreadsheetUsingDb_testDb_skipsManualVa
       sheet.getRange(1, 1, 2, headers.length).setValues([headers, row]);
 
       const result = createSpreadsheetFromSourceSpreadsheetUsingDb_(sourceSs.getId(), {
-        targetDbKey: 'test'
+        targetDbKey: 'nomura_test'
       });
 
       assertTrue_(result.validationBypassed, 'テスト用DBではバリデーションスキップが返る');
-      assertEquals_('test', result.db.dbTargetKey, 'テスト用DBに追加される');
+      assertEquals_('nomura_test', result.db.dbTargetKey, 'テスト用DBに追加される');
     });
   } finally {
     temp.cleanup();

@@ -31,7 +31,7 @@ function createSpreadsheetFromSourceSpreadsheet_(spreadsheetUrlOrId, options) {
 
 function isTestDbTarget_(targetDbKey) {
   const key = text_(targetDbKey);
-  return key === 'test' || key === 'rakuten_test';
+  return key === 'nomura_test' || key === 'rakuten_test';
 }
 
 function shouldSkipRequiredManualValidationForTarget_(targetDbKey) {
