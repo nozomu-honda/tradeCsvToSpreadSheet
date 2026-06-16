@@ -383,6 +383,7 @@
             if (res.dbSpreadsheetUrl) {
               appendLink(linkArea, res.dbSpreadsheetUrl, '選択中DBを開く');
             }
+            document.getElementById('rollbackDbKey').value = res.dbTargetKey || target.key;
             loadRecentImports();
           })
           .withFailureHandler(function(err) {
