@@ -159,17 +159,19 @@ function test_getResetDbTargetList_includesHiddenTargets_20260616_() {
     temp.targets[1].uiVisible = false;
 
     withTempDbTargets_(temp.targets, 'nomura_corp_a', function() {
-      const importTargets = getDbTargetList_().map(function(target) {
+      const importTargetList = getDbTargetList_();
+      const resetTargetList = getResetDbTargetList_();
+      const importTargets = importTargetList.map(function(target) {
         return target.key;
       });
-      const resetTargets = getResetDbTargetList_().map(function(target) {
+      const resetTargets = resetTargetList.map(function(target) {
         return target.key;
       });
 
       assertArrayEquals_(['nomura_corp_a'], importTargets, '取込用DBリストは非表示DBを含めない');
       assertArrayEquals_(['nomura_corp_a', 'rakuten_corp_a'], resetTargets, 'リセット用DBリストは楽天DBも含める');
-      assertEquals_('Temp 法人A', getDbTargetList_()[0].label, '取込用DBリストは importLabel を表示する');
-      assertEquals_('Temp nomura_corp_a', getResetDbTargetList_()[0].label, 'リセット用DBリストは通常ラベルを表示する');
+      assertEquals_('Temp 法人A', importTargetList[0].label, '取込用DBリストは importLabel を表示する');
+      assertEquals_('Temp nomura_corp_a', resetTargetList[0].label, 'リセット用DBリストは通常ラベルを表示する');
     });
   } finally {
     temp.cleanup();
