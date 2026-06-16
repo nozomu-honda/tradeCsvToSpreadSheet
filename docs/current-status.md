@@ -1,6 +1,6 @@
 # Current Status
 
-最終更新: 2026-06-16
+最終更新: 2026-06-17
 
 ## 完了
 
@@ -20,6 +20,11 @@
   - 通常DBキーは `nomura_corp_a` / `nomura_corp_b` / `nomura_test` に整理。
   - 楽天入力時は `nomura_*` から対応する `rakuten_*` へルーティング。
   - PR本文上では `runSmokeTests` / `runAllTests` と主要手動確認は完了扱い。
+- PR #33「追加先DBの表示名を簡略化」は develop にマージ済み。
+  - 追加先DB選択のプルダウンでは、野村/楽天の区別を出さずに法人名とテスト用DBだけを表示。
+  - リセット/ロールバック対象DBでは、従来どおり野村DB・楽天DBの区別を表示。
+  - `getDbTargetList_()` は `importLabel` を優先し、`getResetDbTargetList_()` は通常 `label` を返す。
+  - Apps Script 上の `runAllTests` とWeb UIの主要手動確認は完了扱い。
 
 ## 進行中 / 未マージ
 
@@ -28,22 +33,22 @@
   - `rakuten_fund` / `rakuten_dividend` / `rakuten_cash` の検出・正規化を追加する内容。
   - Apps Script 上での `runSmokeTests` / `runAllTests` は未確認。
   - 実CSVでの投信・配当金/分配金・入出金履歴の取込確認は未完了。
-  - PR #32 マージ後の develop 最新へ追従してから再確認する。
+  - PR #33 マージ後の develop 最新へ追従してから再確認する。
 
 ## 未完了 / 確認待ち
 
 - 別ユーザーでのDrive OAuth承認とWebアプリ実行確認。
 - 楽天米国株の実取込結果の最終確認。
-- PR #32 マージ後の develop をGASへ反映するか、反映前チェックを行う。
+- PR #33 マージ後の develop をGASへ反映するか、反映前チェックを行う。
 - PR #31 の差分レビュー、develop追従、GAS上テスト、実CSV確認。
 - 楽天Phase 2の税額・為替レート詳細の追加設計。
 
 ## 直近の優先順位
 
-1. PR #32 マージ後の develop 最新を前提に、GAS反映前チェックを行う。
+1. PR #33 マージ後の develop 最新を前提に、GAS反映前チェックを行う。
 2. 別ユーザーのDrive権限問題の結果を確認する。
 3. 楽天米国株の出力確認を完了する。
-4. PR #31 を develop 最新へ追従させ、差分レビューと Apps Script 上の `runSmokeTests` / `runAllTests` を行う。
+4. PR #31 を PR #33 マージ後の develop 最新へ追従させ、差分レビューと Apps Script 上の `runSmokeTests` / `runAllTests` を行う。
 5. 楽天投信 / 配当金・分配金 / 入出金履歴の実データ確認を行う。
 6. 楽天Phase 2の税額・為替レート詳細へ進む。
 
@@ -64,4 +69,4 @@ AutoHotkeyショートカットの説明は `docs/codex-shortcuts.md` を参照�
 - 実際のフォルダID・スプレッドシートID・WebアプリURLはコミットしない。
 - `appsscript.json` のOAuth scope変更後は、Webアプリの新バージョン再デプロイが必要。
 - Webアプリを「アクセスしているユーザー」として実行する場合、利用者ごとにDrive権限承認とDBフォルダ編集権限が必要。
-- PR #31 と PR #32 はどちらも楽天/DB/テスト周辺に触るため、PR #31 はPR #32マージ後の develop へ追従してから確認する。
+- PR #31 と PR #32 / PR #33 は楽天/DB/テスト周辺に触るため、PR #31 はPR #33マージ後の develop へ追従してから確認する。
