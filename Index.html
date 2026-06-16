@@ -70,6 +70,7 @@
       </div>
 
       <div class="row button-row">
+        <button id="openResetDbButton" class="secondary" onclick="openResetDb()">選択中DBを開く</button>
         <button id="resetDbButton" class="danger" onclick="resetDb()">選択したDBをリセット</button>
       </div>
 
@@ -87,6 +88,7 @@
       </div>
 
       <div class="row button-row">
+        <button id="openRollbackDbButton" class="secondary" onclick="openRollbackDb()">選択中DBを開く</button>
         <button id="refreshImportsButton" class="secondary" onclick="loadRecentImports()">最近の取込を再読込</button>
         <button id="rollbackButton" class="danger" onclick="rollbackImport()">選択した取込をロールバック</button>
       </div>
@@ -163,6 +165,47 @@
       function getSelectedRollbackDbTarget_() {
         const key = document.getElementById('rollbackDbKey').value;
         return RESET_DB_TARGETS.find(function(target) { return target.key === key; }) || null;
+      }
+
+      function openResetDb() {
+        openDbSpreadsheet_(getSelectedResetDbTarget_());
+      }
+
+      function openRollbackDb() {
+        openDbSpreadsheet_(getSelectedRollbackDbTarget_());
+      }
+
+      function openDbSpreadsheet_(target) {
+        clearOutput_();
+        if (!target) {
+          renderError_({ message: '対象DBを選択してください。' });
+          return;
+        }
+
+        setBusy_(true);
+        document.getElementById('status').textContent = 'DBを開く準備中...';
+
+        google.script.run
+          .withSuccessHandler(function(res) {
+            setBusy_(false);
+            document.getElementById('status').textContent = '';
+            const result = document.getElementById('result');
+            const linkArea = document.getElementById('linkArea');
+            result.className = 'ok';
+            result.textContent =
+              'DBを開く準備ができました。\n\n' +
+              '対象DB: ' + (res.dbTargetLabel || target.label || '');
+            if (res.dbSpreadsheetUrl) {
+              window.open(res.dbSpreadsheetUrl, '_blank', 'noopener,noreferrer');
+              appendLink(linkArea, res.dbSpreadsheetUrl, '選択中DBを開く');
+            }
+          })
+          .withFailureHandler(function(err) {
+            setBusy_(false);
+            document.getElementById('status').textContent = '';
+            renderError_(err);
+          })
+          .getDbSpreadsheetFromWebApp(target.key);
       }
 
       function buildInputPayloadBase_(uploadedCsvText, uploadedFileName) {
@@ -482,7 +525,9 @@
         document.getElementById('resetDbKey').disabled = isBusy;
         document.getElementById('runButton').disabled = isBusy;
         document.getElementById('stagingButton').disabled = isBusy;
+        document.getElementById('openResetDbButton').disabled = isBusy;
         document.getElementById('resetDbButton').disabled = isBusy;
+        document.getElementById('openRollbackDbButton').disabled = isBusy;
         document.getElementById('refreshImportsButton').disabled = isBusy;
         document.getElementById('rollbackButton').disabled = isBusy;
         document.getElementById('rollbackDbKey').disabled = isBusy;

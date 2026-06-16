@@ -582,6 +582,17 @@ function listRecentImports_(targetDbKey, maxCount) {
   return listRecentImportsFromSpreadsheet_(dbSs, maxCount, target);
 }
 
+function getDbSpreadsheetMeta_(targetDbKey) {
+  const target = resolveDbTarget_(targetDbKey);
+  const dbSs = getOrCreateDbSpreadsheet_(target.key);
+  return {
+    dbSpreadsheetId: dbSs.getId(),
+    dbSpreadsheetUrl: dbSs.getUrl(),
+    dbTargetKey: target.key,
+    dbTargetLabel: target.label,
+  };
+}
+
 function listRecentImportsFromSpreadsheet_(dbSs, maxCount, fallbackTarget) {
   const count = maxCount || DB_CONFIG.MAX_RECENT_IMPORTS || 30;
   const tz = Session.getScriptTimeZone() || 'Asia/Tokyo';

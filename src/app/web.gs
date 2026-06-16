@@ -55,6 +55,10 @@ function resetDbFromWebApp(targetDbKey) {
   return resetDbData_(targetDbKey);
 }
 
+function getDbSpreadsheetFromWebApp(targetDbKey) {
+  return getDbSpreadsheetMeta_(targetDbKey);
+}
+
 function listRecentImportsFromWebApp(targetDbKey) {
   const target = resolveDbTarget_(targetDbKey);
   return {
