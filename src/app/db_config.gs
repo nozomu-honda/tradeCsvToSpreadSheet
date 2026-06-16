@@ -15,23 +15,23 @@ const DB_CONFIG = {
   TARGET_DBS: [
     {
       key: 'corp_a',
-      label: '（株）本田土地建物',
+      label: '（株）本田土地建物（野村）',
       spreadsheetId: '1XqCr8PpcENcx_-krJV1jRKb5_yU9tVBVXvEtypCSLGY',
-      spreadsheetName: '取引DB_法人A',
+      spreadsheetName: '取引DB_法人A_野村',
       uiVisible: true,
     },
     {
       key: 'corp_b',
-      label: '（株）本田',
+      label: '（株）本田（野村）',
       spreadsheetId: '1i9pU8D8J-vRVP6uMfaIbMtX9lC4DFw3jw1AfbASCvlw',
-      spreadsheetName: '取引DB_法人B',
+      spreadsheetName: '取引DB_法人B_野村',
       uiVisible: true,
     },
     {
       key: 'test',
-      label: 'テスト用DB（赤セルバリデーション無視）',
+      label: 'テスト用DB（野村・赤セルバリデーション無視）',
       spreadsheetId: '1IEwnXis7WiFJ9jRl3E-llZanhjkwlyOafWqSXCxkI3M',
-      spreadsheetName: '株管理ツール_TEST_DB',
+      spreadsheetName: '株管理ツール_TEST_DB_野村',
       uiVisible: true,
     },
 
