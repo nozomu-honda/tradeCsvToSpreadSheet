@@ -89,3 +89,9 @@ VS Code でローカル編集する。
 
 ```bash
 clasp push
+
+---
+
+## Codex
+
+- Codexへの依頼テンプレートとAutoHotkeyショートカットは [docs/codex-shortcuts.md](./codex-shortcuts.md) を参照。

@@ -10,6 +10,31 @@
 - 楽天証券 Phase 1: 日本株・米国株
 - 楽天証券 Phase 2: 投信、配当金・分配金、入出金履歴
 
+## 作業前に読むドキュメント
+
+作業開始時は、まず以下を確認する。
+
+- `docs/current-status.md`
+- `docs/TODO.md`
+- 必要に応じて `docs/spec.md` / `docs/trade-rules.md`
+- Codexへの依頼テンプレートは `docs/codex-prompts.md`
+- AutoHotkeyショートカットの説明は `docs/codex-shortcuts.md`
+
+## Branch / Commit Rules
+
+- 実装タスクでは、`develop` に直接コミットしない。
+- 新しい実装・修正タスクでは、作業開始前に最新の `develop` から作業ブランチを作る。
+- ブランチ名は `feature/<task-name>` を基本にする。
+- ユーザーが作業ブランチ名を指定している場合は、そのブランチ上で作業する。
+- 変更は作業ブランチにだけコミットする。
+- PR作成前に、まだ追加のコード変更をせず、未コミット差分レビューを行う。
+- 実装後は、以下を要約する。
+  - 変更ファイル
+  - 差分概要
+  - 実行したテスト
+  - 未確認事項
+- `develop` への直接コミットは、ユーザーが明示した小さなドキュメント/ステータス更新などに限定する。
+
 ## 技術前提
 
 - Google Apps Script / V8 を前提とする。
@@ -25,21 +50,27 @@
 - 野村フォーマットは既存の共通入力形式として扱う。
 - 楽天フォーマットは `normalizeRowsForImport_()` で内部共通レコードに変換する。
 - DB書き込み前に、入力元フォーマットに応じてDBキーをルーティングする。
-- UIには楽天専用DBを直接表示しない。UIで選択した `corp_a` / `corp_b` / `test` を、楽天入力時だけ `rakuten_*` に内部変換する。
+- 取込用UIには楽天専用DBを直接表示しない。
+- 取込用UIで選択する通常DBキーは `nomura_corp_a` / `nomura_corp_b` / `nomura_test` を基本とする。
+- 楽天入力時だけ、選択された `nomura_*` を対応する `rakuten_*` に内部変換する。
+- DBリセット/ロールバック用UIでは、設定済みDBターゲット一覧を正とし、hidden な楽天DBも選択肢に含める。
 - 秘密情報、スプレッドシートID、フォルダID、WebアプリURLは不用意にコミットしない。必要ならサンプル値や環境設定の説明に留める。
 
 ## DBルーティング方針
 
-UI選択と実際の追加先DBの関係:
+現在のUI選択と実際の追加先DBの関係:
 
-- 野村入力 + `corp_a` → `corp_a`
-- 野村入力 + `corp_b` → `corp_b`
-- 野村入力 + `test` → `test`
-- 楽天入力 + `corp_a` → `rakuten_corp_a`
-- 楽天入力 + `corp_b` → `rakuten_corp_b`
-- 楽天入力 + `test` → `rakuten_test`
+- 野村入力 + `nomura_corp_a` → `nomura_corp_a`
+- 野村入力 + `nomura_corp_b` → `nomura_corp_b`
+- 野村入力 + `nomura_test` → `nomura_test`
+- 楽天入力 + `nomura_corp_a` → `rakuten_corp_a`
+- 楽天入力 + `nomura_corp_b` → `rakuten_corp_b`
+- 楽天入力 + `nomura_test` → `rakuten_test`
 
-楽天DBは `uiVisible: false` とし、UIの直接選択肢には出さない。
+楽天DBは `uiVisible: false` とし、取込用UIの直接選択肢には出さない。
+ただし、DBリセット/ロールバック用UIでは楽天DBも選択できる。
+
+過去のドキュメントや会話に `corp_a` / `corp_b` / `test` が出る場合があるが、現在の通常DBキーは `nomura_*` を基本とする。
 
 ## 楽天証券対応の現状
 
@@ -67,6 +98,9 @@ Phase 2 実装対象:
 - `normalizeRakutenDividendRowsToRecords_(rows, headerRowIndex)`
 - `normalizeRakutenCashRowsToRecords_(rows, headerRowIndex)`
 
+楽天の追加フォーマット対応は段階的に進める。
+投信、配当金・分配金、入出金履歴を扱う場合は、`docs/current-status.md` と対象PRの状態を確認してから作業する。
+
 ## テスト方針
 
 - 既存テストを壊さない。
@@ -74,6 +108,7 @@ Phase 2 実装対象:
 - GAS上で実行できるテスト関数名を明記する。
 - テスト用DBでは赤セルバリデーションを無視する設計を維持する。
 - DB作成・Drive操作を含むテストは、実行ユーザーとDrive共有権限に注意する。
+- GAS反映前は、必要に応じて `runSmokeTests` / `runAllTests` を確認する。
 
 ## Webアプリ / OAuth / Drive権限
 
@@ -107,3 +142,5 @@ Webアプリを「自分」として実行する場合:
 - 仕様変更、DBスキーマ変更、出力列変更は必ずドキュメントを更新する。
 - 楽天対応の追加は、フォーマットごとに段階的に進める。
 - 変更後に実行したテスト名と結果をPR本文へ書く。
+- PR本文には、確認済み項目と未確認項目を分けて書く。
+- マージ後に状態が変わった場合は `docs/current-status.md` を更新する。
