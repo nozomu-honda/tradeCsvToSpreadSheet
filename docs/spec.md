@@ -109,6 +109,37 @@ Web UI では、入力元指定に加えて **追加先DB** を選択する。
 
 追加列を使わない場合は、列自体が存在しなくてもよい。
 
+### 2.7 楽天配当金CSVの手入力補完列
+
+楽天配当金CSVでは、ユーザーがCSVに以下の3列を手動追加する。
+
+- レート
+- 現地源泉税［円］
+- 国内源泉税［円］
+
+この3列は楽天配当金CSV専用の補完情報として扱う。
+
+- 野村CSVには要求しない
+- 楽天日本株CSV、楽天米国株CSV、楽天投資信託CSV、楽天入出金履歴CSVには要求しない
+- 楽天専用DBでは `manualRate`, `manualForeignWithholdingTaxJpy`, `manualDomesticWithholdingTaxJpy` に保存する
+- 出力計算で使う場合は、楽天DBレコードから共通計算モデルへ変換する段階で反映する
+
+ヘッダー名は以下を正式名とする。
+
+- `レート`
+- `現地源泉税［円］`
+- `国内源泉税［円］`
+
+表記ゆれは、空白除去、全角/半角カッコ、全角/半角角カッコの差まで許容する。
+ただし、既存の野村向け手入力列である `国内源泉所得税（円）` / `国内源泉地方税（円）` と楽天配当金CSVの `国内源泉税［円］` は別物として扱う。
+
+欠落/未入力時の扱い:
+
+- 楽天配当金CSVで3列のヘッダーが欠けている場合はエラー
+- 外貨配当で `レート` が未入力の場合はエラー
+- `現地源泉税［円］` / `国内源泉税［円］` が未入力の場合は警告とし、DBには空欄で保存する
+- `0` は有効な入力値として扱う
+
 ---
 
 ## 3. 一次受け枠
@@ -222,6 +253,29 @@ DBには `取込履歴` シートを持ち、少なくとも以下を保持す�
 - `test DB` では赤セル必須入力バリデーションをスキップできる
 - `test DB` の成果物出力は、固定の確認用スプレッドシートへ上書き出力できる
 - 通常DBでは都度新規作成、test DB では固定出力先再利用、という運用を許可する
+
+### 4.8 楽天専用DBの方針
+
+楽天証券CSVは、将来的に野村共通形式へ寄せて保存するのではなく、楽天専用DBスキーマへ保存する。
+
+- 野村DBは既存の `DB_HEADERS` / `BASE_HEADERS` を維持する
+- 楽天DBは `RAKUTEN_DB_HEADERS` を使う
+- 楽天入力処理、楽天DB保存、楽天DB読込、楽天出力、楽天ロールバックは野村処理と分ける
+- 平均取得単価、簿価、保有数量、損益、金銭残高などの計算コアだけを共通化する
+- 楽天DBから出力する際は、楽天DBレコードを共通計算モデルへ変換してから共通計算コアへ渡す
+- 現行コードでは楽天CSVを `BASE_HEADERS` へ正規化して保存しているため、この方針への移行は段階的に行う
+
+楽天専用DBヘッダー案は以下を基本とする。
+
+- メタ情報: `recordId`, `importId`, `sourceName`, `sourceRowNo`, `rowHash`, `sourceType`, `broker`
+- 日付: `tradeDate`, `settlementDate`, `paymentDate`, `cashDate`
+- 銘柄/商品: `product`, `rawProduct`, `symbolCode`, `symbolName`
+- 取引: `rawTradeType`, `normalizedTradeType`, `accountType`, `market`
+- 通貨/数量/金額: `currency`, `settlementCurrency`, `quantity`, `unitPrice`, `grossAmount`, `netAmount`, `settlementAmount`, `fee`, `tax`, `miscFee`, `exchangeRate`
+- 楽天配当金CSVの手入力補完: `manualRate`, `manualForeignWithholdingTaxJpy`, `manualDomesticWithholdingTaxJpy`
+- その他: `description`, `createdAt`, `updatedAt`, `rolledBackAt`, `isActive`
+
+この節は設計方針であり、楽天DB保存処理の切り替えは別PRで行う。
 
 ---
 

@@ -149,3 +149,11 @@ function test_normalizeRakutenCashRowsToRecords_depositAndWithdrawal_20260616_()
   assertEquals_('出金（振込）', records[1]['取引区分'], '出金の取引区分');
   assertEquals_(6001186, records[1]['受渡金額/決済損益'], '出金額');
 }
+
+function test_rakutenDbHeaders_includeDividendManualColumns_20260617_() {
+  assertTrue_(RAKUTEN_DB_HEADERS.indexOf('manualRate') >= 0, '楽天配当金の手入力レート列');
+  assertTrue_(RAKUTEN_DB_HEADERS.indexOf('manualForeignWithholdingTaxJpy') >= 0, '楽天配当金の現地源泉税列');
+  assertTrue_(RAKUTEN_DB_HEADERS.indexOf('manualDomesticWithholdingTaxJpy') >= 0, '楽天配当金の国内源泉税列');
+  assertTrue_(RAKUTEN_DB_HEADERS.indexOf('normalizedTradeType') >= 0, '共通計算モデルへ渡す取引区分列');
+  assertTrue_(RAKUTEN_DB_HEADERS.indexOf('isActive') > RAKUTEN_DB_HEADERS.indexOf('recordId'), '論理削除列');
+}

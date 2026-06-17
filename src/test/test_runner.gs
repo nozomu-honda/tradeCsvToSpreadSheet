@@ -72,6 +72,7 @@ const CORE_TESTS_ = [
   test_normalizeRakutenDividendRowsToRecords_usStockDividend_20260616_,
   test_detectInputSourceTypeFromRows_rakutenCash_20260616_,
   test_normalizeRakutenCashRowsToRecords_depositAndWithdrawal_20260616_,
+  test_rakutenDbHeaders_includeDividendManualColumns_20260617_,
 ];
 
 const FULL_ONLY_TESTS_ = [
