@@ -583,6 +583,110 @@ function test_rakutenDb_usesRakutenHeadersAndReadsAsBaseRecord_20260617_() {
   }
 }
 
+function test_rakutenDb_reset_recreatesRakutenHeaders_20260617_() {
+  const temp = createTempDbTargets_(['rakuten_corp_a']);
+  try {
+    withTempDbTargets_(temp.targets, 'rakuten_corp_a', function() {
+      appendRecordsToDb_([
+        makeTradeRecord_({
+          銘柄名: 'RESET_RAKUTEN',
+          商品: '外株',
+          取引区分: '現物買付',
+          数量: 1,
+          単価: 100,
+          受渡金額_決済損益: 100,
+          レート: 150,
+          決済通貨: 'USD'
+        })
+      ], {
+        targetDbKey: 'rakuten_corp_a',
+        sourceName: 'rakuten_reset.csv',
+        inputType: 'upload',
+        sourceType: 'rakuten_us_stock'
+      });
+
+      const reset = resetDbData_('rakuten_corp_a');
+      assertEquals_('rakuten_corp_a', reset.dbTargetKey, 'リセット対象DBキー');
+      assertEquals_(1, reset.deletedTransactionCount, '楽天取引DBの削除件数');
+      assertEquals_(1, reset.deletedImportLogCount, '楽天取込履歴の削除件数');
+
+      const ss = getOrCreateDbSpreadsheet_('rakuten_corp_a');
+      const txSheet = ss.getSheetByName(DB_CONFIG.SHEET_TRANSACTIONS);
+      const headers = txSheet.getRange(1, 1, 1, RAKUTEN_DB_HEADERS.length).getValues()[0];
+      assertArrayEquals_(RAKUTEN_DB_HEADERS, headers, '楽天DBリセット後もRAKUTEN_DB_HEADERS');
+      assertEquals_(1, txSheet.getLastRow(), '楽天取引DBはヘッダーのみになる');
+    });
+  } finally {
+    temp.cleanup();
+  }
+}
+
+function test_rakutenDb_rollback_marksOnlyTargetImportInactive_20260617_() {
+  const temp = createTempDbTargets_(['rakuten_corp_a']);
+  try {
+    withTempDbTargets_(temp.targets, 'rakuten_corp_a', function() {
+      const first = appendRecordsToDb_([
+        makeTradeRecord_({
+          銘柄名: 'ROLLBACK_FIRST',
+          商品: '外株',
+          取引区分: '現物買付',
+          数量: 1,
+          単価: 100,
+          受渡金額_決済損益: 100,
+          レート: 150,
+          決済通貨: 'USD'
+        })
+      ], {
+        targetDbKey: 'rakuten_corp_a',
+        sourceName: 'rakuten_first.csv',
+        inputType: 'upload',
+        sourceType: 'rakuten_us_stock'
+      });
+
+      appendRecordsToDb_([
+        makeTradeRecord_({
+          銘柄名: 'ROLLBACK_SECOND',
+          商品: '外株',
+          取引区分: '現物買付',
+          数量: 2,
+          単価: 100,
+          受渡金額_決済損益: 200,
+          レート: 150,
+          決済通貨: 'USD'
+        })
+      ], {
+        targetDbKey: 'rakuten_corp_a',
+        sourceName: 'rakuten_second.csv',
+        inputType: 'upload',
+        sourceType: 'rakuten_us_stock'
+      });
+
+      const rollback = rollbackImport_('rakuten_corp_a', first.importId);
+      assertEquals_(1, rollback.rolledBackCount, '楽天DBで1件ロールバック');
+
+      const records = readDbRecords_('rakuten_corp_a');
+      assertEquals_(1, records.length, '楽天DBの有効レコードは1件残る');
+      assertEquals_('ROLLBACK_SECOND', records[0]['銘柄名'], '対象外の取込は残る');
+
+      const ss = getOrCreateDbSpreadsheet_('rakuten_corp_a');
+      const txSheet = ss.getSheetByName(DB_CONFIG.SHEET_TRANSACTIONS);
+      const values = txSheet.getRange(2, 1, 2, RAKUTEN_DB_HEADERS.length).getValues();
+      const importIdCol = RAKUTEN_DB_HEADERS.indexOf('importId');
+      const isActiveCol = RAKUTEN_DB_HEADERS.indexOf('isActive');
+      const rolledBackAtCol = RAKUTEN_DB_HEADERS.indexOf('rolledBackAt');
+      const firstRow = values.find(function(row) {
+        return row[importIdCol] === first.importId;
+      });
+
+      assertTrue_(!!firstRow, 'ロールバック対象行が見つかる');
+      assertFalse_(!(firstRow[isActiveCol] === false || String(firstRow[isActiveCol]).toUpperCase() === 'FALSE'), '楽天DB対象行 isActive は false');
+      assertTrue_(firstRow[rolledBackAtCol] instanceof Date, '楽天DB対象行 rolledBackAt が入る');
+    });
+  } finally {
+    temp.cleanup();
+  }
+}
+
 function test_buildRowHash_changesWhenManualColumnsChange_20260511_() {
   const a = makeTradeRecord_({
     銘柄名: 'HASH_TEST',
