@@ -85,44 +85,44 @@ const DB_HEADERS = [
 ];
 
 const RAKUTEN_DB_HEADERS = [
-  'recordId',
-  'importId',
-  'sourceName',
-  'sourceRowNo',
-  'rowHash',
-  'sourceType',
-  'broker',
-  'tradeDate',
-  'settlementDate',
-  'paymentDate',
-  'cashDate',
-  'product',
-  'rawProduct',
-  'symbolCode',
-  'symbolName',
-  'rawTradeType',
-  'normalizedTradeType',
-  'accountType',
-  'market',
-  'currency',
-  'settlementCurrency',
-  'quantity',
-  'unitPrice',
-  'grossAmount',
-  'netAmount',
-  'settlementAmount',
-  'fee',
-  'tax',
-  'miscFee',
-  'exchangeRate',
-  'manualRate',
-  'manualForeignWithholdingTaxJpy',
-  'manualDomesticWithholdingTaxJpy',
-  'description',
-  'createdAt',
-  'updatedAt',
-  'rolledBackAt',
-  'isActive',
+  'recordId', // CSV由来なし: DB内レコードID
+  'importId', // CSV由来なし: 取込ID
+  'sourceName', // CSV由来なし: 入力ファイル名/入力元シート名
+  'sourceRowNo', // CSV由来なし: 入力明細の行番号
+  'rowHash', // CSV由来なし: 重複判定用ハッシュ
+  'sourceType', // CSV由来なし: rakuten_jp_stock / rakuten_us_stock / rakuten_fund / rakuten_dividend / rakuten_cash
+  'broker', // CSV由来なし: 楽天
+  'tradeDate', // 約定日
+  'settlementDate', // 受渡日
+  'paymentDate', // 入金日
+  'cashDate', // 入出金日
+  'product', // 商品
+  'rawProduct', // 商品
+  'symbolCode', // 銘柄コード / ティッカー
+  'symbolName', // 銘柄名 / 銘柄 / ファンド名
+  'rawTradeType', // 売買区分 / 取引区分 / 取引 / 内容
+  'normalizedTradeType', // CSV由来なし: 共通計算モデル用の取引区分
+  'accountType', // 口座区分 / 口座
+  'market', // 市場名称
+  'currency', // 受取通貨 / 発行通貨相当
+  'settlementCurrency', // 決済通貨 / 受取通貨
+  'quantity', // 数量[株] / 数量[口] / 数量[株/口]
+  'unitPrice', // 単価[円] / 単価[USドル] / 単価 / 単価[円/現地通貨]
+  'grossAmount', // 約定代金[USドル] / 配当・分配金合計(税引前)[円/現地通貨] / 受付金額[現地通貨]
+  'netAmount', // 受取金額[円/現地通貨]
+  'settlementAmount', // 受渡金額[円] / 受渡金額[USドル] / 受渡金額/(ポイント利用)[円] / 入金額[円] / 出金額[円]
+  'fee', // 手数料[円] / 手数料[USドル] / 経費
+  'tax', // 税金等[円] / 税額合計[円/現地通貨]
+  'miscFee', // 諸費用[円]
+  'exchangeRate', // 為替レート
+  'manualRate', // 楽天配当金CSV手入力: レート
+  'manualForeignWithholdingTaxJpy', // 楽天配当金CSV手入力: 現地源泉税［円］
+  'manualDomesticWithholdingTaxJpy', // 楽天配当金CSV手入力: 国内源泉税［円］
+  'description', // 内容 / 出金先 / 買付方法 / 商品補足
+  'createdAt', // CSV由来なし: 作成日時
+  'updatedAt', // CSV由来なし: 更新日時
+  'rolledBackAt', // CSV由来なし: ロールバック日時
+  'isActive', // CSV由来なし: 有効フラグ
 ];
 
 const IMPORT_LOG_HEADERS = [
