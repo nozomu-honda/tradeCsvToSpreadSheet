@@ -474,6 +474,7 @@ function createSpreadsheetFromCsvTextUsingDb_(csvText, sourceName, normalizedUrl
     normalizedUrl: normalizedUrl || '',
     alertCount: inputAlerts.length,
     targetDbKey: targetDbKey,
+    sourceType: normalizedInput.sourceType,
   });
 
   const dbRecords = readDbRecords_(targetDbKey);
@@ -549,6 +550,7 @@ function createSpreadsheetFromSourceSpreadsheetUsingDb_(spreadsheetUrlOrId, opti
     normalizedUrl: text_(spreadsheetUrlOrId),
     alertCount: inputAlerts.length,
     targetDbKey: targetDbKey,
+    sourceType: normalizedInput.sourceType,
   });
 
   const dbRecords = readDbRecords_(targetDbKey);

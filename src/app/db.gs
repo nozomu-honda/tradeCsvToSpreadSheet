@@ -74,19 +74,35 @@ function serializeDbTargetForUi_(target, options) {
   };
 }
 
-function getOrCreateDbSpreadsheet_(targetDbKey) {
+function isRakutenDbTargetKey_(targetDbKey) {
+  return text_(targetDbKey).indexOf('rakuten_') === 0;
+}
+
+function getTransactionHeadersForTargetKey_(targetDbKey) {
+  return isRakutenDbTargetKey_(targetDbKey) ? RAKUTEN_DB_HEADERS : DB_HEADERS;
+}
+
+function getOrCreateDbSpreadsheet_(targetDbKey, options) {
   const target = resolveDbTarget_(targetDbKey);
+  const transactionHeaders = getTransactionHeadersForTargetKey_(target.key);
+  const shouldRejectExistingDataHeaderMismatch =
+    isRakutenDbTargetKey_(target.key) &&
+    !(options && options.allowHeaderMismatchForReset);
 
   if (target.spreadsheetId) {
     const fixed = SpreadsheetApp.openById(target.spreadsheetId);
-    getOrCreateDbSheet_(fixed, DB_CONFIG.SHEET_TRANSACTIONS, DB_HEADERS);
+    getOrCreateDbSheet_(fixed, DB_CONFIG.SHEET_TRANSACTIONS, transactionHeaders, {
+      rejectExistingDataHeaderMismatch: shouldRejectExistingDataHeaderMismatch,
+    });
     getOrCreateDbSheet_(fixed, DB_CONFIG.SHEET_IMPORT_LOGS, IMPORT_LOG_HEADERS);
     return fixed;
   }
 
   const existing = findDbSpreadsheet_(target);
   if (existing) {
-    getOrCreateDbSheet_(existing, DB_CONFIG.SHEET_TRANSACTIONS, DB_HEADERS);
+    getOrCreateDbSheet_(existing, DB_CONFIG.SHEET_TRANSACTIONS, transactionHeaders, {
+      rejectExistingDataHeaderMismatch: shouldRejectExistingDataHeaderMismatch,
+    });
     getOrCreateDbSheet_(existing, DB_CONFIG.SHEET_IMPORT_LOGS, IMPORT_LOG_HEADERS);
     return existing;
   }
@@ -129,6 +145,7 @@ function getDbFolder_(target) {
 
 function createDbSpreadsheet_(target) {
   const ss = SpreadsheetApp.create(target.spreadsheetName);
+  const transactionHeaders = getTransactionHeadersForTargetKey_(target.key);
 
   const folder = getDbFolder_(target);
   if (folder) {
@@ -138,7 +155,7 @@ function createDbSpreadsheet_(target) {
 
   const firstSheet = ss.getSheets()[0];
   firstSheet.setName(DB_CONFIG.SHEET_TRANSACTIONS);
-  ensureHeaderRow_(firstSheet, DB_HEADERS);
+  ensureHeaderRow_(firstSheet, transactionHeaders);
 
   const logSheet = ss.insertSheet(DB_CONFIG.SHEET_IMPORT_LOGS);
   ensureHeaderRow_(logSheet, IMPORT_LOG_HEADERS);
@@ -146,22 +163,30 @@ function createDbSpreadsheet_(target) {
   return ss;
 }
 
-function getOrCreateDbSheet_(ss, sheetName, headers) {
+function getOrCreateDbSheet_(ss, sheetName, headers, options) {
   let sheet = ss.getSheetByName(sheetName);
   if (!sheet) {
     sheet = ss.insertSheet(sheetName);
   }
-  ensureHeaderRow_(sheet, headers);
+  ensureHeaderRow_(sheet, headers, options);
   return sheet;
 }
 
-function ensureHeaderRow_(sheet, headers) {
+function ensureHeaderRow_(sheet, headers, options) {
   const current = sheet.getRange(1, 1, 1, headers.length).getValues()[0];
   const same =
     current.length >= headers.length &&
     headers.every(function(h, i) { return String(current[i] || '') === h; });
 
   if (!same) {
+    if (options && options.rejectExistingDataHeaderMismatch && sheet.getLastRow() > 1) {
+      throw new Error(
+        '楽天DBのヘッダーが現行仕様と一致しません。' +
+        ' 既存データを保持したままヘッダーだけを上書きすると列ずれが発生するため、処理を停止しました。' +
+        ' 対象シート: ' + sheet.getName() +
+        '。楽天DBをリセットしてから再取込してください。'
+      );
+    }
     sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
   }
 }
@@ -341,28 +366,121 @@ function dbRecordToRow_(dbRecord) {
   });
 }
 
+function dbRecordToRowByHeaders_(dbRecord, headers) {
+  return headers.map(function(header) {
+    return dbRecord[header];
+  });
+}
+
+function normalizeRakutenRecordForDb_(record, options) {
+  const base = normalizeRecordForDb_(record, options);
+  const tx = text_(base['取引区分']);
+  const product = text_(base['商品']);
+  const isDividend = tx === '入金（配当金）' || tx === '入金（分配金）';
+  const isCash = product === '現金';
+
+  return {
+    recordId: base.recordId,
+    importId: base.importId,
+    sourceName: base.sourceName,
+    sourceRowNo: base.sourceRowNo,
+    rowHash: base.rowHash,
+    sourceType: text_(options.sourceType),
+    broker: '楽天',
+    tradeDate: isCash || isDividend ? '' : base['約定日'],
+    settlementDate: isCash || isDividend ? '' : base['受渡日'],
+    paymentDate: isDividend ? base['受渡日'] : '',
+    cashDate: isCash ? base['受渡日'] : '',
+    product: product,
+    rawProduct: text_(record['摘要']) || product,
+    symbolCode: text_(base['銘柄コード']),
+    symbolName: text_(base['銘柄名']),
+    rawTradeType: tx,
+    normalizedTradeType: tx,
+    accountType: text_(base['預り区分']),
+    market: '',
+    currency: normalizeCurrency_(base['発行通貨']),
+    settlementCurrency: normalizeCurrency_(base['決済通貨']),
+    quantity: base['数量'],
+    unitPrice: base['単価'],
+    grossAmount: '',
+    netAmount: isDividend ? base['受渡金額/決済損益'] : '',
+    settlementAmount: base['受渡金額/決済損益'],
+    fee: base['手数料（税込）'],
+    tax: base['国内消費税等（円）'],
+    miscFee: base['現地手数料（円）'],
+    exchangeRate: base['レート'],
+    manualRate: '',
+    manualForeignWithholdingTaxJpy: '',
+    manualDomesticWithholdingTaxJpy: '',
+    description: text_(base['摘要']),
+    createdAt: base.createdAt,
+    updatedAt: base.updatedAt,
+    rolledBackAt: base.rolledBackAt,
+    isActive: base.isActive,
+  };
+}
+
+function rakutenDbRecordToBaseRecord_(obj) {
+  const tx = text_(obj.normalizedTradeType || obj.rawTradeType);
+  const product = text_(obj.product);
+  const date = obj.tradeDate || obj.settlementDate || obj.paymentDate || obj.cashDate;
+  const settlementDate = obj.settlementDate || obj.paymentDate || obj.cashDate || obj.tradeDate;
+
+  return {
+    約定日: parseDate_(date),
+    受渡日: parseDate_(settlementDate),
+    商品: product,
+    銘柄コード: text_(obj.symbolCode),
+    銘柄名: text_(obj.symbolName),
+    摘要: text_(obj.description || obj.rawProduct),
+    取引区分: tx,
+    預り区分: text_(obj.accountType),
+    発行通貨: normalizeCurrency_(obj.currency),
+    数量: toNumber_(obj.quantity),
+    単価: toNumber_(obj.unitPrice),
+    '受渡金額/決済損益': toNumber_(obj.settlementAmount || obj.netAmount),
+    '手数料（税込）': toNumber_(obj.fee),
+    レート: toNumber_(obj.exchangeRate || obj.manualRate),
+    決済通貨: normalizeCurrency_(obj.settlementCurrency || obj.currency),
+    '売買損益（円）': '',
+    '国内消費税等（円）': toOptionalNumber_(obj.tax),
+    '現地源泉税（円）': toOptionalNumber_(obj.manualForeignWithholdingTaxJpy),
+    '国内源泉所得税（円）': toOptionalNumber_(obj.manualDomesticWithholdingTaxJpy),
+    '国内源泉地方税（円）': '',
+    '元本払戻金': '',
+    '国内手数料（円）': '',
+    '現地手数料（円）': toOptionalNumber_(obj.miscFee),
+  };
+}
+
 function appendRecordsToDb_(records, options) {
   const target = resolveDbTarget_(options.targetDbKey);
   const dbSs = getOrCreateDbSpreadsheet_(target.key);
-  const txSheet = getOrCreateDbSheet_(dbSs, DB_CONFIG.SHEET_TRANSACTIONS, DB_HEADERS);
+  const transactionHeaders = getTransactionHeadersForTargetKey_(target.key);
+  const txSheet = getOrCreateDbSheet_(dbSs, DB_CONFIG.SHEET_TRANSACTIONS, transactionHeaders);
 
-  assertDbSheetCompatible_(txSheet, DB_HEADERS);
+  assertDbSheetCompatible_(txSheet, transactionHeaders);
 
   const importId = options.importId || buildImportId_();
   const now = new Date();
-  const existingHashes = getExistingRowHashSet_(txSheet);
+  const existingHashes = getExistingRowHashSet_(txSheet, transactionHeaders);
 
   const rowsToAppend = [];
   let insertedCount = 0;
   let skippedCount = 0;
 
   records.forEach(function(record, index) {
-    const dbRecord = normalizeRecordForDb_(record, {
+    const normalizeOptions = {
       importId: importId,
       sourceName: options.sourceName || '',
       sourceRowNo: index + 1,
       now: now,
-    });
+      sourceType: options.sourceType || '',
+    };
+    const dbRecord = isRakutenDbTargetKey_(target.key)
+      ? normalizeRakutenRecordForDb_(record, normalizeOptions)
+      : normalizeRecordForDb_(record, normalizeOptions);
 
     if (existingHashes[dbRecord.rowHash]) {
       skippedCount++;
@@ -370,13 +488,13 @@ function appendRecordsToDb_(records, options) {
     }
 
     existingHashes[dbRecord.rowHash] = true;
-    rowsToAppend.push(dbRecordToRow_(dbRecord));
+    rowsToAppend.push(dbRecordToRowByHeaders_(dbRecord, transactionHeaders));
     insertedCount++;
   });
 
   if (rowsToAppend.length > 0) {
     txSheet
-      .getRange(txSheet.getLastRow() + 1, 1, rowsToAppend.length, DB_HEADERS.length)
+      .getRange(txSheet.getLastRow() + 1, 1, rowsToAppend.length, transactionHeaders.length)
       .setValues(rowsToAppend);
   }
 
@@ -409,8 +527,9 @@ function appendRecordsToDb_(records, options) {
   };
 }
 
-function getExistingRowHashSet_(sheet) {
-  const hashCol = DB_HEADERS.indexOf('rowHash') + 1;
+function getExistingRowHashSet_(sheet, headers) {
+  const activeHeaders = headers || DB_HEADERS;
+  const hashCol = activeHeaders.indexOf('rowHash') + 1;
   const lastRow = sheet.getLastRow();
   const result = {};
 
@@ -439,10 +558,12 @@ function appendImportLog_(dbSs, log) {
 }
 
 function readDbRecords_(targetDbKey) {
-  const dbSs = getOrCreateDbSpreadsheet_(targetDbKey);
-  const txSheet = getOrCreateDbSheet_(dbSs, DB_CONFIG.SHEET_TRANSACTIONS, DB_HEADERS);
+  const target = resolveDbTarget_(targetDbKey);
+  const transactionHeaders = getTransactionHeadersForTargetKey_(target.key);
+  const dbSs = getOrCreateDbSpreadsheet_(target.key);
+  const txSheet = getOrCreateDbSheet_(dbSs, DB_CONFIG.SHEET_TRANSACTIONS, transactionHeaders);
 
-  assertDbSheetCompatible_(txSheet, DB_HEADERS);
+  assertDbSheetCompatible_(txSheet, transactionHeaders);
 
   const lastRow = txSheet.getLastRow();
 
@@ -450,12 +571,12 @@ function readDbRecords_(targetDbKey) {
     return [];
   }
 
-  const values = txSheet.getRange(2, 1, lastRow - 1, DB_HEADERS.length).getValues();
+  const values = txSheet.getRange(2, 1, lastRow - 1, transactionHeaders.length).getValues();
 
   return values
     .map(function(row) {
       const obj = {};
-      DB_HEADERS.forEach(function(header, i) {
+      transactionHeaders.forEach(function(header, i) {
         obj[header] = row[i];
       });
       return obj;
@@ -464,6 +585,9 @@ function readDbRecords_(targetDbKey) {
       return obj.isActive !== false && String(obj.isActive).toUpperCase() !== 'FALSE';
     })
     .map(function(obj) {
+      if (isRakutenDbTargetKey_(target.key)) {
+        return rakutenDbRecordToBaseRecord_(obj);
+      }
       return {
         約定日: parseDate_(obj['約定日']),
         受渡日: parseDate_(obj['受渡日']),
@@ -658,6 +782,7 @@ function rollbackImport_(targetDbKey, importId) {
 
 function rollbackImportInSpreadsheet_(dbSs, target, importId) {
   const rollbackImportId = text_(importId);
+  const transactionHeaders = getTransactionHeadersForTargetKey_(target && target.key);
 
   if (!rollbackImportId) {
     throw new Error('ロールバック対象の取込IDを選択してください。');
@@ -674,7 +799,7 @@ function rollbackImportInSpreadsheet_(dbSs, target, importId) {
     );
   }
 
-  assertDbSheetCompatible_(txSheet, DB_HEADERS);
+  assertDbSheetCompatible_(txSheet, transactionHeaders);
 
   const logs = readImportLogsFromSpreadsheet_(dbSs, false);
   const targetLog = logs.find(function(log) {
@@ -697,12 +822,12 @@ function rollbackImportInSpreadsheet_(dbSs, target, importId) {
   let rolledBackCount = 0;
 
   if (txLastRow > 1) {
-    const range = txSheet.getRange(2, 1, txLastRow - 1, DB_HEADERS.length);
+    const range = txSheet.getRange(2, 1, txLastRow - 1, transactionHeaders.length);
     const values = range.getValues();
-    const importIdCol = DB_HEADERS.indexOf('importId');
-    const isActiveCol = DB_HEADERS.indexOf('isActive');
-    const updatedAtCol = DB_HEADERS.indexOf('updatedAt');
-    const rolledBackAtCol = DB_HEADERS.indexOf('rolledBackAt');
+    const importIdCol = transactionHeaders.indexOf('importId');
+    const isActiveCol = transactionHeaders.indexOf('isActive');
+    const updatedAtCol = transactionHeaders.indexOf('updatedAt');
+    const rolledBackAtCol = transactionHeaders.indexOf('rolledBackAt');
     const now = new Date();
 
     values.forEach(function(row) {
@@ -758,9 +883,12 @@ function rollbackImportInSpreadsheet_(dbSs, target, importId) {
 
 function resetDbData_(targetDbKey) {
   const target = resolveDbTarget_(targetDbKey);
-  const dbSs = getOrCreateDbSpreadsheet_(target.key);
+  const dbSs = getOrCreateDbSpreadsheet_(target.key, {
+    allowHeaderMismatchForReset: true,
+  });
+  const transactionHeaders = getTransactionHeadersForTargetKey_(target.key);
 
-  const txDeletedCount = recreateSheetWithHeaders_(dbSs, DB_CONFIG.SHEET_TRANSACTIONS, DB_HEADERS);
+  const txDeletedCount = recreateSheetWithHeaders_(dbSs, DB_CONFIG.SHEET_TRANSACTIONS, transactionHeaders);
   const logDeletedCount = recreateSheetWithHeaders_(dbSs, DB_CONFIG.SHEET_IMPORT_LOGS, IMPORT_LOG_HEADERS);
 
   return {
