@@ -583,6 +583,129 @@ function test_rakutenDb_usesRakutenHeadersAndReadsAsBaseRecord_20260617_() {
   }
 }
 
+function test_rakutenDb_readBack_usesOptionalNumberHelper_20260617_() {
+  const temp = createTempDbTargets_(['rakuten_corp_a']);
+  try {
+    withTempDbTargets_(temp.targets, 'rakuten_corp_a', function() {
+      const ss = getOrCreateDbSpreadsheet_('rakuten_corp_a');
+      const txSheet = getOrCreateDbSheet_(ss, DB_CONFIG.SHEET_TRANSACTIONS, RAKUTEN_DB_HEADERS);
+      const now = new Date();
+      const row = {};
+
+      RAKUTEN_DB_HEADERS.forEach(function(header) {
+        row[header] = '';
+      });
+      row.recordId = 'rakuten_optional_number';
+      row.importId = 'import_optional_number';
+      row.sourceName = 'rakuten_optional_number.csv';
+      row.sourceRowNo = 1;
+      row.rowHash = 'hash_optional_number';
+      row.sourceType = 'rakuten_dividend';
+      row.broker = '楽天';
+      row.paymentDate = '2026/06/01';
+      row.product = '外株';
+      row.symbolCode = 'TEST';
+      row.symbolName = 'OPTIONAL_NUMBER_TEST';
+      row.rawTradeType = '入金（配当金）';
+      row.normalizedTradeType = '入金（配当金）';
+      row.currency = 'USD';
+      row.settlementCurrency = 'USD';
+      row.quantity = 1;
+      row.unitPrice = 2;
+      row.netAmount = 2;
+      row.settlementAmount = 2;
+      row.manualRate = 150;
+      row.manualForeignWithholdingTaxJpy = '12';
+      row.manualDomesticWithholdingTaxJpy = '';
+      row.miscFee = '';
+      row.createdAt = now;
+      row.updatedAt = now;
+      row.isActive = true;
+
+      txSheet
+        .getRange(2, 1, 1, RAKUTEN_DB_HEADERS.length)
+        .setValues([dbRecordToRowByHeaders_(row, RAKUTEN_DB_HEADERS)]);
+
+      const records = readDbRecords_('rakuten_corp_a');
+      assertEquals_(1, records.length, '楽天DBを読み戻せる');
+      assertEquals_(12, records[0]['現地源泉税（円）'], '文字列数値を任意数値として復元');
+      assertEquals_('', records[0]['国内源泉所得税（円）'], '空欄の任意数値を空欄として復元');
+      assertEquals_(150, records[0]['レート'], 'manualRateをレートとして復元');
+    });
+  } finally {
+    temp.cleanup();
+  }
+}
+
+function test_rakutenDb_existingOldHeaderWithData_throwsBeforeHeaderRewrite_20260617_() {
+  const temp = createTempDbTargets_(['rakuten_corp_a']);
+  try {
+    withTempDbTargets_(temp.targets, 'rakuten_corp_a', function() {
+      const ss = getSuiteTempDbSpreadsheetByKey_('rakuten_corp_a');
+      resetTempDbSpreadsheet_(ss);
+      const txSheet = ss.getSheets()[0];
+      txSheet.setName(DB_CONFIG.SHEET_TRANSACTIONS);
+      txSheet.getRange(1, 1, 1, DB_HEADERS.length).setValues([DB_HEADERS]);
+      txSheet.getRange(2, 1, 1, DB_HEADERS.length).setValues([
+        DB_HEADERS.map(function(header) {
+          if (header === 'recordId') return 'old_rakuten_record';
+          if (header === 'importId') return 'old_import';
+          if (header === 'rowHash') return 'old_hash';
+          if (header === '銘柄名') return 'OLD_RAKUTEN';
+          if (header === 'isActive') return true;
+          return '';
+        })
+      ]);
+      const logSheet = ss.insertSheet(DB_CONFIG.SHEET_IMPORT_LOGS);
+      logSheet.getRange(1, 1, 1, IMPORT_LOG_HEADERS.length).setValues([IMPORT_LOG_HEADERS]);
+
+      assertThrowsContains_(function() {
+        getOrCreateDbSpreadsheet_('rakuten_corp_a');
+      }, '楽天DBをリセットしてから再取込してください', '旧ヘッダーの楽天DBは明示エラー');
+
+      const headersAfter = txSheet.getRange(1, 1, 1, DB_HEADERS.length).getValues()[0];
+      assertArrayEquals_(DB_HEADERS, headersAfter, 'エラー時に旧ヘッダーを上書きしない');
+    });
+  } finally {
+    temp.cleanup();
+  }
+}
+
+function test_rakutenDb_reset_allowsExistingOldHeaderWithData_20260617_() {
+  const temp = createTempDbTargets_(['rakuten_corp_a']);
+  try {
+    withTempDbTargets_(temp.targets, 'rakuten_corp_a', function() {
+      const ss = getSuiteTempDbSpreadsheetByKey_('rakuten_corp_a');
+      resetTempDbSpreadsheet_(ss);
+      const txSheet = ss.getSheets()[0];
+      txSheet.setName(DB_CONFIG.SHEET_TRANSACTIONS);
+      txSheet.getRange(1, 1, 1, DB_HEADERS.length).setValues([DB_HEADERS]);
+      txSheet.getRange(2, 1, 1, DB_HEADERS.length).setValues([
+        DB_HEADERS.map(function(header) {
+          if (header === 'recordId') return 'old_rakuten_record';
+          if (header === 'importId') return 'old_import';
+          if (header === 'rowHash') return 'old_hash';
+          if (header === '銘柄名') return 'OLD_RAKUTEN';
+          if (header === 'isActive') return true;
+          return '';
+        })
+      ]);
+      const logSheet = ss.insertSheet(DB_CONFIG.SHEET_IMPORT_LOGS);
+      logSheet.getRange(1, 1, 1, IMPORT_LOG_HEADERS.length).setValues([IMPORT_LOG_HEADERS]);
+
+      const reset = resetDbData_('rakuten_corp_a');
+      assertEquals_(1, reset.deletedTransactionCount, '旧楽天DBデータをリセットできる');
+
+      const afterTx = ss.getSheetByName(DB_CONFIG.SHEET_TRANSACTIONS);
+      const headersAfter = afterTx.getRange(1, 1, 1, RAKUTEN_DB_HEADERS.length).getValues()[0];
+      assertArrayEquals_(RAKUTEN_DB_HEADERS, headersAfter, 'リセット後はRAKUTEN_DB_HEADERS');
+      assertEquals_(1, afterTx.getLastRow(), 'リセット後はヘッダーのみ');
+    });
+  } finally {
+    temp.cleanup();
+  }
+}
+
 function test_rakutenDb_reset_recreatesRakutenHeaders_20260617_() {
   const temp = createTempDbTargets_(['rakuten_corp_a']);
   try {

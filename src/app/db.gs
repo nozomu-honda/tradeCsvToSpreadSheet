@@ -82,20 +82,27 @@ function getTransactionHeadersForTargetKey_(targetDbKey) {
   return isRakutenDbTargetKey_(targetDbKey) ? RAKUTEN_DB_HEADERS : DB_HEADERS;
 }
 
-function getOrCreateDbSpreadsheet_(targetDbKey) {
+function getOrCreateDbSpreadsheet_(targetDbKey, options) {
   const target = resolveDbTarget_(targetDbKey);
   const transactionHeaders = getTransactionHeadersForTargetKey_(target.key);
+  const shouldRejectExistingDataHeaderMismatch =
+    isRakutenDbTargetKey_(target.key) &&
+    !(options && options.allowHeaderMismatchForReset);
 
   if (target.spreadsheetId) {
     const fixed = SpreadsheetApp.openById(target.spreadsheetId);
-    getOrCreateDbSheet_(fixed, DB_CONFIG.SHEET_TRANSACTIONS, transactionHeaders);
+    getOrCreateDbSheet_(fixed, DB_CONFIG.SHEET_TRANSACTIONS, transactionHeaders, {
+      rejectExistingDataHeaderMismatch: shouldRejectExistingDataHeaderMismatch,
+    });
     getOrCreateDbSheet_(fixed, DB_CONFIG.SHEET_IMPORT_LOGS, IMPORT_LOG_HEADERS);
     return fixed;
   }
 
   const existing = findDbSpreadsheet_(target);
   if (existing) {
-    getOrCreateDbSheet_(existing, DB_CONFIG.SHEET_TRANSACTIONS, transactionHeaders);
+    getOrCreateDbSheet_(existing, DB_CONFIG.SHEET_TRANSACTIONS, transactionHeaders, {
+      rejectExistingDataHeaderMismatch: shouldRejectExistingDataHeaderMismatch,
+    });
     getOrCreateDbSheet_(existing, DB_CONFIG.SHEET_IMPORT_LOGS, IMPORT_LOG_HEADERS);
     return existing;
   }
@@ -156,22 +163,30 @@ function createDbSpreadsheet_(target) {
   return ss;
 }
 
-function getOrCreateDbSheet_(ss, sheetName, headers) {
+function getOrCreateDbSheet_(ss, sheetName, headers, options) {
   let sheet = ss.getSheetByName(sheetName);
   if (!sheet) {
     sheet = ss.insertSheet(sheetName);
   }
-  ensureHeaderRow_(sheet, headers);
+  ensureHeaderRow_(sheet, headers, options);
   return sheet;
 }
 
-function ensureHeaderRow_(sheet, headers) {
+function ensureHeaderRow_(sheet, headers, options) {
   const current = sheet.getRange(1, 1, 1, headers.length).getValues()[0];
   const same =
     current.length >= headers.length &&
     headers.every(function(h, i) { return String(current[i] || '') === h; });
 
   if (!same) {
+    if (options && options.rejectExistingDataHeaderMismatch && sheet.getLastRow() > 1) {
+      throw new Error(
+        '楽天DBのヘッダーが現行仕様と一致しません。' +
+        ' 既存データを保持したままヘッダーだけを上書きすると列ずれが発生するため、処理を停止しました。' +
+        ' 対象シート: ' + sheet.getName() +
+        '。楽天DBをリセットしてから再取込してください。'
+      );
+    }
     sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
   }
 }
@@ -868,7 +883,9 @@ function rollbackImportInSpreadsheet_(dbSs, target, importId) {
 
 function resetDbData_(targetDbKey) {
   const target = resolveDbTarget_(targetDbKey);
-  const dbSs = getOrCreateDbSpreadsheet_(target.key);
+  const dbSs = getOrCreateDbSpreadsheet_(target.key, {
+    allowHeaderMismatchForReset: true,
+  });
   const transactionHeaders = getTransactionHeadersForTargetKey_(target.key);
 
   const txDeletedCount = recreateSheetWithHeaders_(dbSs, DB_CONFIG.SHEET_TRANSACTIONS, transactionHeaders);
