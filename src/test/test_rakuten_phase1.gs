@@ -66,3 +66,86 @@ function test_routeTargetDbKeyBySource_rakuten_20260615_() {
   assertEquals_('rakuten_test', routeTargetDbKeyBySource_('nomura_test', 'rakuten_us_stock'), 'nomura_test');
   assertEquals_('nomura_corp_a', routeTargetDbKeyBySource_('nomura_corp_a', 'nomura_common'), '野村はそのまま');
 }
+
+function test_detectInputSourceTypeFromRows_rakutenFund_20260616_() {
+  const rows = [
+    ['約定日', '受渡日', 'ファンド名', '分配金', '口座', '取引', '買付方法', '数量［口］', '単価', '経費', '為替レート', '受付金額[現地通貨]', '受渡金額/(ポイント利用)[円]', '決済通貨']
+  ];
+
+  const detected = detectInputSourceTypeFromRows_(rows);
+  assertEquals_('rakuten_fund', detected.sourceType, '楽天投資信託を判定できる');
+  assertEquals_(0, detected.headerRowIndex, 'ヘッダー行index');
+}
+
+function test_normalizeRakutenFundRowsToRecords_buyAndSell_20260616_() {
+  const rows = [
+    ['約定日', '受渡日', 'ファンド名', '分配金', '口座', '取引', '買付方法', '数量［口］', '単価', '経費', '為替レート', '受付金額[現地通貨]', '受渡金額/(ポイント利用)[円]', '決済通貨'],
+    ['2025/03/14', '2025/03/19', 'eMAXIS Slim 米国株式(S&P500)', '再投資型', '一般', '買付', '通常', 841440, 29711, 0, '-', '-', 2500000, '円'],
+    ['2024/11/26', '2024/12/03', 'イーストスプリング', '再投資型', '一般', '解約', '', 1454122, 20631, 0, '-', '-', 3000000, '円']
+  ];
+
+  const records = normalizeRakutenFundRowsToRecords_(rows, 0);
+
+  assertEquals_('投信', records[0]['商品'], '買付の商品');
+  assertEquals_('現物買付', records[0]['取引区分'], '買付の取引区分');
+  assertEquals_(2500000, records[0]['受渡金額/決済損益'], '買付の受渡金額');
+  assertEquals_('JPY', normalizeCurrency_(records[0]['決済通貨']), '買付の決済通貨');
+
+  assertEquals_('投信', records[1]['商品'], '解約の商品');
+  assertEquals_('現物買取', records[1]['取引区分'], '解約の取引区分');
+  assertEquals_(3000000, records[1]['受渡金額/決済損益'], '解約の受渡金額');
+}
+
+function test_detectInputSourceTypeFromRows_rakutenDividend_20260616_() {
+  const rows = [
+    ['入金日', '商品', '口座', '銘柄コード', '銘柄', '受取通貨', '単価[円/現地通貨]', '数量[株/口]', '配当・分配金合計（税引前）[円/現地通貨]', '税額合計[円/現地通貨]', '受取金額[円/現地通貨]']
+  ];
+
+  const detected = detectInputSourceTypeFromRows_(rows);
+  assertEquals_('rakuten_dividend', detected.sourceType, '楽天配当金・分配金を判定できる');
+}
+
+function test_normalizeRakutenDividendRowsToRecords_usStockDividend_20260616_() {
+  const rows = [
+    ['入金日', '商品', '口座', '銘柄コード', '銘柄', '受取通貨', '単価[円/現地通貨]', '数量[株/口]', '配当・分配金合計（税引前）[円/現地通貨]', '税額合計[円/現地通貨]', '受取金額[円/現地通貨]'],
+    ['2026/04/03', '米国株式', '特定・一般', 'AVGO', 'BROADCOM INC', 'USドル', 0.65, 18, 11.7, '-', 8.92]
+  ];
+
+  const records = normalizeRakutenDividendRowsToRecords_(rows, 0);
+  const record = records[0];
+
+  assertEquals_('外株', record['商品'], '商品');
+  assertEquals_('入金（配当金）', record['取引区分'], '取引区分');
+  assertEquals_('AVGO', record['銘柄コード'], '銘柄コード');
+  assertEquals_('USD', normalizeCurrency_(record['決済通貨']), '決済通貨');
+  assertEquals_(8.92, record['受渡金額/決済損益'], '受取金額を使う');
+}
+
+function test_detectInputSourceTypeFromRows_rakutenCash_20260616_() {
+  const rows = [
+    ['口座開設以来の入出金合計額'],
+    ['入出金日', '入金額［円］', '出金額［円］', '内容', '出金先']
+  ];
+
+  const detected = detectInputSourceTypeFromRows_(rows);
+  assertEquals_('rakuten_cash', detected.sourceType, '楽天入出金履歴を判定できる');
+  assertEquals_(1, detected.headerRowIndex, 'ヘッダー行index');
+}
+
+function test_normalizeRakutenCashRowsToRecords_depositAndWithdrawal_20260616_() {
+  const rows = [
+    ['入出金日', '入金額［円］', '出金額［円］', '内容', '出金先'],
+    ['2024/07/23', 20000000, '', '通常振込入金', ''],
+    ['2025/11/05', '', 6001186, '通常出金', '七十七銀行 六丁目支店']
+  ];
+
+  const records = normalizeRakutenCashRowsToRecords_(rows, 0);
+
+  assertEquals_('現金', records[0]['商品'], '入金の商品');
+  assertEquals_('入金（振込）', records[0]['取引区分'], '入金の取引区分');
+  assertEquals_(20000000, records[0]['受渡金額/決済損益'], '入金額');
+
+  assertEquals_('現金', records[1]['商品'], '出金の商品');
+  assertEquals_('出金（振込）', records[1]['取引区分'], '出金の取引区分');
+  assertEquals_(6001186, records[1]['受渡金額/決済損益'], '出金額');
+}
