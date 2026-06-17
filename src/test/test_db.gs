@@ -696,7 +696,8 @@ function test_rakutenDb_reset_allowsExistingOldHeaderWithData_20260617_() {
       const reset = resetDbData_('rakuten_corp_a');
       assertEquals_(1, reset.deletedTransactionCount, '旧楽天DBデータをリセットできる');
 
-      const afterTx = ss.getSheetByName(DB_CONFIG.SHEET_TRANSACTIONS);
+      const afterSs = SpreadsheetApp.openById(reset.dbSpreadsheetId);
+      const afterTx = afterSs.getSheetByName(DB_CONFIG.SHEET_TRANSACTIONS);
       const headersAfter = afterTx.getRange(1, 1, 1, RAKUTEN_DB_HEADERS.length).getValues()[0];
       assertArrayEquals_(RAKUTEN_DB_HEADERS, headersAfter, 'リセット後はRAKUTEN_DB_HEADERS');
       assertEquals_(1, afterTx.getLastRow(), 'リセット後はヘッダーのみ');
