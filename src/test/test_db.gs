@@ -536,6 +536,53 @@ function test_resetDbData_resetsOnlySelectedDb_() {
   }
 }
 
+function test_rakutenDb_usesRakutenHeadersAndReadsAsBaseRecord_20260617_() {
+  const temp = createTempDbTargets_(['rakuten_corp_a']);
+  try {
+    withTempDbTargets_(temp.targets, 'rakuten_corp_a', function() {
+      const result = appendRecordsToDb_([
+        makeTradeRecord_({
+          銘柄名: '楽天TEST',
+          商品: '外株',
+          取引区分: '現物買付',
+          数量: 2,
+          単価: 100,
+          受渡金額_決済損益: 200,
+          レート: 150,
+          決済通貨: 'USD'
+        })
+      ], {
+        targetDbKey: 'rakuten_corp_a',
+        sourceName: 'rakuten.csv',
+        inputType: 'upload',
+        sourceType: 'rakuten_us_stock'
+      });
+
+      assertEquals_('rakuten_corp_a', result.dbTargetKey, '楽天DBキー');
+
+      const ss = getOrCreateDbSpreadsheet_('rakuten_corp_a');
+      const txSheet = ss.getSheetByName(DB_CONFIG.SHEET_TRANSACTIONS);
+      const headers = txSheet.getRange(1, 1, 1, RAKUTEN_DB_HEADERS.length).getValues()[0];
+      assertArrayEquals_(RAKUTEN_DB_HEADERS, headers, '楽天DBはRAKUTEN_DB_HEADERSを使う');
+
+      const row = txSheet.getRange(2, 1, 1, RAKUTEN_DB_HEADERS.length).getValues()[0];
+      assertEquals_('rakuten_us_stock', row[RAKUTEN_DB_HEADERS.indexOf('sourceType')], 'sourceTypeを保存');
+      assertEquals_('楽天', row[RAKUTEN_DB_HEADERS.indexOf('broker')], 'brokerを保存');
+      assertEquals_('外株', row[RAKUTEN_DB_HEADERS.indexOf('product')], 'productを保存');
+      assertEquals_('現物買付', row[RAKUTEN_DB_HEADERS.indexOf('normalizedTradeType')], 'normalizedTradeTypeを保存');
+
+      const records = readDbRecords_('rakuten_corp_a');
+      assertEquals_(1, records.length, '楽天DBから共通計算用レコードとして読める');
+      assertEquals_('楽天TEST', records[0]['銘柄名'], '銘柄名を復元');
+      assertEquals_('外株', records[0]['商品'], '商品を復元');
+      assertEquals_('現物買付', records[0]['取引区分'], '取引区分を復元');
+      assertEquals_(200, records[0]['受渡金額/決済損益'], '金額を復元');
+    });
+  } finally {
+    temp.cleanup();
+  }
+}
+
 function test_buildRowHash_changesWhenManualColumnsChange_20260511_() {
   const a = makeTradeRecord_({
     銘柄名: 'HASH_TEST',

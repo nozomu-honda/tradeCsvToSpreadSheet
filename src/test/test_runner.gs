@@ -39,6 +39,7 @@ const CORE_TESTS_ = [
   test_rollbackImport_twice_throws_,
   test_resetDbData_resetsOnlySelectedDb_,
   test_resetDbData_recreatesSheetsAndClearsFormats_,
+  test_rakutenDb_usesRakutenHeadersAndReadsAsBaseRecord_20260617_,
   test_readInputRecords_manualColumns_20260511_,
   test_readInputRecords_manualColumnHeaderMismatch_20260511_,
   test_buildTradeRows_foreignStockSellNet_usesRate_20260511_,
