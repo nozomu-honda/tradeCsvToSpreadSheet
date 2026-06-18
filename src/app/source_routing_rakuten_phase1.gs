@@ -45,7 +45,8 @@ function normalizeRowsForImport_(rows) {
       sourceType: detected.sourceType,
       headerRowIndex: detected.headerRowIndex,
       normalizedRows: paddedRows,
-      hasManualColumns: hasAllAdditionalManualHeadersInHeader_(paddedRows[detected.headerRowIndex] || [])
+      hasManualColumns: hasAllAdditionalManualHeadersInHeader_(paddedRows[detected.headerRowIndex] || []),
+      alerts: []
     };
   }
 
@@ -68,7 +69,10 @@ function normalizeRowsForImport_(rows) {
     sourceType: detected.sourceType,
     headerRowIndex: detected.headerRowIndex,
     normalizedRows: buildRowsFromRecords_(records),
-    hasManualColumns: false
+    hasManualColumns: false,
+    alerts: detected.sourceType === 'rakuten_dividend'
+      ? collectRakutenDividendManualInputAlerts_(records)
+      : []
   };
 }
 
@@ -482,6 +486,33 @@ function validateRakutenDividendManualHeaders_(headerIndexMap) {
       '。CSVに「レート」「現地源泉税［円］」「国内源泉税［円］」を追加してください。'
     );
   }
+}
+
+function collectRakutenDividendManualInputAlerts_(records) {
+  const alerts = [];
+
+  records.forEach(function(record) {
+    const symbol = text_(record['銘柄名']);
+    const date = formatDateForAlert_(record['受渡日']);
+
+    if (isBlankCell_(record['現地源泉税（円）'])) {
+      alerts.push(
+        '楽天配当金CSV: 現地源泉税［円］が未入力です' +
+        ' / 銘柄名: ' + (symbol || '(空欄)') +
+        ' / 入金日: ' + date
+      );
+    }
+
+    if (isBlankCell_(record['国内源泉所得税（円）'])) {
+      alerts.push(
+        '楽天配当金CSV: 国内源泉税［円］が未入力です' +
+        ' / 銘柄名: ' + (symbol || '(空欄)') +
+        ' / 入金日: ' + date
+      );
+    }
+  });
+
+  return alerts;
 }
 
 function mapRakutenDividendProduct_(productRaw) {

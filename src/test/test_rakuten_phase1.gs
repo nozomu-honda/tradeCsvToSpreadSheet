@@ -146,6 +146,30 @@ function test_normalizeRakutenDividendRowsToRecords_requiresRateForForeignCurren
   }, '外貨配当は「レート」を入力してください', '外貨配当はレート必須');
 }
 
+function test_normalizeRowsForImport_rakutenDividend_warnsBlankManualTaxes_20260618_() {
+  const rows = [
+    ['入金日', '商品', '口座', '銘柄コード', '銘柄', '受取通貨', '単価[円/現地通貨]', '数量[株/口]', '配当・分配金合計（税引前）[円/現地通貨]', '税額合計[円/現地通貨]', '受取金額[円/現地通貨]', 'レート', '現地源泉税［円］', '国内源泉税［円］'],
+    ['2026/04/03', '米国株式', '特定・一般', 'AVGO', 'BROADCOM INC', 'USドル', 0.65, 18, 11.7, '-', 8.92, 150, '', '']
+  ];
+
+  const normalized = normalizeRowsForImport_(rows);
+
+  assertEquals_(2, normalized.alerts.length, '税2列の空欄は警告');
+  assertTrue_(normalized.alerts[0].indexOf('現地源泉税［円］が未入力') >= 0, '現地源泉税の警告');
+  assertTrue_(normalized.alerts[1].indexOf('国内源泉税［円］が未入力') >= 0, '国内源泉税の警告');
+}
+
+function test_normalizeRowsForImport_rakutenDividend_allowsZeroManualTaxes_20260618_() {
+  const rows = [
+    ['入金日', '商品', '口座', '銘柄コード', '銘柄', '受取通貨', '単価[円/現地通貨]', '数量[株/口]', '配当・分配金合計（税引前）[円/現地通貨]', '税額合計[円/現地通貨]', '受取金額[円/現地通貨]', 'レート', '現地源泉税［円］', '国内源泉税［円］'],
+    ['2026/04/03', '米国株式', '特定・一般', 'AVGO', 'BROADCOM INC', 'USドル', 0.65, 18, 11.7, '-', 8.92, 150, 0, 0]
+  ];
+
+  const normalized = normalizeRowsForImport_(rows);
+
+  assertEquals_(0, normalized.alerts.length, '0は有効な入力値');
+}
+
 function test_detectInputSourceTypeFromRows_rakutenCash_20260616_() {
   const rows = [
     ['口座開設以来の入出金合計額'],
