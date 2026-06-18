@@ -80,3 +80,44 @@ function test_buildOutputSheetsFromDbRecords_splitsIntoSixSheets_() {
     assertEquals_('FUND_A', fundSheet.getRange(2, getColumnIndexByHeader_(TRADE_HEADERS, '銘柄名')).getValue(), '投信の中身');
   });
 }
+
+function test_buildOutputSheetsFromRecordsForTarget_dispatchesByDbKey_20260618_() {
+  withTempSpreadsheet_(function(ss) {
+    const records = [
+      makeTradeRecord_({
+        商品: '外株',
+        銘柄名: 'RAKUTEN_OUTPUT',
+        取引区分: '現物買付',
+        数量: 1,
+        単価: 10,
+        受渡金額_決済損益: 10,
+        レート: 150,
+        決済通貨: 'USD',
+        約定日: '2026/06/18',
+        受渡日: '2026/06/18'
+      })
+    ];
+
+    const rakutenResult = buildOutputSheetsFromRecordsForTarget_(ss, 'rakuten_corp_a', records);
+    assertEquals_('rakuten', rakutenResult.outputDbKind, '楽天DBは楽天出力入口を使う');
+  });
+
+  withTempSpreadsheet_(function(ss) {
+    const records = [
+      makeTradeRecord_({
+        商品: '株式',
+        銘柄名: 'NOMURA_OUTPUT',
+        取引区分: '現物買付',
+        数量: 1,
+        単価: 100,
+        受渡金額_決済損益: 100,
+        決済通貨: 'JPY',
+        約定日: '2026/06/18',
+        受渡日: '2026/06/18'
+      })
+    ];
+
+    const nomuraResult = buildOutputSheetsFromRecordsForTarget_(ss, 'nomura_corp_a', records);
+    assertEquals_('nomura', nomuraResult.outputDbKind, '野村DBは従来出力入口を使う');
+  });
+}

@@ -674,6 +674,27 @@ function readDbRecords_(targetDbKey) {
     });
 }
 
+function buildOutputSheetsFromDb_(ss, targetDbKey) {
+  const records = readDbRecords_(targetDbKey);
+  return buildOutputSheetsFromRecordsForTarget_(ss, targetDbKey, records);
+}
+
+function buildOutputSheetsFromRecordsForTarget_(ss, targetDbKey, records) {
+  if (isRakutenDbTargetKey_(targetDbKey)) {
+    return buildRakutenOutputSheetsFromDbRecords_(ss, records);
+  }
+
+  const result = buildOutputSheetsFromDbRecords_(ss, records);
+  result.outputDbKind = 'nomura';
+  return result;
+}
+
+function buildRakutenOutputSheetsFromDbRecords_(ss, records) {
+  const result = buildOutputSheetsFromDbRecords_(ss, records);
+  result.outputDbKind = 'rakuten';
+  return result;
+}
+
 function buildOutputSheetsFromDbRecords_(ss, records) {
   const alerts = [];
 

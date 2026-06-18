@@ -477,8 +477,7 @@ function createSpreadsheetFromCsvTextUsingDb_(csvText, sourceName, normalizedUrl
     sourceType: normalizedInput.sourceType,
   });
 
-  const dbRecords = readDbRecords_(targetDbKey);
-  const result = buildOutputSheetsFromDbRecords_(ss, dbRecords);
+  const result = buildOutputSheetsFromDb_(ss, targetDbKey);
   result.alerts = inputAlerts.concat(result.alerts || []);
 
   result.inputType = normalizedUrl ? 'url' : 'upload';
@@ -554,8 +553,7 @@ function createSpreadsheetFromSourceSpreadsheetUsingDb_(spreadsheetUrlOrId, opti
     sourceType: normalizedInput.sourceType,
   });
 
-  const dbRecords = readDbRecords_(targetDbKey);
-  const result = buildOutputSheetsFromDbRecords_(ss, dbRecords);
+  const result = buildOutputSheetsFromDb_(ss, targetDbKey);
   result.alerts = inputAlerts.concat(result.alerts || []);
 
   result.inputType = 'spreadsheet';
