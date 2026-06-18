@@ -83,8 +83,9 @@ function test_buildOutputSheetsFromDbRecords_splitsIntoSixSheets_() {
 
 function test_buildOutputSheetsFromRecordsForTarget_dispatchesByDbKey_20260618_() {
   withTempSpreadsheet_(function(ss) {
+    const now = new Date('2026-06-18T00:00:00Z');
     const records = [
-      makeTradeRecord_({
+      normalizeRakutenRecordForDb_(makeTradeRecord_({
         商品: '外株',
         銘柄名: 'RAKUTEN_OUTPUT',
         取引区分: '現物買付',
@@ -95,6 +96,12 @@ function test_buildOutputSheetsFromRecordsForTarget_dispatchesByDbKey_20260618_(
         決済通貨: 'USD',
         約定日: '2026/06/18',
         受渡日: '2026/06/18'
+      }), {
+        importId: 'import_rakuten_output',
+        sourceName: 'rakuten.csv',
+        sourceRowNo: 1,
+        sourceType: 'rakuten_us_stock',
+        now: now
       })
     ];
 
@@ -103,8 +110,9 @@ function test_buildOutputSheetsFromRecordsForTarget_dispatchesByDbKey_20260618_(
   });
 
   withTempSpreadsheet_(function(ss) {
+    const now = new Date('2026-06-18T00:00:00Z');
     const records = [
-      makeTradeRecord_({
+      normalizeRecordForDb_(makeTradeRecord_({
         商品: '株式',
         銘柄名: 'NOMURA_OUTPUT',
         取引区分: '現物買付',
@@ -114,6 +122,11 @@ function test_buildOutputSheetsFromRecordsForTarget_dispatchesByDbKey_20260618_(
         決済通貨: 'JPY',
         約定日: '2026/06/18',
         受渡日: '2026/06/18'
+      }), {
+        importId: 'import_nomura_output',
+        sourceName: 'nomura.csv',
+        sourceRowNo: 1,
+        now: now
       })
     ];
 

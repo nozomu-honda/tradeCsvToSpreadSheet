@@ -617,6 +617,13 @@ function appendImportLog_(dbSs, log) {
 
 function readDbRecords_(targetDbKey) {
   const target = resolveDbTarget_(targetDbKey);
+  return readDbRecordObjects_(target.key).map(function(obj) {
+    return dbRecordObjectToBaseRecord_(target.key, obj);
+  });
+}
+
+function readDbRecordObjects_(targetDbKey) {
+  const target = resolveDbTarget_(targetDbKey);
   const transactionHeaders = getTransactionHeadersForTargetKey_(target.key);
   const dbSs = getOrCreateDbSpreadsheet_(target.key);
   const txSheet = getOrCreateDbSheet_(dbSs, DB_CONFIG.SHEET_TRANSACTIONS, transactionHeaders);
@@ -641,41 +648,47 @@ function readDbRecords_(targetDbKey) {
     })
     .filter(function(obj) {
       return obj.isActive !== false && String(obj.isActive).toUpperCase() !== 'FALSE';
-    })
-    .map(function(obj) {
-      if (isRakutenDbTargetKey_(target.key)) {
-        return rakutenDbRecordToBaseRecord_(obj);
-      }
-      return {
-        約定日: parseDate_(obj['約定日']),
-        受渡日: parseDate_(obj['受渡日']),
-        商品: text_(obj['商品']),
-        銘柄コード: text_(obj['銘柄コード']),
-        銘柄名: text_(obj['銘柄名']),
-        摘要: text_(obj['摘要']),
-        取引区分: text_(obj['取引区分']),
-        預り区分: text_(obj['預り区分']),
-        発行通貨: normalizeCurrency_(obj['発行通貨']),
-        数量: toNumber_(obj['数量']),
-        単価: toNumber_(obj['単価']),
-        '受渡金額/決済損益': toNumber_(obj['受渡金額/決済損益']),
-        '手数料（税込）': toNumber_(obj['手数料（税込）']),
-        レート: toNumber_(obj['レート']),
-        決済通貨: normalizeCurrency_(obj['決済通貨']),
-        '売買損益（円）': toNumber_(obj['売買損益（円）']),
-        '国内消費税等（円）': toOptionalNumber_(obj['国内消費税等（円）']),
-        '現地源泉税（円）': toOptionalNumber_(obj['現地源泉税（円）']),
-        '国内源泉所得税（円）': toOptionalNumber_(obj['国内源泉所得税（円）']),
-        '国内源泉地方税（円）': toOptionalNumber_(obj['国内源泉地方税（円）']),
-        '元本払戻金': toNullableBooleanFlag_(obj['元本払戻金'], '元本払戻金'),
-        '国内手数料（円）': toOptionalNumber_(obj['国内手数料（円）']),
-        '現地手数料（円）': toOptionalNumber_(obj['現地手数料（円）']),
-      };
     });
 }
 
+function dbRecordObjectToBaseRecord_(targetDbKey, obj) {
+  if (isRakutenDbTargetKey_(targetDbKey)) {
+    return rakutenDbRecordToBaseRecord_(obj);
+  }
+
+  return nomuraDbRecordToBaseRecord_(obj);
+}
+
+function nomuraDbRecordToBaseRecord_(obj) {
+  return {
+    約定日: parseDate_(obj['約定日']),
+    受渡日: parseDate_(obj['受渡日']),
+    商品: text_(obj['商品']),
+    銘柄コード: text_(obj['銘柄コード']),
+    銘柄名: text_(obj['銘柄名']),
+    摘要: text_(obj['摘要']),
+    取引区分: text_(obj['取引区分']),
+    預り区分: text_(obj['預り区分']),
+    発行通貨: normalizeCurrency_(obj['発行通貨']),
+    数量: toNumber_(obj['数量']),
+    単価: toNumber_(obj['単価']),
+    '受渡金額/決済損益': toNumber_(obj['受渡金額/決済損益']),
+    '手数料（税込）': toNumber_(obj['手数料（税込）']),
+    レート: toNumber_(obj['レート']),
+    決済通貨: normalizeCurrency_(obj['決済通貨']),
+    '売買損益（円）': toNumber_(obj['売買損益（円）']),
+    '国内消費税等（円）': toOptionalNumber_(obj['国内消費税等（円）']),
+    '現地源泉税（円）': toOptionalNumber_(obj['現地源泉税（円）']),
+    '国内源泉所得税（円）': toOptionalNumber_(obj['国内源泉所得税（円）']),
+    '国内源泉地方税（円）': toOptionalNumber_(obj['国内源泉地方税（円）']),
+    '元本払戻金': toNullableBooleanFlag_(obj['元本払戻金'], '元本払戻金'),
+    '国内手数料（円）': toOptionalNumber_(obj['国内手数料（円）']),
+    '現地手数料（円）': toOptionalNumber_(obj['現地手数料（円）']),
+  };
+}
+
 function buildOutputSheetsFromDb_(ss, targetDbKey) {
-  const records = readDbRecords_(targetDbKey);
+  const records = readDbRecordObjects_(targetDbKey);
   return buildOutputSheetsFromRecordsForTarget_(ss, targetDbKey, records);
 }
 
@@ -684,13 +697,15 @@ function buildOutputSheetsFromRecordsForTarget_(ss, targetDbKey, records) {
     return buildRakutenOutputSheetsFromDbRecords_(ss, records);
   }
 
-  const result = buildOutputSheetsFromDbRecords_(ss, records);
+  const baseRecords = records.map(nomuraDbRecordToBaseRecord_);
+  const result = buildOutputSheetsFromDbRecords_(ss, baseRecords);
   result.outputDbKind = 'nomura';
   return result;
 }
 
 function buildRakutenOutputSheetsFromDbRecords_(ss, records) {
-  const result = buildOutputSheetsFromDbRecords_(ss, records);
+  const baseRecords = records.map(rakutenDbRecordToBaseRecord_);
+  const result = buildOutputSheetsFromDbRecords_(ss, baseRecords);
   result.outputDbKind = 'rakuten';
   return result;
 }
