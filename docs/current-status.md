@@ -54,6 +54,13 @@
   - 楽天DBでは `manualRate` / `manualForeignWithholdingTaxJpy` / `manualDomesticWithholdingTaxJpy` に保存する。
   - 野村CSVおよび楽天配当金以外の楽天CSVには、この3列を要求しない。
   - Apps Script 上での `runSmokeTests` / `runAllTests` と実CSV取込確認は完了扱い。
+- PR #38「Warn for blank Rakuten dividend taxes」は develop にマージ済み。
+  - 楽天配当金CSVの `現地源泉税［円］` / `国内源泉税［円］` が未入力の場合、取り込みは止めずに警告表示する。
+  - 税2列の `0` は有効な入力値として扱い、未入力警告を出さない。
+  - 入力警告をWeb UIの完了メッセージと取込履歴の `alertCount` に反映。
+  - `spreadsheetId` 未設定DBは、見つけた/作成したSpreadsheet IDを Script Properties の `DB_SPREADSHEET_ID_<DB_KEY>` に保存して再利用する。
+  - リセット後の同名楽天DB取り違えによるヘッダー不一致エラーは修正済み。
+  - Apps Script 上での `runSmokeTests` / `runAllTests` と実CSV取込確認は完了扱い。
 
 ## 進行中 / 未マージ
 
@@ -63,16 +70,14 @@
 
 - 別ユーザーでのDrive OAuth承認とWebアプリ実行確認。
 - 楽天米国株の実取込結果の最終確認。
-- 楽天配当金CSVの `現地源泉税［円］` / `国内源泉税［円］` 未入力時の警告表示は未実装。
 - 楽天専用の出力処理・ロールバックUI分離は未実装。
 
 ## 直近の優先順位
 
-1. 楽天配当金CSVの `現地源泉税［円］` / `国内源泉税［円］` 未入力時の警告表示を追加する。
-2. 楽天専用DBからの出力処理を、野村形式前提から段階的に分離する。
-3. 楽天専用ロールバック処理/UI分離を進める。
-4. 別ユーザーのDrive権限問題の結果を確認する。
-5. 楽天米国株の出力確認を完了する。
+1. 楽天専用DBからの出力処理を、野村形式前提から段階的に分離する。
+2. 楽天専用ロールバック処理/UI分離を進める。
+3. 別ユーザーのDrive権限問題の結果を確認する。
+4. 楽天米国株の出力確認を完了する。
 
 ## Codexへの伝え方
 
@@ -91,4 +96,5 @@ AutoHotkeyショートカットの説明は `docs/codex-shortcuts.md` を参照�
 - 実際のフォルダID・スプレッドシートID・WebアプリURLはコミットしない。
 - `appsscript.json` のOAuth scope変更後は、Webアプリの新バージョン再デプロイが必要。
 - Webアプリを「アクセスしているユーザー」として実行する場合、利用者ごとにDrive権限承認とDBフォルダ編集権限が必要。
-- PR #31 / PR #32 / PR #33 / PR #34 / PR #35 / PR #36 / PR #37 は develop にマージ済み。
+- `spreadsheetId` 未設定DBは Script Properties の `DB_SPREADSHEET_ID_<DB_KEY>` に実ファイルIDを保存して再利用する。
+- PR #31 / PR #32 / PR #33 / PR #34 / PR #35 / PR #36 / PR #37 / PR #38 は develop にマージ済み。
