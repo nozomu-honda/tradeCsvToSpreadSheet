@@ -48,6 +48,12 @@
   - 楽天DB追加テストを6本から3本へ削減。
   - 旧ヘッダー拒否テストに、旧ヘッダー楽天DBでもリセット可能でリセット後は `RAKUTEN_DB_HEADERS` になる確認を統合。
   - Apps Script 上での `runSmokeTests` / `runAllTests` は完了扱い。
+- PR #37「Add Rakuten dividend manual columns」は develop にマージ済み。
+  - 楽天配当金CSVに手動追加する `レート` / `現地源泉税［円］` / `国内源泉税［円］` を必須ヘッダーとして扱う。
+  - 外貨配当で `レート` が未入力の場合はエラー。
+  - 楽天DBでは `manualRate` / `manualForeignWithholdingTaxJpy` / `manualDomesticWithholdingTaxJpy` に保存する。
+  - 野村CSVおよび楽天配当金以外の楽天CSVには、この3列を要求しない。
+  - Apps Script 上での `runSmokeTests` / `runAllTests` と実CSV取込確認は完了扱い。
 
 ## 進行中 / 未マージ
 
@@ -57,12 +63,12 @@
 
 - 別ユーザーでのDrive OAuth承認とWebアプリ実行確認。
 - 楽天米国株の実取込結果の最終確認。
-- 楽天配当金CSVの手入力3カラム（`レート` / `現地源泉税［円］` / `国内源泉税［円］`）の検出・バリデーション・DB保存は未実装。
+- 楽天配当金CSVの `現地源泉税［円］` / `国内源泉税［円］` 未入力時の警告表示は未実装。
 - 楽天専用の出力処理・ロールバックUI分離は未実装。
 
 ## 直近の優先順位
 
-1. 楽天配当金CSVの手入力3カラムを、楽天配当金専用の補完情報として検出・バリデーション・保存する。
+1. 楽天配当金CSVの `現地源泉税［円］` / `国内源泉税［円］` 未入力時の警告表示を追加する。
 2. 楽天専用DBからの出力処理を、野村形式前提から段階的に分離する。
 3. 楽天専用ロールバック処理/UI分離を進める。
 4. 別ユーザーのDrive権限問題の結果を確認する。
@@ -85,4 +91,4 @@ AutoHotkeyショートカットの説明は `docs/codex-shortcuts.md` を参照�
 - 実際のフォルダID・スプレッドシートID・WebアプリURLはコミットしない。
 - `appsscript.json` のOAuth scope変更後は、Webアプリの新バージョン再デプロイが必要。
 - Webアプリを「アクセスしているユーザー」として実行する場合、利用者ごとにDrive権限承認とDBフォルダ編集権限が必要。
-- PR #31 / PR #32 / PR #33 / PR #34 / PR #35 / PR #36 は develop にマージ済み。
+- PR #31 / PR #32 / PR #33 / PR #34 / PR #35 / PR #36 / PR #37 は develop にマージ済み。
