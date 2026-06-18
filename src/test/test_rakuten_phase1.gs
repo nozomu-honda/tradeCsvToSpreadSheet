@@ -107,8 +107,8 @@ function test_detectInputSourceTypeFromRows_rakutenDividend_20260616_() {
 
 function test_normalizeRakutenDividendRowsToRecords_usStockDividend_20260616_() {
   const rows = [
-    ['入金日', '商品', '口座', '銘柄コード', '銘柄', '受取通貨', '単価[円/現地通貨]', '数量[株/口]', '配当・分配金合計（税引前）[円/現地通貨]', '税額合計[円/現地通貨]', '受取金額[円/現地通貨]'],
-    ['2026/04/03', '米国株式', '特定・一般', 'AVGO', 'BROADCOM INC', 'USドル', 0.65, 18, 11.7, '-', 8.92]
+    ['入金日', '商品', '口座', '銘柄コード', '銘柄', '受取通貨', '単価[円/現地通貨]', '数量[株/口]', '配当・分配金合計（税引前）[円/現地通貨]', '税額合計[円/現地通貨]', '受取金額[円/現地通貨]', 'レート', '現地源泉税［円］', '国内源泉税［円］'],
+    ['2026/04/03', '米国株式', '特定・一般', 'AVGO', 'BROADCOM INC', 'USドル', 0.65, 18, 11.7, '-', 8.92, 150, 123, 45]
   ];
 
   const records = normalizeRakutenDividendRowsToRecords_(rows, 0);
@@ -119,6 +119,31 @@ function test_normalizeRakutenDividendRowsToRecords_usStockDividend_20260616_() 
   assertEquals_('AVGO', record['銘柄コード'], '銘柄コード');
   assertEquals_('USD', normalizeCurrency_(record['決済通貨']), '決済通貨');
   assertEquals_(8.92, record['受渡金額/決済損益'], '受取金額を使う');
+  assertEquals_(150, record['レート'], '手入力レート');
+  assertEquals_(123, record['現地源泉税（円）'], '手入力現地源泉税');
+  assertEquals_(45, record['国内源泉所得税（円）'], '手入力国内源泉税');
+}
+
+function test_normalizeRakutenDividendRowsToRecords_requiresManualHeaders_20260618_() {
+  const rows = [
+    ['入金日', '商品', '口座', '銘柄コード', '銘柄', '受取通貨', '単価[円/現地通貨]', '数量[株/口]', '配当・分配金合計（税引前）[円/現地通貨]', '税額合計[円/現地通貨]', '受取金額[円/現地通貨]'],
+    ['2026/04/03', '米国株式', '特定・一般', 'AVGO', 'BROADCOM INC', 'USドル', 0.65, 18, 11.7, '-', 8.92]
+  ];
+
+  assertThrowsContains_(function() {
+    normalizeRakutenDividendRowsToRecords_(rows, 0);
+  }, '楽天配当金CSVには手入力列が必要です', '楽天配当金CSVの手入力3列は必須');
+}
+
+function test_normalizeRakutenDividendRowsToRecords_requiresRateForForeignCurrency_20260618_() {
+  const rows = [
+    ['入金日', '商品', '口座', '銘柄コード', '銘柄', '受取通貨', '単価[円/現地通貨]', '数量[株/口]', '配当・分配金合計（税引前）[円/現地通貨]', '税額合計[円/現地通貨]', '受取金額[円/現地通貨]', 'レート', '現地源泉税［円］', '国内源泉税［円］'],
+    ['2026/04/03', '米国株式', '特定・一般', 'AVGO', 'BROADCOM INC', 'USドル', 0.65, 18, 11.7, '-', 8.92, '', 123, 45]
+  ];
+
+  assertThrowsContains_(function() {
+    normalizeRakutenDividendRowsToRecords_(rows, 0);
+  }, '外貨配当は「レート」を入力してください', '外貨配当はレート必須');
 }
 
 function test_detectInputSourceTypeFromRows_rakutenCash_20260616_() {

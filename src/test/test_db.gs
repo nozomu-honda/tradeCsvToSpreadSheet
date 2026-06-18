@@ -100,6 +100,37 @@ function test_normalizeRecordForDb_setsMetadata_() {
   assertEquals_('', dbRecord.rolledBackAt, 'rolledBackAt は初期値空欄');
 }
 
+function test_normalizeRakutenRecordForDb_mapsDividendManualColumns_20260618_() {
+  const now = new Date('2026-06-18T00:00:00Z');
+  const record = makeTradeRecord_({
+    商品: '外株',
+    銘柄コード: 'AVGO',
+    銘柄名: 'BROADCOM INC',
+    取引区分: '入金（配当金）',
+    発行通貨: 'USD',
+    数量: 18,
+    単価: 0.65,
+    受渡金額_決済損益: 8.92,
+    レート: 150,
+    決済通貨: 'USD',
+    現地源泉税円: 123,
+    国内源泉所得税円: 45,
+  });
+
+  const dbRecord = normalizeRakutenRecordForDb_(record, {
+    importId: 'import_rakuten_dividend',
+    sourceName: 'rakuten_dividend.csv',
+    sourceRowNo: 2,
+    sourceType: 'rakuten_dividend',
+    now: now,
+  });
+
+  assertEquals_('', dbRecord.exchangeRate, '楽天配当金の通常為替レート列は空欄');
+  assertEquals_(150, dbRecord.manualRate, '楽天配当金の手入力レート');
+  assertEquals_(123, dbRecord.manualForeignWithholdingTaxJpy, '楽天配当金の手入力現地源泉税');
+  assertEquals_(45, dbRecord.manualDomesticWithholdingTaxJpy, '楽天配当金の手入力国内源泉税');
+}
+
 function test_dbRecordToRow_mapsHeaders_() {
   const now = new Date('2026-04-04T12:34:56Z');
   const record = makeTradeRecord_({

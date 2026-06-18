@@ -421,6 +421,7 @@ function normalizeRakutenDividendRowsToRecords_(rows, headerRowIndex) {
   const headers = rows[headerRowIndex].map(function(v) { return String(v).trim(); });
   const headerIndexMap = buildHeaderIndexMap_(headers);
   const records = [];
+  validateRakutenDividendManualHeaders_(headerIndexMap);
 
   for (var r = headerRowIndex + 1; r < rows.length; r++) {
     const row = rows[r];
@@ -447,21 +448,40 @@ function normalizeRakutenDividendRowsToRecords_(rows, headerRowIndex) {
     record['単価'] = getByHeaderCandidates_(row, headerIndexMap, ['単価[円/現地通貨]', '単価［円/現地通貨］']);
     record['受渡金額/決済損益'] = getByHeaderCandidates_(row, headerIndexMap, ['受取金額[円/現地通貨]', '受取金額［円/現地通貨］']);
     record['手数料（税込）'] = 0;
-    record['レート'] = '';
+    record['レート'] = getByHeaderCandidates_(row, headerIndexMap, ['レート']);
     record['決済通貨'] = currency || 'JPY';
     record['売買損益（円）'] = '';
     record['国内消費税等（円）'] = '';
-    record['現地源泉税（円）'] = '';
-    record['国内源泉所得税（円）'] = '';
+    record['現地源泉税（円）'] = getByHeaderCandidates_(row, headerIndexMap, ['現地源泉税[円]', '現地源泉税［円］']);
+    record['国内源泉所得税（円）'] = getByHeaderCandidates_(row, headerIndexMap, ['国内源泉税[円]', '国内源泉税［円］']);
     record['国内源泉地方税（円）'] = '';
     record['元本払戻金'] = '';
     record['国内手数料（円）'] = '';
     record['現地手数料（円）'] = '';
 
+    if (currency && currency !== 'JPY' && isBlankCell_(record['レート'])) {
+      throw new Error('楽天配当金CSVの外貨配当は「レート」を入力してください。 row=' + (r + 1));
+    }
+
     records.push(record);
   }
 
   return records;
+}
+
+function validateRakutenDividendManualHeaders_(headerIndexMap) {
+  const required = ['レート', '現地源泉税[円]', '国内源泉税[円]'];
+  const missing = required.filter(function(header) {
+    return !headerIndexMap.hasOwnProperty(normalizeSourceHeaderName_(header));
+  });
+
+  if (missing.length > 0) {
+    throw new Error(
+      '楽天配当金CSVには手入力列が必要です: ' +
+      missing.join(', ') +
+      '。CSVに「レート」「現地源泉税［円］」「国内源泉税［円］」を追加してください。'
+    );
+  }
 }
 
 function mapRakutenDividendProduct_(productRaw) {
