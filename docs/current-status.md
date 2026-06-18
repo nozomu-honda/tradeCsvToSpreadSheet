@@ -1,6 +1,6 @@
 # Current Status
 
-最終更新: 2026-06-17
+最終更新: 2026-06-18
 
 ## 完了
 
@@ -44,6 +44,10 @@
   - 楽天DBリセット処理だけは、旧ヘッダー + 既存データがあってもリセット可能。
   - 楽天DBのリセット/ロールバック専用テストを追加。
   - Apps Script 上での `runSmokeTests` / `runAllTests` と主要手動確認は完了扱い。
+- PR #36「Minimize Rakuten DB tests」は develop にマージ済み。
+  - 楽天DB追加テストを6本から3本へ削減。
+  - 旧ヘッダー拒否テストに、旧ヘッダー楽天DBでもリセット可能でリセット後は `RAKUTEN_DB_HEADERS` になる確認を統合。
+  - Apps Script 上での `runSmokeTests` / `runAllTests` は完了扱い。
 
 ## 進行中 / 未マージ
 
@@ -81,4 +85,4 @@ AutoHotkeyショートカットの説明は `docs/codex-shortcuts.md` を参照�
 - 実際のフォルダID・スプレッドシートID・WebアプリURLはコミットしない。
 - `appsscript.json` のOAuth scope変更後は、Webアプリの新バージョン再デプロイが必要。
 - Webアプリを「アクセスしているユーザー」として実行する場合、利用者ごとにDrive権限承認とDBフォルダ編集権限が必要。
-- PR #31 / PR #32 / PR #33 / PR #34 / PR #35 は develop にマージ済み。
+- PR #31 / PR #32 / PR #33 / PR #34 / PR #35 / PR #36 は develop にマージ済み。
