@@ -131,6 +131,19 @@ function test_normalizeRakutenRecordForDb_mapsDividendManualColumns_20260618_() 
   assertEquals_(45, dbRecord.manualDomesticWithholdingTaxJpy, '楽天配当金の手入力国内源泉税');
 }
 
+function test_getDbSpreadsheetPropertyKey_skipsFixedSpreadsheetId_20260618_() {
+  assertEquals_(
+    'DB_SPREADSHEET_ID_RAKUTEN_CORP_A',
+    getDbSpreadsheetPropertyKey_({ key: 'rakuten_corp_a', spreadsheetId: '' }),
+    'spreadsheetId未設定DBはScript PropertiesでIDを固定する'
+  );
+  assertEquals_(
+    '',
+    getDbSpreadsheetPropertyKey_({ key: 'nomura_corp_a', spreadsheetId: 'fixed_id' }),
+    'spreadsheetId固定DBはScript Propertiesを使わない'
+  );
+}
+
 function test_dbRecordToRow_mapsHeaders_() {
   const now = new Date('2026-04-04T12:34:56Z');
   const record = makeTradeRecord_({

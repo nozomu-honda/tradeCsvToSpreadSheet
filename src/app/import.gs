@@ -465,7 +465,7 @@ function createSpreadsheetFromCsvTextUsingDb_(csvText, sourceName, normalizedUrl
 
   const records = readInputRecords_(sourceSheet);
 
-  const inputAlerts = [];
+  const inputAlerts = (normalizedInput.alerts || []).slice();
   collectInputAlerts_(records, inputAlerts);
 
   const dbAppendResult = appendRecordsToDb_(records, {
@@ -479,6 +479,7 @@ function createSpreadsheetFromCsvTextUsingDb_(csvText, sourceName, normalizedUrl
 
   const dbRecords = readDbRecords_(targetDbKey);
   const result = buildOutputSheetsFromDbRecords_(ss, dbRecords);
+  result.alerts = inputAlerts.concat(result.alerts || []);
 
   result.inputType = normalizedUrl ? 'url' : 'upload';
   result.normalizedUrl = normalizedUrl || '';
@@ -541,7 +542,7 @@ function createSpreadsheetFromSourceSpreadsheetUsingDb_(spreadsheetUrlOrId, opti
 
   const records = readInputRecords_(outputSourceSheet);
 
-  const inputAlerts = [];
+  const inputAlerts = (normalizedInput.alerts || []).slice();
   collectInputAlerts_(records, inputAlerts);
 
   const dbAppendResult = appendRecordsToDb_(records, {
@@ -555,6 +556,7 @@ function createSpreadsheetFromSourceSpreadsheetUsingDb_(spreadsheetUrlOrId, opti
 
   const dbRecords = readDbRecords_(targetDbKey);
   const result = buildOutputSheetsFromDbRecords_(ss, dbRecords);
+  result.alerts = inputAlerts.concat(result.alerts || []);
 
   result.inputType = 'spreadsheet';
   result.normalizedUrl = text_(spreadsheetUrlOrId);

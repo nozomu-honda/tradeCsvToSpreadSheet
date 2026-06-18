@@ -93,21 +93,74 @@ function getOrCreateDbSpreadsheet_(targetDbKey, options) {
     const fixed = SpreadsheetApp.openById(target.spreadsheetId);
     getOrCreateDbSheet_(fixed, DB_CONFIG.SHEET_TRANSACTIONS, transactionHeaders, {
       rejectExistingDataHeaderMismatch: shouldRejectExistingDataHeaderMismatch,
+      target: target,
+      spreadsheet: fixed,
     });
     getOrCreateDbSheet_(fixed, DB_CONFIG.SHEET_IMPORT_LOGS, IMPORT_LOG_HEADERS);
     return fixed;
   }
 
+  const saved = openSavedDbSpreadsheet_(target);
+  if (saved) {
+    getOrCreateDbSheet_(saved, DB_CONFIG.SHEET_TRANSACTIONS, transactionHeaders, {
+      rejectExistingDataHeaderMismatch: shouldRejectExistingDataHeaderMismatch,
+      target: target,
+      spreadsheet: saved,
+    });
+    getOrCreateDbSheet_(saved, DB_CONFIG.SHEET_IMPORT_LOGS, IMPORT_LOG_HEADERS);
+    return saved;
+  }
+
   const existing = findDbSpreadsheet_(target);
   if (existing) {
+    rememberDbSpreadsheet_(target, existing);
     getOrCreateDbSheet_(existing, DB_CONFIG.SHEET_TRANSACTIONS, transactionHeaders, {
       rejectExistingDataHeaderMismatch: shouldRejectExistingDataHeaderMismatch,
+      target: target,
+      spreadsheet: existing,
     });
     getOrCreateDbSheet_(existing, DB_CONFIG.SHEET_IMPORT_LOGS, IMPORT_LOG_HEADERS);
     return existing;
   }
 
   return createDbSpreadsheet_(target);
+}
+
+function openSavedDbSpreadsheet_(target) {
+  const propertyKey = getDbSpreadsheetPropertyKey_(target);
+  if (!propertyKey) {
+    return null;
+  }
+
+  const props = PropertiesService.getScriptProperties();
+  const savedId = text_(props.getProperty(propertyKey));
+  if (!savedId) {
+    return null;
+  }
+
+  try {
+    return SpreadsheetApp.openById(savedId);
+  } catch (e) {
+    props.deleteProperty(propertyKey);
+    return null;
+  }
+}
+
+function rememberDbSpreadsheet_(target, ss) {
+  const propertyKey = getDbSpreadsheetPropertyKey_(target);
+  if (!propertyKey || !ss) {
+    return;
+  }
+
+  PropertiesService.getScriptProperties().setProperty(propertyKey, ss.getId());
+}
+
+function getDbSpreadsheetPropertyKey_(target) {
+  const key = text_(target && target.key);
+  if (!key || text_(target && target.spreadsheetId)) {
+    return '';
+  }
+  return 'DB_SPREADSHEET_ID_' + key.toUpperCase();
 }
 
 function findDbSpreadsheet_(target) {
@@ -160,6 +213,8 @@ function createDbSpreadsheet_(target) {
   const logSheet = ss.insertSheet(DB_CONFIG.SHEET_IMPORT_LOGS);
   ensureHeaderRow_(logSheet, IMPORT_LOG_HEADERS);
 
+  rememberDbSpreadsheet_(target, ss);
+
   return ss;
 }
 
@@ -183,7 +238,10 @@ function ensureHeaderRow_(sheet, headers, options) {
       throw new Error(
         '楽天DBのヘッダーが現行仕様と一致しません。' +
         ' 既存データを保持したままヘッダーだけを上書きすると列ずれが発生するため、処理を停止しました。' +
-        ' 対象シート: ' + sheet.getName() +
+        ' 対象DB: ' + text_(options.target && options.target.key) +
+        ' / 対象ファイル: ' + text_(options.spreadsheet && options.spreadsheet.getName && options.spreadsheet.getName()) +
+        ' / URL: ' + text_(options.spreadsheet && options.spreadsheet.getUrl && options.spreadsheet.getUrl()) +
+        ' / 対象シート: ' + sheet.getName() +
         '。楽天DBをリセットしてから再取込してください。'
       );
     }
