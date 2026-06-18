@@ -705,47 +705,61 @@ function buildOutputSheetsFromRecordsForTarget_(ss, targetDbKey, records) {
 
 function buildRakutenOutputSheetsFromDbRecords_(ss, records) {
   const baseRecords = records.map(rakutenDbRecordToBaseRecord_);
-  const result = buildOutputSheetsFromDbRecords_(ss, baseRecords);
+  const result = buildRakutenOutputSheetsFromBaseRecords_(ss, baseRecords);
   result.outputDbKind = 'rakuten';
   return result;
 }
 
+function buildRakutenOutputSheetsFromBaseRecords_(ss, records) {
+  const groups = groupRakutenOutputRecords_(records);
+  return writeOutputSheetsFromGroups_(ss, groups);
+}
+
 function buildOutputSheetsFromDbRecords_(ss, records) {
+  const groups = groupOutputRecords_(records);
+  return writeOutputSheetsFromGroups_(ss, groups);
+}
+
+function groupRakutenOutputRecords_(records) {
+  return groupOutputRecords_(records);
+}
+
+function groupOutputRecords_(records) {
+  return {
+    all: records,
+    japanStocks: records
+      .filter(function(r) { return r['商品'] === '株式'; })
+      .sort(sortTradeRows_),
+    usStocks: records
+      .filter(function(r) { return r['商品'] === '外株'; })
+      .sort(sortTradeRows_),
+    foreignBonds: records
+      .filter(function(r) { return r['商品'] === '外債'; })
+      .sort(sortTradeRows_),
+    funds: records
+      .filter(function(r) { return r['商品'] === '投信'; })
+      .sort(sortTradeRows_),
+    cashJpy: records
+      .filter(function(r) {
+        const c = normalizeCurrency_(r['決済通貨']);
+        return c === '' || c === 'JPY';
+      })
+      .sort(sortCashRows_),
+    cashUsd: records
+      .filter(function(r) { return normalizeCurrency_(r['決済通貨']) === 'USD'; })
+      .sort(sortCashRows_),
+  };
+}
+
+function writeOutputSheetsFromGroups_(ss, groups) {
   const alerts = [];
 
-  const japanStocks = records
-    .filter(function(r) { return r['商品'] === '株式'; })
-    .sort(sortTradeRows_);
-
-  const usStocks = records
-    .filter(function(r) { return r['商品'] === '外株'; })
-    .sort(sortTradeRows_);
-
-  const foreignBonds = records
-    .filter(function(r) { return r['商品'] === '外債'; })
-    .sort(sortTradeRows_);
-
-  const funds = records
-    .filter(function(r) { return r['商品'] === '投信'; })
-    .sort(sortTradeRows_);
-
-  const cashJpy = records
-    .filter(function(r) {
-      const c = normalizeCurrency_(r['決済通貨']);
-      return c === '' || c === 'JPY';
-    })
-    .sort(sortCashRows_);
-
-  const cashUsd = records
-    .filter(function(r) { return normalizeCurrency_(r['決済通貨']) === 'USD'; })
-    .sort(sortCashRows_);
-
-  writeSheet_(ss, CONFIG.OUTPUT_JAPAN_STOCK, TRADE_HEADERS, buildTradeRows_(japanStocks, alerts), true);
-  writeSheet_(ss, CONFIG.OUTPUT_US_STOCK, TRADE_HEADERS, buildTradeRows_(usStocks, alerts), true);
-  writeSheet_(ss, CONFIG.OUTPUT_FOREIGN_BOND, TRADE_HEADERS, buildTradeRows_(foreignBonds, alerts), true);
-  writeSheet_(ss, CONFIG.OUTPUT_FUND, TRADE_HEADERS, buildTradeRows_(funds, alerts), true);
-  writeSheet_(ss, CONFIG.OUTPUT_CASH_JPY, CASH_HEADERS, buildCashRows_(cashJpy), false);
-  writeSheet_(ss, CONFIG.OUTPUT_CASH_USD, CASH_HEADERS, buildCashRows_(cashUsd), false);
+  writeSheet_(ss, CONFIG.OUTPUT_JAPAN_STOCK, TRADE_HEADERS, buildTradeRows_(groups.japanStocks, alerts), true);
+  writeSheet_(ss, CONFIG.OUTPUT_US_STOCK, TRADE_HEADERS, buildTradeRows_(groups.usStocks, alerts), true);
+  writeSheet_(ss, CONFIG.OUTPUT_FOREIGN_BOND, TRADE_HEADERS, buildTradeRows_(groups.foreignBonds, alerts), true);
+  writeSheet_(ss, CONFIG.OUTPUT_FUND, TRADE_HEADERS, buildTradeRows_(groups.funds, alerts), true);
+  writeSheet_(ss, CONFIG.OUTPUT_CASH_JPY, CASH_HEADERS, buildCashRows_(groups.cashJpy), false);
+  writeSheet_(ss, CONFIG.OUTPUT_CASH_USD, CASH_HEADERS, buildCashRows_(groups.cashUsd), false);
   reorderOutputSheets_(ss);
 
   return {
@@ -755,16 +769,15 @@ function buildOutputSheetsFromDbRecords_(ss, records) {
     spreadsheetName: ss.getName(),
     alerts: alerts,
     counts: {
-      all: records.length,
-      japanStocks: japanStocks.length,
-      usStocks: usStocks.length,
-      foreignBonds: foreignBonds.length,
-      funds: funds.length,
-      cashJpy: cashJpy.length,
-      cashUsd: cashUsd.length,
+      all: groups.all.length,
+      japanStocks: groups.japanStocks.length,
+      usStocks: groups.usStocks.length,
+      foreignBonds: groups.foreignBonds.length,
+      funds: groups.funds.length,
+      cashJpy: groups.cashJpy.length,
+      cashUsd: groups.cashUsd.length,
     }
   };
-
 }
 
 function readImportLogs_(targetDbKey) {
