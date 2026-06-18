@@ -4,61 +4,33 @@
     <base target="_top">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
-      body {
-        font-family: system-ui, -apple-system, sans-serif;
-        max-width: 760px;
-        margin: 32px auto;
-        padding: 0 16px;
-        line-height: 1.6;
-      }
-      input, button {
-        font-size: 16px;
-        padding: 10px 12px;
-      }
-      input[type="text"] {
-        width: 100%;
-        box-sizing: border-box;
-      }
-      button {
-        margin-top: 12px;
-        cursor: pointer;
-      }
-      .card {
-        border: 1px solid #ddd;
-        border-radius: 12px;
-        padding: 20px;
-      }
-      .muted {
-        color: #666;
-        font-size: 14px;
-      }
-      .ok {
-        color: #0b8043;
-        white-space: pre-wrap;
-      }
-      .err {
-        color: #d93025;
-        white-space: pre-wrap;
-      }
-      .row {
-        margin-top: 14px;
-      }
-      .sep {
-        margin: 18px 0;
-        text-align: center;
-        color: #888;
-      }
-      a {
-        word-break: break-all;
-      }
+      body { font-family: system-ui, -apple-system, sans-serif; max-width: 860px; margin: 32px auto; padding: 0 16px; line-height: 1.6; }
+      input, button, select { font-size: 16px; padding: 10px 12px; }
+      input[type="text"], select { width: 100%; box-sizing: border-box; }
+      button { margin-top: 12px; cursor: pointer; }
+      .card { border: 1px solid #ddd; border-radius: 12px; padding: 20px; }
+      .muted { color: #666; font-size: 14px; }
+      .ok { color: #0b8043; white-space: pre-wrap; }
+      .err { color: #d93025; white-space: pre-wrap; }
+      .row { margin-top: 14px; }
+      .sep { margin: 18px 0; text-align: center; color: #888; }
+      .link-block { margin-top: 10px; }
+      .button-row { display: flex; gap: 12px; flex-wrap: wrap; }
+      .danger { background: #fff5f5; border: 1px solid #d93025; color: #d93025; }
+      .secondary { background: #f6f8fa; border: 1px solid #cfd8dc; color: #333; }
+      .section-title { margin-top: 28px; font-size: 18px; font-weight: 700; }
+      a { word-break: break-all; }
     </style>
   </head>
   <body>
     <div class="card">
-      <h2>CSVから4シート生成</h2>
-      <p class="muted">
-        CSVリンク、またはローカルCSVアップロードのどちらかで実行できます。
-      </p>
+      <h2>CSV / スプレッドシートから6シート生成</h2>
+      <p class="muted">法人ごとに追加先DBを選べます。誤って登録した場合は、取込単位でロールバックできます。</p>
+
+      <div class="row">
+        <label for="targetDbKey">追加先DB</label>
+        <select id="targetDbKey" onchange="onTargetDbChanged()"></select>
+      </div>
 
       <div class="row">
         <label for="csvUrl">CSVリンク</label>
@@ -68,12 +40,57 @@
       <div class="sep">または</div>
 
       <div class="row">
+        <label for="spreadsheetUrl">スプレッドシートURLまたはID</label>
+        <input id="spreadsheetUrl" type="text" value="<?= initialSpreadsheetUrl ?>" placeholder="https://docs.google.com/spreadsheets/... または スプレッドシートID" />
+        <div class="muted">シート名入力は不要です。ヘッダーを持つシートを自動判定します。</div>
+      </div>
+
+      <div class="sep">または</div>
+
+      <div class="row">
         <label for="csvFile">ローカルCSVファイル</label>
         <input id="csvFile" type="file" accept=".csv,text/csv" />
       </div>
 
+      <div class="row button-row">
+        <button id="runButton" onclick="run()">6シート生成</button>
+        <button id="stagingButton" class="secondary" onclick="createStaging()">一次受け枠を作成</button>
+      </div>
+
+      <div class="muted">
+        「一次受け枠を作成」はCSVリンク、スプレッドシートURL、CSVファイルのいずれかから、手入力用7カラムを追加したスプレッドシートを1枚だけ作成します。
+      </div>
+
+      <div class="section-title">DBリセット</div>
+      <p class="muted">野村DBと楽天DBを個別に選んでリセットできます。選択したDBの取引DBと取込履歴だけを削除します。</p>
+
       <div class="row">
-        <button onclick="run()">実行</button>
+        <label for="resetDbKey">リセット対象DB</label>
+        <select id="resetDbKey"></select>
+      </div>
+
+      <div class="row button-row">
+        <button id="openResetDbButton" class="secondary" onclick="openResetDb()">選択中DBを開く</button>
+        <button id="resetDbButton" class="danger" onclick="resetDb()">選択したDBをリセット</button>
+      </div>
+
+      <div class="section-title">ロールバック</div>
+      <p class="muted">野村DBと楽天DBを個別に選んで、戻したい取込IDをロールバックできます。</p>
+
+      <div class="row">
+        <label for="rollbackDbKey">ロールバック対象DB</label>
+        <select id="rollbackDbKey" onchange="loadRecentImports()"></select>
+      </div>
+
+      <div class="row">
+        <label for="rollbackImportId">ロールバック対象の取込ID</label>
+        <select id="rollbackImportId"></select>
+      </div>
+
+      <div class="row button-row">
+        <button id="openRollbackDbButton" class="secondary" onclick="openRollbackDb()">選択中DBを開く</button>
+        <button id="refreshImportsButton" class="secondary" onclick="loadRecentImports()">最近の取込を再読込</button>
+        <button id="rollbackButton" class="danger" onclick="rollbackImport()">選択した取込をロールバック</button>
       </div>
 
       <div id="status" class="row muted"></div>
@@ -82,92 +99,470 @@
     </div>
 
     <script>
-      async function run() {
-        const csvUrl = document.getElementById('csvUrl').value.trim();
+      const DB_TARGETS = <?!= dbTargetsJson ?>;
+      const RESET_DB_TARGETS = <?!= resetDbTargetsJson ?>;
+      const DEFAULT_TARGET_DB_KEY = '<?= defaultTargetDbKey ?>';
+
+      document.addEventListener('DOMContentLoaded', function() {
+        initDbTargets_();
+        initResetDbTargets_();
+        initRollbackDbTargets_();
+        loadRecentImports();
+      });
+
+      function initDbTargets_() {
+        const select = document.getElementById('targetDbKey');
+        select.innerHTML = '';
+        DB_TARGETS.forEach(function(target) {
+          const option = document.createElement('option');
+          option.value = target.key;
+          option.textContent = target.label;
+          select.appendChild(option);
+        });
+        const exists = DB_TARGETS.some(function(target) { return target.key === DEFAULT_TARGET_DB_KEY; });
+        select.value = exists ? DEFAULT_TARGET_DB_KEY : (DB_TARGETS[0] ? DB_TARGETS[0].key : '');
+      }
+
+      function initResetDbTargets_() {
+        const select = document.getElementById('resetDbKey');
+        select.innerHTML = '';
+        RESET_DB_TARGETS.forEach(function(target) {
+          const option = document.createElement('option');
+          option.value = target.key;
+          option.textContent = target.label;
+          select.appendChild(option);
+        });
+        const exists = RESET_DB_TARGETS.some(function(target) { return target.key === DEFAULT_TARGET_DB_KEY; });
+        select.value = exists ? DEFAULT_TARGET_DB_KEY : (RESET_DB_TARGETS[0] ? RESET_DB_TARGETS[0].key : '');
+      }
+
+      function getSelectedDbTarget_() {
+        const key = document.getElementById('targetDbKey').value;
+        return DB_TARGETS.find(function(target) { return target.key === key; }) || null;
+      }
+
+      function getSelectedResetDbTarget_() {
+        const key = document.getElementById('resetDbKey').value;
+        return RESET_DB_TARGETS.find(function(target) { return target.key === key; }) || null;
+      }
+
+      function initRollbackDbTargets_() {
+        const select = document.getElementById('rollbackDbKey');
+        select.innerHTML = '';
+        RESET_DB_TARGETS.forEach(function(target) {
+          const option = document.createElement('option');
+          option.value = target.key;
+          option.textContent = target.label;
+          select.appendChild(option);
+        });
+        const exists = RESET_DB_TARGETS.some(function(target) { return target.key === DEFAULT_TARGET_DB_KEY; });
+        select.value = exists ? DEFAULT_TARGET_DB_KEY : (RESET_DB_TARGETS[0] ? RESET_DB_TARGETS[0].key : '');
+      }
+
+      function onTargetDbChanged() {
+      }
+
+      function getSelectedRollbackDbTarget_() {
+        const key = document.getElementById('rollbackDbKey').value;
+        return RESET_DB_TARGETS.find(function(target) { return target.key === key; }) || null;
+      }
+
+      function openResetDb() {
+        openDbSpreadsheet_(getSelectedResetDbTarget_());
+      }
+
+      function openRollbackDb() {
+        openDbSpreadsheet_(getSelectedRollbackDbTarget_());
+      }
+
+      function openDbSpreadsheet_(target) {
+        clearOutput_();
+        if (!target) {
+          renderError_({ message: '対象DBを選択してください。' });
+          return;
+        }
+
+        setBusy_(true);
+        document.getElementById('status').textContent = 'DBを開く準備中...';
+
+        google.script.run
+          .withSuccessHandler(function(res) {
+            setBusy_(false);
+            document.getElementById('status').textContent = '';
+            const result = document.getElementById('result');
+            const linkArea = document.getElementById('linkArea');
+            result.className = 'ok';
+            result.textContent =
+              'DBを開く準備ができました。\n\n' +
+              '対象DB: ' + (res.dbTargetLabel || target.label || '');
+            if (res.dbSpreadsheetUrl) {
+              window.open(res.dbSpreadsheetUrl, '_blank', 'noopener,noreferrer');
+              appendLink(linkArea, res.dbSpreadsheetUrl, '選択中DBを開く');
+            }
+          })
+          .withFailureHandler(function(err) {
+            setBusy_(false);
+            document.getElementById('status').textContent = '';
+            renderError_(err);
+          })
+          .getDbSpreadsheetFromWebApp(target.key);
+      }
+
+      function buildInputPayloadBase_(uploadedCsvText, uploadedFileName) {
+        return {
+          targetDbKey: (getSelectedDbTarget_() || {}).key || '',
+          csvUrl: document.getElementById('csvUrl').value.trim(),
+          spreadsheetUrl: document.getElementById('spreadsheetUrl').value.trim(),
+          uploadedCsvText: uploadedCsvText || '',
+          uploadedFileName: uploadedFileName || ''
+        };
+      }
+
+      function validateSingleInput_(payload, allowSpreadsheet) {
+        const inputCount =
+          (payload.csvUrl ? 1 : 0) +
+          (allowSpreadsheet && payload.spreadsheetUrl ? 1 : 0) +
+          (payload.uploadedCsvText ? 1 : 0);
+
+        if (inputCount === 0) {
+          throw new Error(allowSpreadsheet
+            ? 'CSVリンク、スプレッドシートURL、CSVファイルのいずれかを指定してください。'
+            : 'CSVリンクまたはCSVファイルを指定してください。');
+        }
+
+        if (inputCount >= 2) {
+          throw new Error(allowSpreadsheet
+            ? 'CSVリンク、スプレッドシートURL、CSVファイルは同時に指定せず、どれか1つだけ指定してください。'
+            : 'CSVリンクとCSVファイルは同時に指定せず、どちらか一方だけ指定してください。');
+        }
+
+        if (!allowSpreadsheet && payload.spreadsheetUrl && payload.csvUrl) {
+          throw new Error('一次受け枠は入力元を1つだけ指定してください。');
+        }
+      }
+
+      async function buildPayloadFromUi_(allowSpreadsheet) {
         const fileInput = document.getElementById('csvFile');
         const file = fileInput.files && fileInput.files[0] ? fileInput.files[0] : null;
 
-        const status = document.getElementById('status');
-        const result = document.getElementById('result');
-        const linkArea = document.getElementById('linkArea');
+        let uploadedCsvText = '';
+        let uploadedFileName = '';
 
-        result.className = '';
-        result.textContent = '';
-        linkArea.innerHTML = '';
+        if (file) {
+          uploadedCsvText = await readFileAsTextWithFallback(file);
+          uploadedFileName = file.name;
+        }
 
-        if (!csvUrl && !file) {
-          result.className = 'err';
-          result.textContent = 'CSVリンクかCSVファイルのどちらかを指定してください。';
+        const payload = buildInputPayloadBase_(uploadedCsvText, uploadedFileName);
+        validateSingleInput_(payload, allowSpreadsheet);
+        return payload;
+      }
+
+      async function run() {
+        const target = getSelectedDbTarget_();
+        clearOutput_();
+        if (!target) {
+          renderError_({ message: '追加先DBを選択してください。' });
           return;
         }
 
-        if (csvUrl && file) {
-          result.className = 'err';
-          result.textContent = 'CSVリンクとCSVファイルは同時に指定せず、どちらか一方にしてください。';
-          return;
-        }
-
-        status.textContent = '実行中...';
+        setBusy_(true);
+        document.getElementById('status').textContent = '実行中...';
 
         try {
-          let payload;
-
-          if (file) {
-            const uploadedCsvText = await readFileAsTextWithFallback(file);
-            payload = {
-              csvUrl: '',
-              uploadedCsvText: uploadedCsvText,
-              uploadedFileName: file.name
-            };
-          } else {
-            payload = {
-              csvUrl: csvUrl,
-              uploadedCsvText: '',
-              uploadedFileName: ''
-            };
-          }
-
+          const payload = await buildPayloadFromUi_(true);
           google.script.run
             .withSuccessHandler(function(res) {
-              status.textContent = '';
-              result.className = 'ok';
-              result.textContent =
-                '完了しました。\n\n' +
-                '入力方法: ' + (res.inputType === 'upload' ? 'アップロード' : 'リンク') + '\n' +
-                'スプレッドシート名: ' + res.spreadsheetName + '\n' +
-                '元データシート: ' + res.sourceSheetName + '\n' +
-                '全件数: ' + res.counts.all + '\n' +
-                '国内取引: ' + res.counts.domestic + '\n' +
-                '外国取引: ' + res.counts.foreign + '\n' +
-                '金銭残高（円）: ' + res.counts.cashJpy + '\n' +
-                '金銭残高（ドル）: ' + res.counts.cashUsd;
-
-              const a = document.createElement('a');
-              a.href = res.spreadsheetUrl;
-              a.target = '_blank';
-              a.rel = 'noopener noreferrer';
-              a.textContent = '作成したスプレッドシートを開く';
-              linkArea.appendChild(a);
+              setBusy_(false);
+              document.getElementById('status').textContent = '';
+              renderMainResult_(res);
+              loadRecentImports();
             })
             .withFailureHandler(function(err) {
-              status.textContent = '';
-              result.className = 'err';
-              result.textContent = err && err.message ? err.message : String(err);
+              setBusy_(false);
+              document.getElementById('status').textContent = '';
+              renderError_(err);
             })
             .runFromWebApp(payload);
         } catch (e) {
-          status.textContent = '';
-          result.className = 'err';
-          result.textContent = e && e.message ? e.message : String(e);
+          setBusy_(false);
+          document.getElementById('status').textContent = '';
+          renderError_(e);
         }
+      }
+
+      async function createStaging() {
+        clearOutput_();
+        setBusy_(true);
+        document.getElementById('status').textContent = '一次受け枠を作成中...';
+
+        try {
+          const payload = await buildPayloadFromUi_(true);
+          google.script.run
+            .withSuccessHandler(function(res) {
+              setBusy_(false);
+              document.getElementById('status').textContent = '';
+              const result = document.getElementById('result');
+              const linkArea = document.getElementById('linkArea');
+              result.className = 'ok';
+
+              const inputTypeLabel =
+                res.inputType === 'upload' ? 'アップロード' :
+                res.inputType === 'spreadsheet' ? 'スプレッドシート' :
+                'リンク';
+
+              let sourceText = '';
+              if (res.inputType === 'spreadsheet') {
+                sourceText =
+                  '入力元スプレッドシート: ' + (res.sourceSpreadsheetName || res.sourceName || '') + '\n' +
+                  '入力元シート: ' + (res.sourceSheetName || '') + '\n';
+              }
+
+              result.textContent =
+                '一次受け枠を作成しました。\n\n' +
+                '入力方法: ' + inputTypeLabel + '\n' +
+                'スプレッドシート名: ' + res.spreadsheetName + '\n' +
+                'シート名: ' + res.sheetName + '\n' +
+                sourceText +
+                '追加カラム: 国内消費税等（円）, 現地源泉税（円）, 国内源泉所得税（円）, 国内源泉地方税（円）, 国内手数料（円）, 現地手数料（円）, 元本払戻金';
+
+              appendLink(linkArea, res.spreadsheetUrl, '一次受け枠のスプレッドシートを開く');
+            })
+            .withFailureHandler(function(err) {
+              setBusy_(false);
+              document.getElementById('status').textContent = '';
+              renderError_(err);
+            })
+            .runStagingSheetFromWebApp(payload);
+        } catch (e) {
+          setBusy_(false);
+          document.getElementById('status').textContent = '';
+          renderError_(e);
+        }
+      }
+
+      function renderMainResult_(res) {
+        const result = document.getElementById('result');
+        const linkArea = document.getElementById('linkArea');
+        result.className = 'ok';
+
+        let alertText = '';
+        if (res.alerts && res.alerts.length > 0) {
+          alertText = '\n\nアラート:\n- ' + res.alerts.join('\n- ');
+        }
+
+        let dbText = '';
+        if (res.db) {
+          dbText =
+            '\n\nDB取込結果:\n' +
+            '検出形式: ' + (res.detectedSourceType || '') + '\n' +
+            '選択DBキー: ' + (res.requestedTargetDbKey || '') + '\n' +
+            '実際の追加先DBキー: ' + (res.routedTargetDbKey || res.db.dbTargetKey || '') + '\n' +
+            '追加先DB: ' + (res.db.dbTargetLabel || '') + '\n' +
+            '取込ID: ' + (res.db.importId || '') + '\n' +
+            '読込件数: ' + (res.db.rowCount || 0) + '\n' +
+            '追加件数: ' + (res.db.insertedCount || 0) + '\n' +
+            'スキップ件数: ' + (res.db.skippedCount || 0);
+        }
+
+        const inputTypeLabel =
+          res.inputType === 'upload' ? 'アップロード' :
+          res.inputType === 'spreadsheet' ? 'スプレッドシート' :
+          'リンク';
+
+        let sourceInfoText = '';
+        if (res.inputType === 'spreadsheet') {
+          sourceInfoText =
+            '入力元スプレッドシート: ' + (res.sourceSpreadsheetName || res.sourceName || '') + '\n' +
+            '入力元シート: ' + (res.sourceSheetName || '') + '\n';
+        } else {
+          sourceInfoText = '元データシート: ' + (res.sourceSheetName || '') + '\n';
+        }
+
+        result.textContent =
+          '完了しました。\n\n' +
+          '入力方法: ' + inputTypeLabel + '\n' +
+          'スプレッドシート名: ' + res.spreadsheetName + '\n' +
+          sourceInfoText +
+          '全件数: ' + res.counts.all + '\n' +
+          '日本株: ' + res.counts.japanStocks + '\n' +
+          '米国株: ' + res.counts.usStocks + '\n' +
+          '外債: ' + (res.counts.foreignBonds || 0) + '\n' +
+          '投信: ' + res.counts.funds + '\n' +
+          '金銭残高（円）: ' + res.counts.cashJpy + '\n' +
+          '金銭残高（ドル）: ' + res.counts.cashUsd + '\n' +
+          '出力タブ順: 日本株 → 米国株 → 外債 → 投信' +
+          dbText +
+          alertText;
+
+        appendLink(linkArea, res.spreadsheetUrl, '作成したスプレッドシートを開く');
+        if (res.db && res.db.dbSpreadsheetUrl) {
+          appendLink(linkArea, res.db.dbSpreadsheetUrl, '選択中DBを開く');
+        }
+      }
+
+      function resetDb() {
+        const target = getSelectedResetDbTarget_();
+        if (!target) return;
+        const confirmed = window.confirm('本当に削除しますか？\n\n対象DB: ' + target.label);
+        if (!confirmed) return;
+
+        clearOutput_();
+        setBusy_(true);
+        document.getElementById('status').textContent = 'データベースをリセット中...';
+
+        google.script.run
+          .withSuccessHandler(function(res) {
+            setBusy_(false);
+            document.getElementById('status').textContent = '';
+            const result = document.getElementById('result');
+            const linkArea = document.getElementById('linkArea');
+            result.className = 'ok';
+            result.textContent =
+              'データベースをリセットしました。\n\n' +
+              '対象DB: ' + (res.dbTargetLabel || '') + '\n' +
+              '取引DB削除件数: ' + (res.deletedTransactionCount || 0) + '\n' +
+              '取込履歴削除件数: ' + (res.deletedImportLogCount || 0);
+            if (res.dbSpreadsheetUrl) {
+              appendLink(linkArea, res.dbSpreadsheetUrl, '選択中DBを開く');
+            }
+            document.getElementById('rollbackDbKey').value = res.dbTargetKey || target.key;
+            loadRecentImports();
+          })
+          .withFailureHandler(function(err) {
+            setBusy_(false);
+            document.getElementById('status').textContent = '';
+            renderError_(err);
+          })
+          .resetDbFromWebApp(target.key);
+      }
+
+      function loadRecentImports() {
+        const target = getSelectedRollbackDbTarget_();
+        const select = document.getElementById('rollbackImportId');
+        select.innerHTML = '';
+        if (!target) return;
+
+        const option = document.createElement('option');
+        option.value = '';
+        option.textContent = '読込中...';
+        select.appendChild(option);
+
+        google.script.run
+          .withSuccessHandler(function(res) {
+            try {
+              select.innerHTML = '';
+              const imports = Array.isArray(res && res.imports) ? res.imports : [];
+              if (!imports.length) {
+                const empty = document.createElement('option');
+                empty.value = '';
+                empty.textContent = '最近の取込はありません';
+                select.appendChild(empty);
+                return;
+              }
+              imports.forEach(function(item) {
+                const option = document.createElement('option');
+                option.value = item.importId || '';
+                option.textContent = item.displayLabel || item.importId || '(表示名なし)';
+                select.appendChild(option);
+              });
+            } catch (e) {
+              renderError_(e);
+            }
+          })
+          .withFailureHandler(function(err) {
+            renderError_(err);
+          })
+          .listRecentImportsFromWebApp(target.key);
+      }
+
+      function rollbackImport() {
+        const target = getSelectedRollbackDbTarget_();
+        const importId = document.getElementById('rollbackImportId').value;
+        if (!target) {
+          renderError_({ message: 'ロールバック対象DBを選択してください。' });
+          return;
+        }
+        if (!importId) {
+          renderError_({ message: 'ロールバック対象の取込IDを選択してください。' });
+          return;
+        }
+
+        const confirmed = window.confirm('この取込をロールバックしますか？\n\n対象DB: ' + target.label + '\n取込ID: ' + importId);
+        if (!confirmed) return;
+
+        clearOutput_();
+        setBusy_(true);
+        document.getElementById('status').textContent = 'ロールバック中...';
+
+        google.script.run
+          .withSuccessHandler(function(res) {
+            setBusy_(false);
+            document.getElementById('status').textContent = '';
+            const result = document.getElementById('result');
+            const linkArea = document.getElementById('linkArea');
+            result.className = 'ok';
+            result.textContent =
+              'ロールバックしました。\n\n' +
+              '対象DB: ' + (res.dbTargetLabel || '') + '\n' +
+              '取込ID: ' + (res.importId || '') + '\n' +
+              '無効化件数: ' + (res.rolledBackCount || 0);
+            if (res.dbSpreadsheetUrl) {
+              appendLink(linkArea, res.dbSpreadsheetUrl, '選択中DBを開く');
+            }
+            loadRecentImports();
+          })
+          .withFailureHandler(function(err) {
+            setBusy_(false);
+            document.getElementById('status').textContent = '';
+            renderError_(err);
+          })
+          .rollbackImportFromWebApp({ targetDbKey: target.key, importId: importId });
+      }
+
+      function setBusy_(isBusy) {
+        document.getElementById('targetDbKey').disabled = isBusy;
+        document.getElementById('resetDbKey').disabled = isBusy;
+        document.getElementById('runButton').disabled = isBusy;
+        document.getElementById('stagingButton').disabled = isBusy;
+        document.getElementById('openResetDbButton').disabled = isBusy;
+        document.getElementById('resetDbButton').disabled = isBusy;
+        document.getElementById('openRollbackDbButton').disabled = isBusy;
+        document.getElementById('refreshImportsButton').disabled = isBusy;
+        document.getElementById('rollbackButton').disabled = isBusy;
+        document.getElementById('rollbackDbKey').disabled = isBusy;
+        document.getElementById('rollbackImportId').disabled = isBusy;
+      }
+
+      function clearOutput_() {
+        const result = document.getElementById('result');
+        const linkArea = document.getElementById('linkArea');
+        result.className = '';
+        result.textContent = '';
+        linkArea.innerHTML = '';
+      }
+
+      function renderError_(err) {
+        const result = document.getElementById('result');
+        result.className = 'err';
+        result.textContent = err && err.message ? err.message : String(err);
+      }
+
+      function appendLink(container, href, text) {
+        const div = document.createElement('div');
+        div.className = 'link-block';
+        const a = document.createElement('a');
+        a.href = href;
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        a.textContent = text;
+        div.appendChild(a);
+        container.appendChild(div);
       }
 
       async function readFileAsTextWithFallback(file) {
         const utf8 = await readFileAsText(file, 'utf-8');
-        if (!utf8.includes('�')) {
-          return utf8;
-        }
-
+        if (!utf8.includes('�')) return utf8;
         try {
           const sjis = await readFileAsText(file, 'shift-jis');
           return sjis;
@@ -179,12 +574,8 @@
       function readFileAsText(file, encoding) {
         return new Promise((resolve, reject) => {
           const reader = new FileReader();
-          reader.onload = function() {
-            resolve(reader.result);
-          };
-          reader.onerror = function() {
-            reject(new Error('ファイルの読み込みに失敗しました。'));
-          };
+          reader.onload = function() { resolve(reader.result); };
+          reader.onerror = function() { reject(new Error('ファイルの読み込みに失敗しました。')); };
           reader.readAsText(file, encoding);
         });
       }
