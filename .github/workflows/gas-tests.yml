@@ -1,0 +1,53 @@
+name: GAS Tests
+
+on:
+  pull_request:
+    branches:
+      - develop
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gas-tests-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  gas-tests:
+    name: Push test GAS project and run tests
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout PR merge commit
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install clasp
+        run: npm install --global @google/clasp
+
+      - name: Push to test Apps Script and run GAS tests
+        shell: bash
+        env:
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+          GAS_TEST_SCRIPT_ID: ${{ secrets.GAS_TEST_SCRIPT_ID }}
+          CLASP_PROJECT_JSON: ${{ secrets.CLASP_PROJECT_JSON }}
+        run: bash scripts/ci/run-gas-tests.sh
+
+  external-pr-guard:
+    name: External PR guard
+    if: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Skip secret-backed GAS tests
+        run: echo "Skipping GAS tests for fork or external PRs so Google secrets are not exposed."
