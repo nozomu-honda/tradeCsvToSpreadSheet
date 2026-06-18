@@ -61,6 +61,12 @@
   - `spreadsheetId` 未設定DBは、見つけた/作成したSpreadsheet IDを Script Properties の `DB_SPREADSHEET_ID_<DB_KEY>` に保存して再利用する。
   - リセット後の同名楽天DB取り違えによるヘッダー不一致エラーは修正済み。
   - Apps Script 上での `runSmokeTests` / `runAllTests` と実CSV取込確認は完了扱い。
+- PR #39「Add Rakuten output entry point」は develop にマージ済み。
+  - DB読込後の出力生成入口を `buildOutputSheetsFromDb_()` に集約。
+  - `rakuten_*` DBは `buildRakutenOutputSheetsFromDbRecords_()` へ分岐する入口を追加。
+  - 現時点では楽天DBも既存の共通計算コアと6シート出力を使い、出力内容は変更しない。
+  - 後続PRで楽天専用出力処理へ差し替えるための分岐点を作成。
+  - Apps Script 上での `runSmokeTests` / `runAllTests` と楽天/野村の出力確認は完了扱い。
 
 ## 進行中 / 未マージ
 
@@ -70,11 +76,11 @@
 
 - 別ユーザーでのDrive OAuth承認とWebアプリ実行確認。
 - 楽天米国株の実取込結果の最終確認。
-- 楽天専用の出力処理・ロールバックUI分離は未実装。
+- 楽天専用の出力処理本体・ロールバックUI分離は未実装。
 
 ## 直近の優先順位
 
-1. 楽天専用DBからの出力処理を、野村形式前提から段階的に分離する。
+1. 楽天専用出力処理本体を、`buildRakutenOutputSheetsFromDbRecords_()` 配下で段階的に実装する。
 2. 楽天専用ロールバック処理/UI分離を進める。
 3. 別ユーザーのDrive権限問題の結果を確認する。
 4. 楽天米国株の出力確認を完了する。
@@ -97,4 +103,4 @@ AutoHotkeyショートカットの説明は `docs/codex-shortcuts.md` を参照�
 - `appsscript.json` のOAuth scope変更後は、Webアプリの新バージョン再デプロイが必要。
 - Webアプリを「アクセスしているユーザー」として実行する場合、利用者ごとにDrive権限承認とDBフォルダ編集権限が必要。
 - `spreadsheetId` 未設定DBは Script Properties の `DB_SPREADSHEET_ID_<DB_KEY>` に実ファイルIDを保存して再利用する。
-- PR #31 / PR #32 / PR #33 / PR #34 / PR #35 / PR #36 / PR #37 / PR #38 は develop にマージ済み。
+- PR #31 / PR #32 / PR #33 / PR #34 / PR #35 / PR #36 / PR #37 / PR #38 / PR #39 は develop にマージ済み。
