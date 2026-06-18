@@ -30,6 +30,7 @@ const CORE_TESTS_ = [
   test_buildRowHash_differentRecord_differentHash_,
   test_normalizeRecordForDb_setsMetadata_,
   test_normalizeRakutenRecordForDb_mapsDividendManualColumns_20260618_,
+  test_getDbSpreadsheetPropertyKey_skipsFixedSpreadsheetId_20260618_,
   test_dbRecordToRow_mapsHeaders_,
   test_dbTargets_defaultSelection_,
   test_getResetDbTargetList_includesHiddenTargets_20260616_,
