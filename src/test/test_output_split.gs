@@ -135,42 +135,38 @@ function test_buildOutputSheetsFromRecordsForTarget_dispatchesByDbKey_20260618_(
   });
 }
 
-function test_buildRakutenOutputSheetsFromBaseRecords_splitsWithRakutenEntry_20260618_() {
-  withTempSpreadsheet_(function(ss) {
-    const records = [
-      makeTradeRecord_({
-        商品: '株式',
-        銘柄名: 'RAKUTEN_JP_OUTPUT',
-        取引区分: '現物買付',
-        数量: 1,
-        単価: 100,
-        受渡金額_決済損益: 100,
-        決済通貨: 'JPY',
-        約定日: '2026/06/18',
-        受渡日: '2026/06/18'
-      }),
-      makeTradeRecord_({
-        商品: '外株',
-        銘柄名: 'RAKUTEN_US_OUTPUT',
-        取引区分: '現物買付',
-        数量: 1,
-        単価: 10,
-        受渡金額_決済損益: 10,
-        レート: 150,
-        決済通貨: 'USD',
-        約定日: '2026/06/18',
-        受渡日: '2026/06/18'
-      })
-    ];
+function test_groupRakutenOutputRecords_splitsWithoutSpreadsheet_20260618_() {
+  const records = [
+    makeTradeRecord_({
+      商品: '株式',
+      銘柄名: 'RAKUTEN_JP_OUTPUT',
+      取引区分: '現物買付',
+      数量: 1,
+      単価: 100,
+      受渡金額_決済損益: 100,
+      決済通貨: 'JPY',
+      約定日: '2026/06/18',
+      受渡日: '2026/06/18'
+    }),
+    makeTradeRecord_({
+      商品: '外株',
+      銘柄名: 'RAKUTEN_US_OUTPUT',
+      取引区分: '現物買付',
+      数量: 1,
+      単価: 10,
+      受渡金額_決済損益: 10,
+      レート: 150,
+      決済通貨: 'USD',
+      約定日: '2026/06/18',
+      受渡日: '2026/06/18'
+    })
+  ];
 
-    const result = buildRakutenOutputSheetsFromBaseRecords_(ss, records);
+  const groups = groupRakutenOutputRecords_(records);
 
-    assertEquals_(2, result.counts.all, '楽天出力入口の全件数');
-    assertEquals_(1, result.counts.japanStocks, '楽天出力入口の日本株件数');
-    assertEquals_(1, result.counts.usStocks, '楽天出力入口の米国株件数');
-    assertEquals_('RAKUTEN_JP_OUTPUT', ss.getSheetByName(CONFIG.OUTPUT_JAPAN_STOCK)
-      .getRange(2, getColumnIndexByHeader_(TRADE_HEADERS, '銘柄名')).getValue(), '楽天出力入口の日本株シート');
-    assertEquals_('RAKUTEN_US_OUTPUT', ss.getSheetByName(CONFIG.OUTPUT_US_STOCK)
-      .getRange(2, getColumnIndexByHeader_(TRADE_HEADERS, '銘柄名')).getValue(), '楽天出力入口の米国株シート');
-  });
+  assertEquals_(2, groups.all.length, '楽天出力分類の全件数');
+  assertEquals_(1, groups.japanStocks.length, '楽天出力分類の日本株件数');
+  assertEquals_(1, groups.usStocks.length, '楽天出力分類の米国株件数');
+  assertEquals_('RAKUTEN_JP_OUTPUT', groups.japanStocks[0]['銘柄名'], '楽天出力分類の日本株');
+  assertEquals_('RAKUTEN_US_OUTPUT', groups.usStocks[0]['銘柄名'], '楽天出力分類の米国株');
 }
