@@ -67,6 +67,12 @@
   - 現時点では楽天DBも既存の共通計算コアと6シート出力を使い、出力内容は変更しない。
   - 後続PRで楽天専用出力処理へ差し替えるための分岐点を作成。
   - Apps Script 上での `runSmokeTests` / `runAllTests` と楽天/野村の出力確認は完了扱い。
+- PR #40「Move Rakuten output conversion into output entry」は develop にマージ済み。
+  - DB生レコード読込を `readDbRecordObjects_()` に分離。
+  - `readDbRecords_()` は既存互換として、従来どおり共通計算用レコードを返す。
+  - 楽天DBレコードから共通計算用レコードへの変換責務を、楽天出力入口 `buildRakutenOutputSheetsFromDbRecords_()` 側へ移動。
+  - 野村DBレコード変換を `nomuraDbRecordToBaseRecord_()` に分離。
+  - Apps Script 上での `runSmokeTests` / `runAllTests` と楽天/野村の出力確認は完了扱い。
 
 ## 進行中 / 未マージ
 
@@ -103,4 +109,4 @@ AutoHotkeyショートカットの説明は `docs/codex-shortcuts.md` を参照�
 - `appsscript.json` のOAuth scope変更後は、Webアプリの新バージョン再デプロイが必要。
 - Webアプリを「アクセスしているユーザー」として実行する場合、利用者ごとにDrive権限承認とDBフォルダ編集権限が必要。
 - `spreadsheetId` 未設定DBは Script Properties の `DB_SPREADSHEET_ID_<DB_KEY>` に実ファイルIDを保存して再利用する。
-- PR #31 / PR #32 / PR #33 / PR #34 / PR #35 / PR #36 / PR #37 / PR #38 / PR #39 は develop にマージ済み。
+- PR #31 / PR #32 / PR #33 / PR #34 / PR #35 / PR #36 / PR #37 / PR #38 / PR #39 / PR #40 は develop にマージ済み。
