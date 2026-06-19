@@ -5,37 +5,97 @@ on:
     branches:
       - develop
     types:
-      - opened
-      - synchronize
       - reopened
       - ready_for_review
+  workflow_dispatch:
+  merge_group:
+    branches:
+      - develop
 
 permissions:
   contents: read
 
 concurrency:
-  group: gas-tests-${{ github.event.pull_request.number }}
+  group: gas-tests-${{ github.event.pull_request.number || github.event.merge_group.head_sha || github.ref }}
   cancel-in-progress: true
 
 jobs:
   gas-tests:
     name: Push test GAS project and run tests
-    if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - name: Checkout PR merge commit
+      - name: Checkout test ref
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect GAS-impacting changes
+        id: impact
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          run_gas_tests="true"
+          reason="event requires GAS tests"
+
+          if [[ "${GITHUB_EVENT_NAME}" == "pull_request" || "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            git fetch --no-tags --prune --depth=1 origin develop
+
+            changed_files="$(git diff --name-only origin/develop...HEAD || git diff --name-only origin/develop HEAD)"
+
+            echo "Changed files:"
+            printf '%s\n' "${changed_files}"
+
+            run_gas_tests="false"
+            while IFS= read -r file; do
+              [[ -z "${file}" ]] && continue
+              case "${file}" in
+                docs/*|*.md)
+                  ;;
+                *)
+                  run_gas_tests="true"
+                  break
+                  ;;
+              esac
+            done <<< "${changed_files}"
+
+            if [[ "${run_gas_tests}" == "true" ]]; then
+              reason="code, workflow, script, or config files changed"
+            else
+              reason="only docs or Markdown files changed"
+            fi
+          elif [[ "${GITHUB_EVENT_NAME}" == "merge_group" ]]; then
+            run_gas_tests="true"
+            reason="merge queue validation"
+          fi
+
+          echo "run_gas_tests=${run_gas_tests}" >> "${GITHUB_OUTPUT}"
+          echo "reason=${reason}" >> "${GITHUB_OUTPUT}"
+
+          if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+            {
+              echo "## GAS CI impact"
+              echo ""
+              echo "- Event: \`${GITHUB_EVENT_NAME}\`"
+              echo "- Run GAS tests: \`${run_gas_tests}\`"
+              echo "- Reason: ${reason}"
+            } >> "${GITHUB_STEP_SUMMARY}"
+          fi
 
       - name: Set up Node.js
+        if: ${{ steps.impact.outputs.run_gas_tests == 'true' }}
         uses: actions/setup-node@v4
         with:
           node-version: "20"
 
       - name: Install clasp
+        if: ${{ steps.impact.outputs.run_gas_tests == 'true' }}
         run: npm install --global @google/clasp
 
       - name: Push to test Apps Script and run GAS tests
+        if: ${{ steps.impact.outputs.run_gas_tests == 'true' }}
         shell: bash
         env:
           CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
@@ -45,9 +105,13 @@ jobs:
           CLASP_USER: ${{ secrets.CLASP_USER }}
         run: bash scripts/ci/run-gas-tests.sh
 
+      - name: Skip GAS tests
+        if: ${{ steps.impact.outputs.run_gas_tests != 'true' }}
+        run: echo "Skipping GAS tests because ${{ steps.impact.outputs.reason }}."
+
   external-pr-guard:
     name: External PR guard
-    if: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
     runs-on: ubuntu-latest
     permissions: {}
     steps:
