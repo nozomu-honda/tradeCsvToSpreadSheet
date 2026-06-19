@@ -5,28 +5,42 @@ on:
     branches:
       - develop
     types:
-      - reopened
-      - ready_for_review
-  workflow_dispatch:
-  merge_group:
-    branches:
-      - develop
+      - labeled
 
 permissions:
   contents: read
 
 concurrency:
-  group: gas-tests-${{ github.event.pull_request.number || github.event.merge_group.head_sha || github.ref }}
+  group: gas-tests-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
   gas-tests:
     name: Push test GAS project and run tests
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - name: Checkout test ref
+      - name: Validate run-gas-tests label
+        shell: bash
+        env:
+          ADDED_LABEL: ${{ github.event.label.name }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          BASE_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          if [[ "${ADDED_LABEL}" != "run-gas-tests" ]]; then
+            echo "::error::GAS Tests is a final-check workflow. Remove this run and add the run-gas-tests label when the final GAS check is required."
+            echo "Added label: ${ADDED_LABEL}"
+            exit 1
+          fi
+
+          if [[ "${HEAD_REPO}" != "${BASE_REPO}" ]]; then
+            echo "::error::Secret-backed GAS tests are disabled for fork or external PRs."
+            exit 1
+          fi
+
+      - name: Checkout PR merge commit
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -37,38 +51,37 @@ jobs:
         run: |
           set -euo pipefail
 
-          run_gas_tests="true"
-          reason="event requires GAS tests"
+          git fetch --no-tags --prune --depth=1 origin develop
 
-          if [[ "${GITHUB_EVENT_NAME}" == "pull_request" || "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
-            git fetch --no-tags --prune --depth=1 origin develop
+          changed_files="$(git diff --name-only origin/develop...HEAD || git diff --name-only origin/develop HEAD)"
 
-            changed_files="$(git diff --name-only origin/develop...HEAD || git diff --name-only origin/develop HEAD)"
+          echo "Changed files:"
+          printf '%s\n' "${changed_files}"
 
-            echo "Changed files:"
-            printf '%s\n' "${changed_files}"
+          run_gas_tests="false"
+          reason="no GAS-impacting files changed"
+          impact_files=""
 
-            run_gas_tests="false"
-            while IFS= read -r file; do
-              [[ -z "${file}" ]] && continue
-              case "${file}" in
-                docs/*|*.md)
-                  ;;
-                *)
-                  run_gas_tests="true"
-                  break
-                  ;;
-              esac
-            done <<< "${changed_files}"
+          while IFS= read -r file; do
+            [[ -z "${file}" ]] && continue
+            case "${file}" in
+              src/*|scripts/*|.github/workflows/*|appsscript.json|Index.html|.claspignore|.clasp.example.json|package.json|package-lock.json)
+                run_gas_tests="true"
+                impact_files="${impact_files}${file}\n"
+                ;;
+              docs/*|*.md)
+                ;;
+              *)
+                ;;
+            esac
+          done <<< "${changed_files}"
 
-            if [[ "${run_gas_tests}" == "true" ]]; then
-              reason="code, workflow, script, or config files changed"
-            else
-              reason="only docs or Markdown files changed"
-            fi
-          elif [[ "${GITHUB_EVENT_NAME}" == "merge_group" ]]; then
-            run_gas_tests="true"
-            reason="merge queue validation"
+          if [[ "${run_gas_tests}" == "true" ]]; then
+            reason="GAS code, CI script, workflow, or configuration files changed"
+          elif [[ -z "${changed_files}" ]]; then
+            reason="no files changed against develop"
+          else
+            reason="only docs, Markdown, or non-GAS-impacting files changed"
           fi
 
           echo "run_gas_tests=${run_gas_tests}" >> "${GITHUB_OUTPUT}"
@@ -79,8 +92,14 @@ jobs:
               echo "## GAS CI impact"
               echo ""
               echo "- Event: \`${GITHUB_EVENT_NAME}\`"
+              echo "- Added label: \`${{ github.event.label.name }}\`"
               echo "- Run GAS tests: \`${run_gas_tests}\`"
               echo "- Reason: ${reason}"
+              if [[ -n "${impact_files}" ]]; then
+                echo ""
+                echo "### GAS-impacting files"
+                printf '%b' "${impact_files}" | sed 's/^/- /'
+              fi
             } >> "${GITHUB_STEP_SUMMARY}"
           fi
 
@@ -108,12 +127,3 @@ jobs:
       - name: Skip GAS tests
         if: ${{ steps.impact.outputs.run_gas_tests != 'true' }}
         run: echo "Skipping GAS tests because ${{ steps.impact.outputs.reason }}."
-
-  external-pr-guard:
-    name: External PR guard
-    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
-    runs-on: ubuntu-latest
-    permissions: {}
-    steps:
-      - name: Skip secret-backed GAS tests
-        run: echo "Skipping GAS tests for fork or external PRs so Google secrets are not exposed."
