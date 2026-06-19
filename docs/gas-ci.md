@@ -30,6 +30,8 @@
 
 `run-gas-tests` 以外のラベルで起動した場合は、job名を `Ignore non-GAS label` に切り替えて軽く成功させます。required check名の `Push test GAS project and run tests` は `run-gas-tests` ラベルの時だけ作られるため、通常のラベル運用でGAS checkを誤って成功させたり失敗させたりしません。
 
+`run-gas-tests` ラベル同士は古い実行をキャンセルしますが、通常ラベルの実行は別concurrency groupに分けるため、進行中のGAS最終確認runをキャンセルしません。
+
 ## 推奨マージフロー
 
 1. 実装を完了する。
