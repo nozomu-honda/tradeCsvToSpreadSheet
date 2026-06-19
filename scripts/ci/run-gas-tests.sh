@@ -104,7 +104,7 @@ manifest.executionApi = { access: 'ANYONE' };
 fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
 NODE
 
-append_summary "## GAS CI" "" "- Target: test-only Apps Script project from \`GAS_TEST_SCRIPT_ID\`" "- Source entry points: verified before push" "- Test manifest: injects \`executionApi\` in CI before push" "- Push: \`clasp push --force\`" "- Deployment: \`clasp create-deployment\`" "- Tests: \`${test_functions[*]}\`" ""
+append_summary "## GAS CI" "" "- Target: test-only Apps Script project from \`GAS_TEST_SCRIPT_ID\`" "- Source entry points: verified before push" "- Test manifest: injects \`executionApi\` in CI before push" "- Push: \`clasp push --force\`" "- Deployment: \`clasp create-deployment\`" "- Execution: \`clasp run\` in devMode, using the latest pushed code" "- Tests: \`${test_functions[*]}\`" ""
 
 echo "::group::clasp push"
 clasp push --force
@@ -123,22 +123,30 @@ failures=()
 for function_name in "${test_functions[@]}"; do
   echo "::group::${function_name}"
   set +e
-  output="$(clasp run --nondev "${function_name}" 2>&1)"
+  output="$(clasp run "${function_name}" 2>&1)"
   exit_code=$?
   set -e
 
   printf '%s\n' "${output}"
 
   unavailable=0
-  if printf '%s\n' "${output}" | grep -Eqi 'Script function not found|Unable to run script function'; then
+  unavailable_reason=""
+  if printf '%s\n' "${output}" | grep -qi 'Script function not found'; then
     unavailable=1
+    unavailable_reason="function was not found after push/deployment"
+  elif printf '%s\n' "${output}" | grep -qi 'Unable to run script function'; then
+    unavailable=1
+    unavailable_reason="clasp was not authorized to execute the function"
+  fi
+
+  if [[ ${unavailable} -eq 1 ]]; then
     exit_code=1
-    echo "::error title=GAS test function unavailable::${function_name} could not be executed after clasp push and deployment."
+    echo "::error title=GAS test function unavailable::${function_name} could not be executed after clasp push and deployment: ${unavailable_reason}."
   fi
 
   append_summary "### ${function_name}"
   if [[ ${unavailable} -eq 1 ]]; then
-    append_summary "- Result: FAIL (function unavailable after push/deployment)" ""
+    append_summary "- Result: FAIL (${unavailable_reason})" ""
     failures+=("${function_name}")
   elif [[ ${exit_code} -eq 0 ]]; then
     append_summary "- Result: PASS" ""
