@@ -37,6 +37,8 @@ The first CI version uses clasp because it is the smallest path for this reposit
 7. Run `clasp run runSmokeTests` in clasp's default devMode, so it uses the latest pushed code.
 8. Run `clasp run runAllTests` in clasp's default devMode, so it uses the latest pushed code.
 
+If `CLASP_USER` is set, the workflow runs clasp as `clasp --user "$CLASP_USER" ...`. This supports `.clasprc.json` files created with `clasp login --user <ci-user>` while keeping the no-user default login flow supported too.
+
 The CI intentionally does not pass `--nondev`. The default `clasp run` mode runs the latest saved script content; `--nondev` runs the deployed version and can report `Script function not found` even after the repository files were pushed to the test project.
 
 The Apps Script API `scripts.run` path is still a reasonable later option, but it would still need a safe way to update the target script content first. For the initial PR, clasp keeps authentication and execution behavior closer to the existing Apps Script tooling.
@@ -48,6 +50,7 @@ The Apps Script API `scripts.run` path is still a reasonable later option, but i
 
 Optional:
 
+- `CLASP_USER`: the clasp user name/email to pass through `clasp --user`. Set this when `CLASPRC_JSON` was generated with `clasp login --user <ci-user>`.
 - `GAS_TEST_DEPLOYMENT_ID`: an existing API executable deployment ID for the test Apps Script project. If omitted, CI creates a new deployment in the test project for the run.
 - `CLASP_PROJECT_JSON`: full `.clasp.json` content, only if the CI project needs custom clasp settings beyond `GAS_TEST_SCRIPT_ID`.
 - `GOOGLE_OAUTH_CLIENT_SECRET_JSON`: not used by the first workflow. Keep this for a later Apps Script API implementation if needed.
@@ -63,10 +66,11 @@ Before enabling the workflow:
 1. Create or choose a test-only Apps Script project.
 2. Enable the Apps Script API for the Google account used by CI.
 3. Run `clasp login` locally with the CI/test account and store the generated `~/.clasprc.json` content in `CLASPRC_JSON`.
-4. If `clasp run` reports `Unable to run script function`, regenerate `CLASPRC_JSON` with the project scopes from `appsscript.json`, for example `clasp login --user <ci-user> --use-project-scopes --include-clasp-scopes --creds client_secret.json`.
-5. Store the test Apps Script project ID in `GAS_TEST_SCRIPT_ID`.
-6. Optionally create an API executable deployment in the test project and store its deployment ID in `GAS_TEST_DEPLOYMENT_ID` to avoid creating a new deployment on each run.
-7. Confirm that test helper configuration points only to test spreadsheets, test Drive folders, and other non-production resources.
+4. If that login used `clasp login --user <ci-user>`, store the same user in `CLASP_USER`. Alternatively, regenerate `CLASPRC_JSON` with a default, no-`--user` clasp login.
+5. If `clasp run` reports `Unable to run script function`, regenerate `CLASPRC_JSON` with the project scopes from `appsscript.json`, for example `clasp login --user <ci-user> --use-project-scopes --include-clasp-scopes --creds client_secret.json` plus `CLASP_USER=<ci-user>`, or the equivalent no-`--user` login.
+6. Store the test Apps Script project ID in `GAS_TEST_SCRIPT_ID`.
+7. Optionally create an API executable deployment in the test project and store its deployment ID in `GAS_TEST_DEPLOYMENT_ID` to avoid creating a new deployment on each run.
+8. Confirm that test helper configuration points only to test spreadsheets, test Drive folders, and other non-production resources.
 
 `clasp push --force` updates the target Apps Script project content from the repository. The test runner and test helpers must live in source control; this PR uses `src/test/test_runner.gs` for `runSmokeTests()` and `runAllTests()`.
 
@@ -79,6 +83,7 @@ The repository manifest is not broadened for production just to make CI work. In
 The script also fails explicitly when:
 
 - either test entry point is missing from source-controlled `.gs` / `.js` files before `clasp push --force`;
+- `clasp push`, `clasp create-deployment`, or `clasp run` output contains `No credentials found`;
 - `clasp run` output contains `Script function not found` after the push and deployment; or
 - `clasp run` output contains `Unable to run script function`, which means the tests were not actually executed.
 
@@ -90,6 +95,6 @@ Existing manual GAS testing can continue in the Apps Script editor. For local cl
 
 This PR adds the workflow and wrapper script. `runSmokeTests()` and `runAllTests()` are source-managed through `src/test/test_runner.gs`, so CI does not depend on editor-only test functions.
 
-Observed CI runs confirmed that `clasp push --force` pushed `src/test/test_runner.gs` and the rest of the source-managed test files to the test Apps Script project. The wrapper now fails explicitly if clasp says a test function is missing or cannot be executed, so a green GitHub check means the GAS test functions actually ran.
+Observed CI runs confirmed that `clasp push --force` pushed `src/test/test_runner.gs` and the rest of the source-managed test files to the test Apps Script project. The wrapper now fails explicitly if clasp says credentials are missing, a test function is missing, or a test function cannot be executed, so a green GitHub check means the GAS test functions actually ran.
 
-If the next CI run reports `Unable to run script function`, update `CLASPRC_JSON` with a clasp login that includes the manifest project scopes. That is an OAuth/permission setup issue, not an editor-only test-function issue.
+If the next CI run reports `No credentials found`, set `CLASP_USER` when `CLASPRC_JSON` was generated with `clasp login --user`, or regenerate `CLASPRC_JSON` with a no-`--user` login. If it reports `Unable to run script function`, update `CLASPRC_JSON` with a clasp login that includes the manifest project scopes.
