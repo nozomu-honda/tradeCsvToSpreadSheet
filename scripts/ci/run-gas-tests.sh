@@ -7,6 +7,10 @@ readonly CLASP_PROJECT_PATH=".clasp.json"
 readonly DEPLOYMENT_DESCRIPTION="GAS CI ${GITHUB_SHA:-local} ${GITHUB_RUN_ID:-manual}"
 
 test_functions=("runSmokeTests" "runAllTests")
+clasp_command=(clasp)
+if [[ -n "${CLASP_USER:-}" ]]; then
+  clasp_command+=(--user "${CLASP_USER}")
+fi
 
 append_summary() {
   if [[ -n "${SUMMARY_FILE}" ]]; then
@@ -53,6 +57,9 @@ require_secret "GAS_TEST_SCRIPT_ID"
 echo "::add-mask::${GAS_TEST_SCRIPT_ID}"
 if [[ -n "${GAS_TEST_DEPLOYMENT_ID:-}" ]]; then
   echo "::add-mask::${GAS_TEST_DEPLOYMENT_ID}"
+fi
+if [[ -n "${CLASP_USER:-}" ]]; then
+  echo "::add-mask::${CLASP_USER}"
 fi
 
 if [[ ! -f "appsscript.json" ]]; then
@@ -104,17 +111,17 @@ manifest.executionApi = { access: 'ANYONE' };
 fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
 NODE
 
-append_summary "## GAS CI" "" "- Target: test-only Apps Script project from \`GAS_TEST_SCRIPT_ID\`" "- Source entry points: verified before push" "- Test manifest: injects \`executionApi\` in CI before push" "- Push: \`clasp push --force\`" "- Deployment: \`clasp create-deployment\`" "- Execution: \`clasp run\` in devMode, using the latest pushed code" "- Tests: \`${test_functions[*]}\`" ""
+append_summary "## GAS CI" "" "- Target: test-only Apps Script project from \`GAS_TEST_SCRIPT_ID\`" "- Source entry points: verified before push" "- Test manifest: injects \`executionApi\` in CI before push" "- Push: \`clasp push --force\`" "- Deployment: \`clasp create-deployment\`" "- Execution: \`clasp run\` in devMode, using the latest pushed code" "- Optional clasp user: \`${CLASP_USER:+configured}\`${CLASP_USER:-not configured}" "- Tests: \`${test_functions[*]}\`" ""
 
 echo "::group::clasp push"
-clasp push --force
+"${clasp_command[@]}" push --force
 echo "::endgroup::"
 
 echo "::group::clasp API executable deployment"
 if [[ -n "${GAS_TEST_DEPLOYMENT_ID:-}" ]]; then
-  clasp create-deployment --deploymentId "${GAS_TEST_DEPLOYMENT_ID}" --description "${DEPLOYMENT_DESCRIPTION}"
+  "${clasp_command[@]}" create-deployment --deploymentId "${GAS_TEST_DEPLOYMENT_ID}" --description "${DEPLOYMENT_DESCRIPTION}"
 else
-  clasp create-deployment --description "${DEPLOYMENT_DESCRIPTION}"
+  "${clasp_command[@]}" create-deployment --description "${DEPLOYMENT_DESCRIPTION}"
 fi
 echo "::endgroup::"
 
@@ -123,7 +130,7 @@ failures=()
 for function_name in "${test_functions[@]}"; do
   echo "::group::${function_name}"
   set +e
-  output="$(clasp run "${function_name}" 2>&1)"
+  output="$(${clasp_command[@]} run "${function_name}" 2>&1)"
   exit_code=$?
   set -e
 
@@ -137,6 +144,9 @@ for function_name in "${test_functions[@]}"; do
   elif printf '%s\n' "${output}" | grep -qi 'Unable to run script function'; then
     unavailable=1
     unavailable_reason="clasp was not authorized to execute the function"
+  elif printf '%s\n' "${output}" | grep -qi 'No credentials found'; then
+    unavailable=1
+    unavailable_reason="clasp could not find credentials; set CLASP_USER when CLASPRC_JSON was created with clasp login --user"
   fi
 
   if [[ ${unavailable} -eq 1 ]]; then
