@@ -6,7 +6,7 @@ readonly CLASP_RC_PATH="${HOME}/.clasprc.json"
 readonly CLASP_PROJECT_PATH=".clasp.json"
 readonly DEPLOYMENT_DESCRIPTION="GAS CI ${GITHUB_SHA:-local} ${GITHUB_RUN_ID:-manual}"
 
-test_functions=("runSmokeTests" "runAllTests")
+test_functions=("runAllTests")
 clasp_command=(clasp)
 clasp_user_status="not configured"
 if [[ -n "${CLASP_USER:-}" ]]; then

@@ -134,3 +134,39 @@ function test_buildOutputSheetsFromRecordsForTarget_dispatchesByDbKey_20260618_(
     assertEquals_('nomura', nomuraResult.outputDbKind, '野村DBは従来出力入口を使う');
   });
 }
+
+function test_groupRakutenOutputRecords_splitsWithoutSpreadsheet_20260618_() {
+  const records = [
+    makeTradeRecord_({
+      商品: '株式',
+      銘柄名: 'RAKUTEN_JP_OUTPUT',
+      取引区分: '現物買付',
+      数量: 1,
+      単価: 100,
+      受渡金額_決済損益: 100,
+      決済通貨: 'JPY',
+      約定日: '2026/06/18',
+      受渡日: '2026/06/18'
+    }),
+    makeTradeRecord_({
+      商品: '外株',
+      銘柄名: 'RAKUTEN_US_OUTPUT',
+      取引区分: '現物買付',
+      数量: 1,
+      単価: 10,
+      受渡金額_決済損益: 10,
+      レート: 150,
+      決済通貨: 'USD',
+      約定日: '2026/06/18',
+      受渡日: '2026/06/18'
+    })
+  ];
+
+  const groups = groupRakutenOutputRecords_(records);
+
+  assertEquals_(2, groups.all.length, '楽天出力分類の全件数');
+  assertEquals_(1, groups.japanStocks.length, '楽天出力分類の日本株件数');
+  assertEquals_(1, groups.usStocks.length, '楽天出力分類の米国株件数');
+  assertEquals_('RAKUTEN_JP_OUTPUT', groups.japanStocks[0]['銘柄名'], '楽天出力分類の日本株');
+  assertEquals_('RAKUTEN_US_OUTPUT', groups.usStocks[0]['銘柄名'], '楽天出力分類の米国株');
+}
