@@ -1,0 +1,10 @@
+.git/**
+.github/**
+docs/**
+scripts/**
+node_modules/**
+README.md
+*.md
+.gitignore
+.clasp.example.json
+.claspignore
