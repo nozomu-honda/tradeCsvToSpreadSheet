@@ -8,8 +8,10 @@ readonly DEPLOYMENT_DESCRIPTION="GAS CI ${GITHUB_SHA:-local} ${GITHUB_RUN_ID:-ma
 
 test_functions=("runSmokeTests" "runAllTests")
 clasp_command=(clasp)
+clasp_user_status="not configured"
 if [[ -n "${CLASP_USER:-}" ]]; then
   clasp_command+=(--user "${CLASP_USER}")
+  clasp_user_status="configured"
 fi
 
 append_summary() {
@@ -43,6 +45,41 @@ ensure_source_function() {
   echo "::error title=Missing GAS test entry point::${function_name} is not defined in source-controlled .gs/.js files."
   append_summary "### Missing test entry point" "- \`${function_name}\` is not defined in source-controlled .gs/.js files."
   return 1
+}
+
+fail_on_no_credentials() {
+  local output="$1"
+  local context="$2"
+
+  if printf '%s\n' "${output}" | grep -qi 'No credentials found'; then
+    echo "::error title=No clasp credentials::${context} could not find clasp credentials. If CLASPRC_JSON was created with clasp login --user, set CLASP_USER to the same user."
+    append_summary "### ${context}" "- Result: FAIL (No clasp credentials found)" "- If \`CLASPRC_JSON\` was created with \`clasp login --user\`, set \`CLASP_USER\` to the same user." ""
+    return 1
+  fi
+
+  return 0
+}
+
+run_clasp_step() {
+  local group_name="$1"
+  shift
+
+  echo "::group::${group_name}"
+  set +e
+  local output
+  output="$("${clasp_command[@]}" "$@" 2>&1)"
+  local exit_code=$?
+  set -e
+
+  printf '%s\n' "${output}"
+
+  if ! fail_on_no_credentials "${output}" "${group_name}"; then
+    echo "::endgroup::"
+    return 1
+  fi
+
+  echo "::endgroup::"
+  return "${exit_code}"
 }
 
 cleanup() {
@@ -111,26 +148,22 @@ manifest.executionApi = { access: 'ANYONE' };
 fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
 NODE
 
-append_summary "## GAS CI" "" "- Target: test-only Apps Script project from \`GAS_TEST_SCRIPT_ID\`" "- Source entry points: verified before push" "- Test manifest: injects \`executionApi\` in CI before push" "- Push: \`clasp push --force\`" "- Deployment: \`clasp create-deployment\`" "- Execution: \`clasp run\` in devMode, using the latest pushed code" "- Optional clasp user: \`${CLASP_USER:+configured}\`${CLASP_USER:-not configured}" "- Tests: \`${test_functions[*]}\`" ""
+append_summary "## GAS CI" "" "- Target: test-only Apps Script project from \`GAS_TEST_SCRIPT_ID\`" "- Source entry points: verified before push" "- Test manifest: injects \`executionApi\` in CI before push" "- Push: \`clasp push --force\`" "- Deployment: \`clasp create-deployment\`" "- Execution: \`clasp run\` in devMode, using the latest pushed code" "- Optional clasp user: ${clasp_user_status}" "- Tests: \`${test_functions[*]}\`" ""
 
-echo "::group::clasp push"
-"${clasp_command[@]}" push --force
-echo "::endgroup::"
+run_clasp_step "clasp push" push --force
 
-echo "::group::clasp API executable deployment"
 if [[ -n "${GAS_TEST_DEPLOYMENT_ID:-}" ]]; then
-  "${clasp_command[@]}" create-deployment --deploymentId "${GAS_TEST_DEPLOYMENT_ID}" --description "${DEPLOYMENT_DESCRIPTION}"
+  run_clasp_step "clasp API executable deployment" create-deployment --deploymentId "${GAS_TEST_DEPLOYMENT_ID}" --description "${DEPLOYMENT_DESCRIPTION}"
 else
-  "${clasp_command[@]}" create-deployment --description "${DEPLOYMENT_DESCRIPTION}"
+  run_clasp_step "clasp API executable deployment" create-deployment --description "${DEPLOYMENT_DESCRIPTION}"
 fi
-echo "::endgroup::"
 
 failures=()
 
 for function_name in "${test_functions[@]}"; do
   echo "::group::${function_name}"
   set +e
-  output="$(${clasp_command[@]} run "${function_name}" 2>&1)"
+  output="$("${clasp_command[@]}" run "${function_name}" 2>&1)"
   exit_code=$?
   set -e
 
