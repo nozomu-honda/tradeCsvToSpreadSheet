@@ -38,6 +38,18 @@
 
 テスト成功後に追加コミットした場合は、古い成功結果を使わず、`run-gas-tests` ラベルを一度外してから再度付けてください。これにより、新しいPR headでGAS CIを再実行できます。
 
+## Codexにマージを依頼する場合
+
+ユーザーがCodexに「マージして」と依頼した場合、Codexはすぐにマージせず、次の順で進めます。
+
+1. 対象PRのhead SHA、base branch、mergeable状態を確認する。
+2. `run-gas-tests` ラベルが付いていない場合は付ける。
+3. `run-gas-tests` ラベルが既に付いていて最新headのGAS Testsが未確認の場合は、ラベルを一度外して再度付ける。
+4. `Push test GAS project and run tests` が最新headで成功するまで待つ。
+5. チェック成功後にhead SHAを再確認し、変わっていなければマージする。
+
+GAS Testsが失敗した場合、Codexはマージせず、失敗したcheck名とログ上の原因を報告します。
+
 ## Required Check
 
 required check 名は次のまま維持します。
