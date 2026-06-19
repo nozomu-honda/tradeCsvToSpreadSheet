@@ -108,11 +108,13 @@ required check 名は次のまま維持します。
 任意:
 
 - `CLASP_USER`: `clasp --user` に渡すユーザー名またはメールアドレス。`CLASPRC_JSON` を `clasp login --user <ci-user>` で生成した場合に設定します。
-- `GAS_TEST_DEPLOYMENT_ID`: テスト専用 Apps Script プロジェクトの既存API executable deployment ID。未設定の場合、CIが実行時にdeploymentを作成します。
+- `GAS_TEST_DEPLOYMENT_ID`: テスト専用 Apps Script プロジェクトの既存API executable deployment ID。設定した場合だけ、CIが既存deploymentを更新します。未設定の場合、CIは新しいversioned deploymentを作成しません。
 - `CLASP_PROJECT_JSON`: `GAS_TEST_SCRIPT_ID` だけでは足りないclasp設定が必要な場合の `.clasp.json` 全体。
 - `GOOGLE_OAUTH_CLIENT_SECRET_JSON`: 現在のclaspベースworkflowでは未使用です。将来 Apps Script API ベースへ移行する場合の候補として残します。
 
 OAuth token、Script ID、deployment ID、Spreadsheet ID、Drive folder ID、本番DB IDなどの実値はコミットしないでください。
+
+テスト専用 Apps Script プロジェクトでは、初回設定としてAPI executable accessを有効にしてください。`GAS_TEST_DEPLOYMENT_ID` を未設定で運用する場合でも、`clasp run` が実行できる状態のテスト専用プロジェクトを使います。
 
 ## 実行内容
 
@@ -124,7 +126,7 @@ GAS実行対象と判定された場合、workflowは次を行います。
 4. ソース管理された `.gs` / `.js` ファイル内に `runAllTests()` が存在することを確認する。
 5. CI runner上の `appsscript.json` に `executionApi: { access: 'ANYONE' }` を注入する。
 6. テスト専用 Apps Script プロジェクトへ `clasp push --force` する。
-7. API executable deployment を作成または更新する。
+7. `GAS_TEST_DEPLOYMENT_ID` が設定されている場合だけ、API executable deployment を更新する。未設定の場合は、新しいversioned deploymentを作成せずスキップする。
 8. 最新のpush済みコードに対して `clasp run runAllTests` を実行する。
 
 ## ログと失敗判定
