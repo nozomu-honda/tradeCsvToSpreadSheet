@@ -120,19 +120,19 @@ jobs:
             fi
 
             python3 - "${response_file}" "${REQUIRED_CHECK_NAME}" <<'PY'
-import json
-import sys
+          import json
+          import sys
 
-path, required_name = sys.argv[1], sys.argv[2]
-with open(path, encoding="utf-8") as fh:
-    data = json.load(fh)
+          path, required_name = sys.argv[1], sys.argv[2]
+          with open(path, encoding="utf-8") as fh:
+              data = json.load(fh)
 
-for check_run in data.get("check_runs", []):
-    if check_run.get("name") == required_name and check_run.get("conclusion") == "success":
-        sys.exit(0)
+          for check_run in data.get("check_runs", []):
+              if check_run.get("name") == required_name and check_run.get("conclusion") == "success":
+                  sys.exit(0)
 
-sys.exit(1)
-PY
+          sys.exit(1)
+          PY
           }
 
           git fetch --no-tags --prune --depth=1 origin develop
