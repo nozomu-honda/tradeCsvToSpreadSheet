@@ -123,7 +123,7 @@ jobs:
         if: ${{ steps.impact.outputs.run_gas_tests == 'true' }}
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"
 
       - name: Install clasp
         if: ${{ steps.impact.outputs.run_gas_tests == 'true' }}

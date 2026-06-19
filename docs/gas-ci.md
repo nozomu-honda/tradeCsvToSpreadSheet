@@ -1,6 +1,8 @@
 # GAS CI
 
-このリポジトリは Google Apps Script / V8 のプロジェクトです。GAS CI は、GitHub Actions からテスト専用 Apps Script プロジェクトへ clasp でソースを反映し、GAS 上の `runSmokeTests` / `runAllTests` を実行します。
+このリポジトリは Google Apps Script / V8 のプロジェクトです。GAS CI は、GitHub Actions からテスト専用 Apps Script プロジェクトへ clasp でソースを反映し、GAS 上の `runAllTests` を実行します。
+
+`runAllTests()` は `CORE_TESTS_` を含むため、`runSmokeTests()` 相当の軽い確認範囲も含めて実行されます。CIでは同一テスト用 Apps Script プロジェクトでの二重実行を避けるため、`runSmokeTests` を別途実行せず `runAllTests` の1回実行に整理します。
 
 ## 目的
 
@@ -66,7 +68,7 @@ required check 名は次のまま維持します。
 
 ## GAS実行対象の判定
 
-`run-gas-tests` ラベルが付いた場合でも、すべての変更でGASを実行するわけではありません。workflow内で `develop` との差分を確認し、次のようなGAS影響ファイルがある場合だけ `clasp push --force` と `runSmokeTests` / `runAllTests` を実行します。
+`run-gas-tests` ラベルが付いた場合でも、すべての変更でGASを実行するわけではありません。workflow内で `develop` との差分を確認し、次のようなGAS影響ファイルがある場合だけ `clasp push --force` と `runAllTests` を実行します。
 
 - `src/**`
 - `scripts/**`
@@ -119,11 +121,11 @@ GAS実行対象と判定された場合、workflowは次を行います。
 1. `CLASPRC_JSON` から `~/.clasprc.json` を生成する。
 2. `GAS_TEST_SCRIPT_ID` から `.clasp.json` を生成する。`CLASP_PROJECT_JSON` がある場合はそちらを使う。
 3. `CLASP_USER` がある場合は `clasp --user "$CLASP_USER" ...` として実行する。
-4. ソース管理された `.gs` / `.js` ファイル内に `runSmokeTests()` と `runAllTests()` が存在することを確認する。
+4. ソース管理された `.gs` / `.js` ファイル内に `runAllTests()` が存在することを確認する。
 5. CI runner上の `appsscript.json` に `executionApi: { access: 'ANYONE' }` を注入する。
 6. テスト専用 Apps Script プロジェクトへ `clasp push --force` する。
 7. API executable deployment を作成または更新する。
-8. 最新のpush済みコードに対して `clasp run runSmokeTests` と `clasp run runAllTests` を実行する。
+8. 最新のpush済みコードに対して `clasp run runAllTests` を実行する。
 
 ## ログと失敗判定
 
@@ -132,13 +134,13 @@ GAS実行対象と判定された場合、workflowは次を行います。
 workflowは次の場合に明示的に失敗します。
 
 - forkまたは外部PRで `run-gas-tests` ラベルが付いた。
-- ソース管理された `.gs` / `.js` ファイル内に `runSmokeTests()` または `runAllTests()` がない。
+- ソース管理された `.gs` / `.js` ファイル内に `runAllTests()` がない。
 - `clasp push`、`clasp create-deployment`、`clasp run` の出力に `No credentials found` が含まれる。
 - `clasp run` の出力に `Script function not found` が含まれる。
 - `clasp run` の出力に `Unable to run script function` が含まれる。
 - GASテスト出力に `NG`、`Exception:`、`Error:` が含まれる。
 
-つまり、GAS側の `runSmokeTests` / `runAllTests` の実結果が失敗した場合、GitHub Actionsのcheckも失敗します。
+つまり、GAS側の `runAllTests` の実結果が失敗した場合、GitHub Actionsのcheckも失敗します。
 
 ## 手動GASテスト
 
