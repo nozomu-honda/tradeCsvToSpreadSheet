@@ -4,6 +4,7 @@ set -Eeuo pipefail
 readonly SUMMARY_FILE="${GITHUB_STEP_SUMMARY:-}"
 readonly CLASP_RC_PATH="${HOME}/.clasprc.json"
 readonly CLASP_PROJECT_PATH=".clasp.json"
+readonly DEPLOYMENT_DESCRIPTION="GAS CI ${GITHUB_SHA:-local} ${GITHUB_RUN_ID:-manual}"
 
 test_functions=("runSmokeTests" "runAllTests")
 
@@ -50,6 +51,9 @@ require_secret "CLASPRC_JSON"
 require_secret "GAS_TEST_SCRIPT_ID"
 
 echo "::add-mask::${GAS_TEST_SCRIPT_ID}"
+if [[ -n "${GAS_TEST_DEPLOYMENT_ID:-}" ]]; then
+  echo "::add-mask::${GAS_TEST_DEPLOYMENT_ID}"
+fi
 
 if [[ ! -f "appsscript.json" ]]; then
   echo "::error title=Missing appsscript.json::Run from the Apps Script source root."
@@ -64,14 +68,17 @@ node <<'NODE'
 const fs = require('fs');
 const os = require('os');
 
-function writeJsonFile(path, raw, label) {
-  let parsed;
+function parseJson(raw, label) {
   try {
-    parsed = JSON.parse(raw);
+    return JSON.parse(raw);
   } catch (error) {
     console.error(`::error title=Invalid ${label}::${error.message}`);
     process.exit(1);
   }
+}
+
+function writeJsonFile(path, raw, label) {
+  const parsed = parseJson(raw, label);
   fs.writeFileSync(path, JSON.stringify(parsed, null, 2) + '\n', { mode: 0o600 });
 }
 
@@ -90,12 +97,25 @@ if ((process.env.CLASP_PROJECT_JSON || '').trim()) {
     skipSubdirectories: false
   }), 'generated .clasp.json');
 }
+
+const manifestPath = 'appsscript.json';
+const manifest = parseJson(fs.readFileSync(manifestPath, 'utf8'), 'appsscript.json');
+manifest.executionApi = { access: 'ANYONE' };
+fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
 NODE
 
-append_summary "## GAS CI" "" "- Target: test-only Apps Script project from \`GAS_TEST_SCRIPT_ID\`" "- Source entry points: verified before push" "- Push: \`clasp push --force\`" "- Tests: \`${test_functions[*]}\`" ""
+append_summary "## GAS CI" "" "- Target: test-only Apps Script project from \`GAS_TEST_SCRIPT_ID\`" "- Source entry points: verified before push" "- Test manifest: injects \`executionApi\` in CI before push" "- Push: \`clasp push --force\`" "- Deployment: \`clasp create-deployment\`" "- Tests: \`${test_functions[*]}\`" ""
 
 echo "::group::clasp push"
 clasp push --force
+echo "::endgroup::"
+
+echo "::group::clasp API executable deployment"
+if [[ -n "${GAS_TEST_DEPLOYMENT_ID:-}" ]]; then
+  clasp create-deployment --deploymentId "${GAS_TEST_DEPLOYMENT_ID}" --description "${DEPLOYMENT_DESCRIPTION}"
+else
+  clasp create-deployment --description "${DEPLOYMENT_DESCRIPTION}"
+fi
 echo "::endgroup::"
 
 failures=()
@@ -113,7 +133,7 @@ for function_name in "${test_functions[@]}"; do
   if printf '%s\n' "${output}" | grep -qi 'Script function not found'; then
     function_not_found=1
     exit_code=1
-    echo "::error title=GAS test function missing::${function_name} was not found after clasp push."
+    echo "::error title=GAS test function unavailable::${function_name} was not available after clasp push and deployment."
   fi
 
   append_summary "### ${function_name}"
