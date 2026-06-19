@@ -40,6 +40,7 @@ jobs:
         env:
           CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
           GAS_TEST_SCRIPT_ID: ${{ secrets.GAS_TEST_SCRIPT_ID }}
+          GAS_TEST_DEPLOYMENT_ID: ${{ secrets.GAS_TEST_DEPLOYMENT_ID }}
           CLASP_PROJECT_JSON: ${{ secrets.CLASP_PROJECT_JSON }}
         run: bash scripts/ci/run-gas-tests.sh
 
