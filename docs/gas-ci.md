@@ -28,6 +28,8 @@
 
 `opened`、`synchronize`、`reopened`、`ready_for_review`、`workflow_dispatch`、`merge_group` では起動しません。
 
+`run-gas-tests` 以外のラベルで起動した場合は、job名を `Ignore non-GAS label` に切り替えて軽く成功させます。required check名の `Push test GAS project and run tests` は `run-gas-tests` ラベルの時だけ作られるため、通常のラベル運用でGAS checkを誤って成功させたり失敗させたりしません。
+
 ## 推奨マージフロー
 
 1. 実装を完了する。
@@ -58,7 +60,7 @@ required check 名は次のまま維持します。
 
 `develop` のrulesetでは、このcheckを必須にしてください。
 
-`run-gas-tests` 以外のラベルでworkflowが起動した場合、このcheckは冒頭で失敗します。これは、別ラベル追加によるskipped/success扱いでrequired checkが誤って通るのを避けるためです。
+このrequired check名は `run-gas-tests` ラベルの時だけ出します。`bug` や `docs` など別ラベルを付けた時は、別名の `Ignore non-GAS label` jobとして終了するため、required checkの偽陽性には使われません。
 
 ## GAS実行対象の判定
 
@@ -127,7 +129,6 @@ GAS実行対象と判定された場合、workflowは次を行います。
 
 workflowは次の場合に明示的に失敗します。
 
-- `run-gas-tests` 以外のラベルで起動された。
 - forkまたは外部PRで `run-gas-tests` ラベルが付いた。
 - ソース管理された `.gs` / `.js` ファイル内に `runSmokeTests()` または `runAllTests()` がない。
 - `clasp push`、`clasp create-deployment`、`clasp run` の出力に `No credentials found` が含まれる。
