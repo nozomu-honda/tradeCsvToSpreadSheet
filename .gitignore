@@ -1,0 +1,4 @@
+# Local clasp project bindings and OAuth tokens must stay out of git.
+.clasp.json
+.clasprc.json
+.clasprc*.json
