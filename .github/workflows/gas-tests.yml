@@ -16,24 +16,38 @@ concurrency:
 
 jobs:
   gas-tests:
-    name: Push test GAS project and run tests
+    name: ${{ github.event.label.name == 'run-gas-tests' && 'Push test GAS project and run tests' || 'Ignore non-GAS label' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - name: Validate run-gas-tests label
+      - name: Check trigger label
+        id: label
         shell: bash
         env:
           ADDED_LABEL: ${{ github.event.label.name }}
+        run: |
+          set -euo pipefail
+
+          if [[ "${ADDED_LABEL}" == "run-gas-tests" ]]; then
+            echo "run_for_label=true" >> "${GITHUB_OUTPUT}"
+            echo "Running GAS final check for label: ${ADDED_LABEL}"
+          else
+            echo "run_for_label=false" >> "${GITHUB_OUTPUT}"
+            echo "Ignoring label for GAS final check: ${ADDED_LABEL}"
+          fi
+
+      - name: Skip non-GAS label
+        if: ${{ steps.label.outputs.run_for_label != 'true' }}
+        run: echo "Skipping GAS Tests because label '${{ github.event.label.name }}' is not run-gas-tests."
+
+      - name: Validate same-repository PR
+        if: ${{ steps.label.outputs.run_for_label == 'true' }}
+        shell: bash
+        env:
           HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
           BASE_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-
-          if [[ "${ADDED_LABEL}" != "run-gas-tests" ]]; then
-            echo "::error::GAS Tests is a final-check workflow. Remove this run and add the run-gas-tests label when the final GAS check is required."
-            echo "Added label: ${ADDED_LABEL}"
-            exit 1
-          fi
 
           if [[ "${HEAD_REPO}" != "${BASE_REPO}" ]]; then
             echo "::error::Secret-backed GAS tests are disabled for fork or external PRs."
@@ -41,11 +55,13 @@ jobs:
           fi
 
       - name: Checkout PR merge commit
+        if: ${{ steps.label.outputs.run_for_label == 'true' }}
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
       - name: Detect GAS-impacting changes
+        if: ${{ steps.label.outputs.run_for_label == 'true' }}
         id: impact
         shell: bash
         run: |
@@ -125,5 +141,5 @@ jobs:
         run: bash scripts/ci/run-gas-tests.sh
 
       - name: Skip GAS tests
-        if: ${{ steps.impact.outputs.run_gas_tests != 'true' }}
+        if: ${{ steps.label.outputs.run_for_label == 'true' && steps.impact.outputs.run_gas_tests != 'true' }}
         run: echo "Skipping GAS tests because ${{ steps.impact.outputs.reason }}."
