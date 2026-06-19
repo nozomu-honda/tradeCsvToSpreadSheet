@@ -182,14 +182,27 @@ for function_name in "${test_functions[@]}"; do
     unavailable_reason="clasp could not find credentials; set CLASP_USER when CLASPRC_JSON was created with clasp login --user"
   fi
 
+  test_failed=0
+  test_failure_reason=""
+  if [[ ${unavailable} -eq 0 ]] && printf '%s\n' "${output}" | grep -Eq '(^|[[:space:]])NG[[:space:]]{2}|^Exception:|^Error:'; then
+    test_failed=1
+    test_failure_reason="GAS test output contained NG or Exception/Error"
+  fi
+
   if [[ ${unavailable} -eq 1 ]]; then
     exit_code=1
     echo "::error title=GAS test function unavailable::${function_name} could not be executed after clasp push and deployment: ${unavailable_reason}."
+  elif [[ ${test_failed} -eq 1 ]]; then
+    exit_code=1
+    echo "::error title=GAS test reported failures::${function_name} output contained NG or Exception/Error."
   fi
 
   append_summary "### ${function_name}"
   if [[ ${unavailable} -eq 1 ]]; then
     append_summary "- Result: FAIL (${unavailable_reason})" ""
+    failures+=("${function_name}")
+  elif [[ ${test_failed} -eq 1 ]]; then
+    append_summary "- Result: FAIL (${test_failure_reason})" ""
     failures+=("${function_name}")
   elif [[ ${exit_code} -eq 0 ]]; then
     append_summary "- Result: PASS" ""
