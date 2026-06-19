@@ -78,14 +78,15 @@ The repository manifest is not broadened for production just to make CI work. In
 
 ## Logs and failures
 
-`scripts/ci/run-gas-tests.sh` groups the Actions log by function name and writes each function result to the GitHub step summary. If either `runSmokeTests` or `runAllTests` exits non-zero, the workflow emits an error with the failed function name and the GitHub check fails.
+`scripts/ci/run-gas-tests.sh` groups the Actions log by function name and writes each function result to the GitHub step summary. If either `runSmokeTests` or `runAllTests` exits non-zero, reports `NG`, or reports an Apps Script exception, the workflow emits an error with the failed function name and the GitHub check fails.
 
 The script also fails explicitly when:
 
 - either test entry point is missing from source-controlled `.gs` / `.js` files before `clasp push --force`;
 - `clasp push`, `clasp create-deployment`, or `clasp run` output contains `No credentials found`;
-- `clasp run` output contains `Script function not found` after the push and deployment; or
-- `clasp run` output contains `Unable to run script function`, which means the tests were not actually executed.
+- `clasp run` output contains `Script function not found` after the push and deployment;
+- `clasp run` output contains `Unable to run script function`, which means the tests were not actually executed; or
+- GAS test output contains `NG`, `Exception:`, or `Error:` even when `clasp run` itself returns exit code 0.
 
 ## Manual GAS testing
 
@@ -95,6 +96,6 @@ Existing manual GAS testing can continue in the Apps Script editor. For local cl
 
 This PR adds the workflow and wrapper script. `runSmokeTests()` and `runAllTests()` are source-managed through `src/test/test_runner.gs`, so CI does not depend on editor-only test functions.
 
-Observed CI runs confirmed that `clasp push --force` pushed `src/test/test_runner.gs` and the rest of the source-managed test files to the test Apps Script project. The wrapper now fails explicitly if clasp says credentials are missing, a test function is missing, or a test function cannot be executed, so a green GitHub check means the GAS test functions actually ran.
+Observed CI runs confirmed that `clasp push --force` pushed `src/test/test_runner.gs` and the rest of the source-managed test files to the test Apps Script project. The wrapper now fails explicitly if clasp says credentials are missing, a test function is missing, a test function cannot be executed, or the GAS test runner output reports failures.
 
-If the next CI run reports `No credentials found`, set `CLASP_USER` when `CLASPRC_JSON` was generated with `clasp login --user`, or regenerate `CLASPRC_JSON` with a no-`--user` login. If it reports `Unable to run script function`, update `CLASPRC_JSON` with a clasp login that includes the manifest project scopes.
+If the next CI run reports `No credentials found`, set `CLASP_USER` when `CLASPRC_JSON` was generated with `clasp login --user`, or regenerate `CLASPRC_JSON` with a no-`--user` login. If it reports `Unable to run script function`, update `CLASPRC_JSON` with a clasp login that includes the manifest project scopes. If it reports `NG` test failures, the CI wiring is working and the remaining work is fixing the failing tests or their test-only resource setup.
