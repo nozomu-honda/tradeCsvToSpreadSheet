@@ -9,6 +9,7 @@ on:
 
 permissions:
   contents: read
+  checks: read
 
 concurrency:
   group: gas-tests-${{ github.event.pull_request.number }}-${{ github.event.label.name == 'run-gas-tests' && 'final' || github.run_id }}
@@ -64,10 +65,78 @@ jobs:
         if: ${{ steps.label.outputs.run_for_label == 'true' }}
         id: impact
         shell: bash
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REQUIRED_CHECK_NAME: Push test GAS project and run tests
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
 
+          is_gas_impacting_file() {
+            case "$1" in
+              src/*|scripts/*|.github/workflows/*|appsscript.json|Index.html|.claspignore|.clasp.example.json|package.json|package-lock.json)
+                return 0
+                ;;
+              *)
+                return 1
+                ;;
+            esac
+          }
+
+          is_docs_or_markdown_file() {
+            case "$1" in
+              docs/*|*.md)
+                return 0
+                ;;
+              *)
+                return 1
+                ;;
+            esac
+          }
+
+          has_successful_required_check() {
+            local sha="$1"
+            local encoded_name
+            local response_file
+            local http_status
+
+            encoded_name="$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "${REQUIRED_CHECK_NAME}")"
+            response_file="$(mktemp)"
+
+            http_status="$(
+              curl -sS -L \
+                -o "${response_file}" \
+                -w '%{http_code}' \
+                -H "Accept: application/vnd.github+json" \
+                -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+                -H "X-GitHub-Api-Version: 2022-11-28" \
+                "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/commits/${sha}/check-runs?check_name=${encoded_name}" || true
+            )"
+
+            if [[ "${http_status}" != "200" ]]; then
+              echo "::warning::Could not read required check state for ${sha}; running GAS tests instead."
+              return 1
+            fi
+
+            python3 - "${response_file}" "${REQUIRED_CHECK_NAME}" <<'PY'
+import json
+import sys
+
+path, required_name = sys.argv[1], sys.argv[2]
+with open(path, encoding="utf-8") as fh:
+    data = json.load(fh)
+
+for check_run in data.get("check_runs", []):
+    if check_run.get("name") == required_name and check_run.get("conclusion") == "success":
+        sys.exit(0)
+
+sys.exit(1)
+PY
+          }
+
           git fetch --no-tags --prune --depth=1 origin develop
+          git fetch --no-tags --prune origin "+refs/pull/${PR_NUMBER}/head:refs/remotes/origin/pr-${PR_NUMBER}-head"
 
           changed_files="$(git diff --name-only origin/develop...HEAD || git diff --name-only origin/develop HEAD)"
 
@@ -77,23 +146,50 @@ jobs:
           run_gas_tests="false"
           reason="no GAS-impacting files changed"
           impact_files=""
+          latest_commit_files=""
+          latest_commit_docs_only="false"
+          parent_sha=""
+          parent_check_success="not checked"
 
           while IFS= read -r file; do
             [[ -z "${file}" ]] && continue
-            case "${file}" in
-              src/*|scripts/*|.github/workflows/*|appsscript.json|Index.html|.claspignore|.clasp.example.json|package.json|package-lock.json)
-                run_gas_tests="true"
-                impact_files="${impact_files}${file}\n"
-                ;;
-              docs/*|*.md)
-                ;;
-              *)
-                ;;
-            esac
+            if is_gas_impacting_file "${file}"; then
+              run_gas_tests="true"
+              impact_files="${impact_files}${file}\n"
+            fi
           done <<< "${changed_files}"
+
+          if git cat-file -e "${HEAD_SHA}^{commit}" 2>/dev/null; then
+            parent_sha="$(git rev-list --parents -n 1 "${HEAD_SHA}" | awk '{print $2}')"
+            if [[ -n "${parent_sha}" ]]; then
+              latest_commit_files="$(git diff --name-only "${parent_sha}" "${HEAD_SHA}")"
+              if [[ -n "${latest_commit_files}" ]]; then
+                latest_commit_docs_only="true"
+                while IFS= read -r file; do
+                  [[ -z "${file}" ]] && continue
+                  if ! is_docs_or_markdown_file "${file}"; then
+                    latest_commit_docs_only="false"
+                    break
+                  fi
+                done <<< "${latest_commit_files}"
+              fi
+            fi
+          else
+            echo "::warning::Could not inspect latest PR head ${HEAD_SHA}; running GAS tests when PR has GAS-impacting files."
+          fi
 
           if [[ "${run_gas_tests}" == "true" ]]; then
             reason="GAS code, CI script, workflow, or configuration files changed"
+            if [[ "${latest_commit_docs_only}" == "true" && -n "${parent_sha}" ]]; then
+              if has_successful_required_check "${parent_sha}"; then
+                run_gas_tests="false"
+                parent_check_success="true"
+                reason="latest commit changed only docs/Markdown and previous head already passed the required GAS check"
+              else
+                parent_check_success="false"
+                reason="GAS-impacting files changed in the PR; latest commit is docs/Markdown-only, but previous head has no successful required GAS check"
+              fi
+            fi
           elif [[ -z "${changed_files}" ]]; then
             reason="no files changed against develop"
           else
@@ -111,10 +207,21 @@ jobs:
               echo "- Added label: \`${{ github.event.label.name }}\`"
               echo "- Run GAS tests: \`${run_gas_tests}\`"
               echo "- Reason: ${reason}"
+              echo "- Latest head: \`${HEAD_SHA}\`"
+              if [[ -n "${parent_sha}" ]]; then
+                echo "- Previous head: \`${parent_sha}\`"
+                echo "- Previous head required check success: \`${parent_check_success}\`"
+              fi
+              echo "- Latest commit docs/Markdown only: \`${latest_commit_docs_only}\`"
               if [[ -n "${impact_files}" ]]; then
                 echo ""
                 echo "### GAS-impacting files"
                 printf '%b' "${impact_files}" | sed 's/^/- /'
+              fi
+              if [[ -n "${latest_commit_files}" ]]; then
+                echo ""
+                echo "### Latest commit files"
+                printf '%s\n' "${latest_commit_files}" | sed 's/^/- /'
               fi
             } >> "${GITHUB_STEP_SUMMARY}"
           fi

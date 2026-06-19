@@ -94,6 +94,7 @@
 
 - PR #46「Run GAS tests from final-check label」はDraftで未マージ。
   - `runAllTests()` が `CORE_TESTS_` を含むため、CIでは `runAllTests` の1回実行に整理する。
+  - 最新コミットがdocs/Markdownだけで、直前headのrequired checkが成功済みなら、重いGAS実行をスキップする。
   - `GAS_TEST_DEPLOYMENT_ID` が未設定の場合、CIで新しいversioned deploymentを作成しない。
   - テスト専用Apps Scriptプロジェクト側でAPI executable accessを有効にし、`clasp run` できる状態を前提にする。
 

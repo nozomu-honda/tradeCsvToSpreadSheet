@@ -14,6 +14,7 @@
 - PRブランチへのpushごとには重いGASテストを実行しない。
 - 最終レビュー後に `run-gas-tests` ラベルを付けた時だけGAS CIを起動する。
 - docs-only / Markdown-only / GASに影響しない変更では、workflow jobは成功させつつ重いGAS実行をスキップする。
+- GAS影響ファイルを含むPRでも、最新コミットがdocs/Markdownだけで、直前headのrequired checkが成功済みなら重いGAS実行をスキップする。
 - テスト成功後に追加コミットした場合は、`run-gas-tests` ラベルを外して再度付けることで新しいheadに対して再実行する。
 - `pull_request_target` は使わない。
 - forkや外部PRにはGoogle Secretsを渡さない。
@@ -42,7 +43,9 @@
 4. `Push test GAS project and run tests` が成功することを確認する。
 5. 以降コード変更せずにマージする。
 
-テスト成功後に追加コミットした場合は、古い成功結果を使わず、`run-gas-tests` ラベルを一度外してから再度付けてください。これにより、新しいPR headでGAS CIを再実行できます。
+テスト成功後に追加コミットした場合は、`run-gas-tests` ラベルを一度外してから再度付けてください。これにより、新しいPR headでGAS CIを再確認できます。
+
+追加コミットがdocs/Markdownだけで、直前headの `Push test GAS project and run tests` が成功済みの場合、workflow jobは成功しますが重いGAS実行はスキップします。直前headのrequired checkが失敗・未実行・確認不能の場合は、docs/Markdownだけの最新コミットでもGAS実行を省略しません。
 
 ## Codexにマージを依頼する場合
 
@@ -85,6 +88,8 @@ required check 名は次のまま維持します。
 - `docs/**`
 - `*.md`
 - GASコード、CIスクリプト、workflow、設定に影響しないファイル
+
+ただし、PR全体にGAS影響ファイルが含まれていても、最新コミットがdocs/Markdownだけの場合は、直前headのrequired checkを確認します。直前headで `Push test GAS project and run tests` が成功済みなら、最新headのjobは成功させつつ重いGAS実行をスキップします。直前headの成功が確認できない場合は、安全側としてGASを実行します。
 
 `paths-ignore` は使いません。workflow自体をスキップすると、required check が pending のままになりマージをブロックすることがあるためです。
 
