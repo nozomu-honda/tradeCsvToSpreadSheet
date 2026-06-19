@@ -1,73 +1,77 @@
 # GAS CI
 
-This repository is a Google Apps Script / V8 project. The GAS CI workflow pushes source to a test-only Apps Script project with clasp, then runs the GAS test entry points.
+このリポジトリは Google Apps Script / V8 のプロジェクトです。GAS CI は、GitHub Actions からテスト専用 Apps Script プロジェクトへ clasp でソースを反映し、GAS 上の `runAllTests` を実行します。
 
-## Goal
+`runAllTests()` は `CORE_TESTS_` を含むため、`runSmokeTests()` 相当の軽い確認範囲も含めて実行されます。CIでは同一テスト用 Apps Script プロジェクトでの二重実行を避けるため、`runSmokeTests` を別途実行せず `runAllTests` の1回実行に整理します。
 
-The workflow is intended to protect `develop` without running expensive GAS tests on every commit during normal development.
+## 目的
 
-The current policy is:
+個人アカウント所有の公開リポジトリでは GitHub Merge Queue を利用できないため、マージ直前の最終確認は `run-gas-tests` ラベルで明示的に起動します。
 
-- do not run GAS tests on every `synchronize` push;
-- run GAS tests when a draft PR is marked ready for review;
-- allow a manual final run with `workflow_dispatch`;
-- support GitHub merge queue with `merge_group` for automatic pre-merge validation; and
-- keep the required check present while skipping the heavy GAS execution for docs-only / Markdown-only changes.
+現在の方針は次のとおりです。
+
+- PR作成時には重いGASテストを実行しない。
+- PRブランチへのpushごとには重いGASテストを実行しない。
+- 最終レビュー後に `run-gas-tests` ラベルを付けた時だけGAS CIを起動する。
+- docs-only / Markdown-only / GASに影響しない変更では、workflow jobは成功させつつ重いGAS実行をスキップする。
+- GAS影響ファイルを含むPRでも、最新コミットがdocs/Markdownだけで、直前headのrequired checkが成功済みなら重いGAS実行をスキップする。
+- テスト成功後に追加コミットした場合は、`run-gas-tests` ラベルを外して再度付けることで新しいheadに対して再実行する。
+- `pull_request_target` は使わない。
+- forkや外部PRにはGoogle Secretsを渡さない。
 
 ## Workflow
 
-`.github/workflows/gas-tests.yml` runs for `develop` on:
+`.github/workflows/gas-tests.yml` は `develop` 向けPRの次のイベントだけで起動します。
 
-- `pull_request` `ready_for_review`
-- `pull_request` `reopened`
-- `workflow_dispatch`
-- `merge_group`
+- `pull_request` `labeled`
 
-It intentionally does not run on `pull_request` `synchronize`. This keeps GAS tests from running on every commit pushed to a PR branch.
+対象ラベルは次の1つです。
 
-## Required Check Behavior
+- `run-gas-tests`
 
-The required check name remains:
+`opened`、`synchronize`、`reopened`、`ready_for_review`、`workflow_dispatch`、`merge_group` では起動しません。
+
+`run-gas-tests` 以外のラベルで起動した場合は、job名を `Ignore non-GAS label` に切り替えて軽く成功させます。required check名の `Push test GAS project and run tests` は `run-gas-tests` ラベルの時だけ作られるため、通常のラベル運用でGAS checkを誤って成功させたり失敗させたりしません。
+
+`run-gas-tests` ラベル同士は古い実行をキャンセルしますが、通常ラベルの実行は別concurrency groupに分けるため、進行中のGAS最終確認runをキャンセルしません。
+
+## 推奨マージフロー
+
+1. 実装を完了する。
+2. 最終レビューを行う。
+3. PRに `run-gas-tests` ラベルを付ける。
+4. `Push test GAS project and run tests` が成功することを確認する。
+5. 以降コード変更せずにマージする。
+
+テスト成功後に追加コミットした場合は、`run-gas-tests` ラベルを一度外してから再度付けてください。これにより、新しいPR headでGAS CIを再確認できます。
+
+追加コミットがdocs/Markdownだけで、直前headの `Push test GAS project and run tests` が成功済みの場合、workflow jobは成功しますが重いGAS実行はスキップします。直前headのrequired checkが失敗・未実行・確認不能の場合は、docs/Markdownだけの最新コミットでもGAS実行を省略しません。
+
+## Codexにマージを依頼する場合
+
+ユーザーがCodexに「マージして」と依頼した場合、Codexはすぐにマージせず、次の順で進めます。
+
+1. 対象PRのhead SHA、base branch、mergeable状態を確認する。
+2. `run-gas-tests` ラベルが付いていない場合は付ける。
+3. `run-gas-tests` ラベルが既に付いていて最新headのGAS Testsが未確認の場合は、ラベルを一度外して再度付ける。
+4. `Push test GAS project and run tests` が最新headで成功するまで待つ。
+5. チェック成功後にhead SHAを再確認し、変わっていなければマージする。
+
+GAS Testsが失敗した場合、Codexはマージせず、失敗したcheck名とログ上の原因を報告します。
+
+## Required Check
+
+required check 名は次のまま維持します。
 
 - `Push test GAS project and run tests`
 
-Keep this as the required status check in the `develop` branch ruleset.
+`develop` のrulesetでは、このcheckを必須にしてください。
 
-If a PR receives new commits after the last successful GAS run, GitHub may require the check to pass again on the new head commit before merge. In that case, run the workflow manually from the branch, or use merge queue so GitHub runs the final `merge_group` validation automatically.
+このrequired check名は `run-gas-tests` ラベルの時だけ出します。`bug` や `docs` など別ラベルを付けた時は、別名の `Ignore non-GAS label` jobとして終了するため、required checkの偽陽性には使われません。
 
-## Recommended Merge Flow
+## GAS実行対象の判定
 
-### Without Merge Queue
-
-1. Develop normally without running GAS tests on every commit.
-2. When the PR is ready, mark it ready for review if it is a draft.
-3. If more commits are pushed after that, run `GAS Tests` manually with `workflow_dispatch` on the PR branch.
-4. Merge only after `Push test GAS project and run tests` is green.
-
-### With Merge Queue
-
-For the closest "run once immediately before merge" behavior, enable GitHub merge queue for `develop` in the branch ruleset. This workflow supports the `merge_group` event.
-
-With merge queue enabled:
-
-1. PR development does not run GAS tests on every commit.
-2. When the PR enters the merge queue, GitHub creates a merge group.
-3. `GAS Tests` runs against that merge group.
-4. `develop` is updated only if the required check passes.
-
-This is the safest automatic mode because the test runs against the actual merge candidate.
-
-## Docs-Only Changes
-
-The workflow starts so the required check can complete, but it skips the heavy GAS execution when all changed files are under `docs/` or are Markdown files.
-
-Examples that skip GAS execution:
-
-- `docs/gas-ci.md`
-- `README.md`
-- `docs/**/*.png`
-
-Examples that still run GAS tests:
+`run-gas-tests` ラベルが付いた場合でも、すべての変更でGASを実行するわけではありません。workflow内で `develop` との差分を確認し、次のようなGAS影響ファイルがある場合だけ `clasp push --force` と `runAllTests` を実行します。
 
 - `src/**`
 - `scripts/**`
@@ -76,60 +80,75 @@ Examples that still run GAS tests:
 - `Index.html`
 - `.claspignore`
 - `.clasp.example.json`
+- `package.json`
+- `package-lock.json`
 
-Do not use `paths-ignore` for docs-only changes while this workflow is a required check. If the workflow is skipped entirely, GitHub can leave the required check pending and block merge.
+次のような変更だけの場合、workflow jobは成功しますが、重いGAS実行はスキップします。
 
-## Security Notes
+- `docs/**`
+- `*.md`
+- GASコード、CIスクリプト、workflow、設定に影響しないファイル
 
-- The workflow uses `pull_request`, not `pull_request_target`.
-- Fork and external PRs skip the secret-backed GAS job.
-- `workflow_dispatch` and `merge_group` run in the base repository context and can use repository secrets.
-- CI targets only a test Apps Script project.
-- `.clasp.json` and `.clasprc.json` are generated from GitHub Secrets and are not committed.
-- The workflow injects `executionApi` only into the CI runner copy of `appsscript.json` before pushing to the test project.
-- The CI Google account should be low-privilege and limited to test-only Apps Script, Spreadsheet, and Drive resources.
+ただし、PR全体にGAS影響ファイルが含まれていても、最新コミットがdocs/Markdownだけの場合は、直前headのrequired checkを確認します。直前headで `Push test GAS project and run tests` が成功済みなら、最新headのjobは成功させつつ重いGAS実行をスキップします。直前headの成功が確認できない場合は、安全側としてGASを実行します。
 
-## Required GitHub Secrets
+`paths-ignore` は使いません。workflow自体をスキップすると、required check が pending のままになりマージをブロックすることがあるためです。
 
-Required:
+## セキュリティ
 
-- `CLASPRC_JSON`: the JSON content of the CI account's `~/.clasprc.json`.
-- `GAS_TEST_SCRIPT_ID`: the Script ID of the test-only Apps Script project.
+- workflowは `pull_request` を使い、`pull_request_target` は使いません。
+- `run-gas-tests` ラベルが付いた同一リポジトリPRだけがsecret-backed GAS jobに進めます。
+- forkや外部PRでは冒頭のガードで失敗し、Google Secretsを使うstepへ進みません。
+- CIの対象はテスト専用 Apps Script プロジェクトだけです。
+- `.clasp.json` と `.clasprc.json` はGitHub Secretsから生成し、リポジトリにはコミットしません。
+- workflowはCI runner上の `appsscript.json` にだけ `executionApi` を注入してから、テスト専用Apps Scriptへpushします。
+- CI用Googleアカウントには、本番GAS、本番Spreadsheet、本番Driveフォルダへの権限を持たせないでください。
 
-Optional:
+## 必要なGitHub Secrets
 
-- `CLASP_USER`: the clasp user name/email to pass through `clasp --user`. Set this when `CLASPRC_JSON` was generated with `clasp login --user <ci-user>`.
-- `GAS_TEST_DEPLOYMENT_ID`: an existing API executable deployment ID for the test Apps Script project. If omitted, CI creates a new deployment in the test project for the run.
-- `CLASP_PROJECT_JSON`: full `.clasp.json` content, only if the CI project needs custom clasp settings beyond `GAS_TEST_SCRIPT_ID`.
-- `GOOGLE_OAUTH_CLIENT_SECRET_JSON`: not used by the current clasp workflow. Keep this for a later Apps Script API implementation if needed.
+必須:
 
-Do not commit real OAuth tokens, Script IDs, deployment IDs, spreadsheet IDs, Drive folder IDs, or production database IDs.
+- `CLASPRC_JSON`: CIアカウントの `~/.clasprc.json` のJSON内容。
+- `GAS_TEST_SCRIPT_ID`: テスト専用 Apps Script プロジェクトのScript ID。
 
-## Execution Flow
+任意:
 
-When GAS execution is required, the workflow:
+- `CLASP_USER`: `clasp --user` に渡すユーザー名またはメールアドレス。`CLASPRC_JSON` を `clasp login --user <ci-user>` で生成した場合に設定します。
+- `GAS_TEST_DEPLOYMENT_ID`: テスト専用 Apps Script プロジェクトの既存API executable deployment ID。設定した場合だけ、CIが既存deploymentを更新します。未設定の場合、CIは新しいversioned deploymentを作成しません。
+- `CLASP_PROJECT_JSON`: `GAS_TEST_SCRIPT_ID` だけでは足りないclasp設定が必要な場合の `.clasp.json` 全体。
+- `GOOGLE_OAUTH_CLIENT_SECRET_JSON`: 現在のclaspベースworkflowでは未使用です。将来 Apps Script API ベースへ移行する場合の候補として残します。
 
-1. Generates `~/.clasprc.json` from `CLASPRC_JSON`.
-2. Generates `.clasp.json` from `GAS_TEST_SCRIPT_ID`, unless `CLASP_PROJECT_JSON` is supplied.
-3. Runs clasp as `clasp --user "$CLASP_USER" ...` when `CLASP_USER` is set.
-4. Verifies that source-controlled `.gs` / `.js` files define `runSmokeTests()` and `runAllTests()`.
-5. Injects `executionApi: { access: 'ANYONE' }` into the CI runner copy of `appsscript.json`.
-6. Runs `clasp push --force` against the test-only Apps Script project.
-7. Creates or updates the API executable deployment.
-8. Runs `clasp run runSmokeTests` and `clasp run runAllTests` in clasp's default devMode, using the latest pushed code.
+OAuth token、Script ID、deployment ID、Spreadsheet ID、Drive folder ID、本番DB IDなどの実値はコミットしないでください。
 
-## Logs and Failures
+テスト専用 Apps Script プロジェクトでは、初回設定としてAPI executable accessを有効にしてください。`GAS_TEST_DEPLOYMENT_ID` を未設定で運用する場合でも、`clasp run` が実行できる状態のテスト専用プロジェクトを使います。
 
-`scripts/ci/run-gas-tests.sh` groups the Actions log by function name and writes each function result to the GitHub step summary.
+## 実行内容
 
-The workflow fails explicitly when:
+GAS実行対象と判定された場合、workflowは次を行います。
 
-- either test entry point is missing from source-controlled `.gs` / `.js` files;
-- `clasp push`, `clasp create-deployment`, or `clasp run` output contains `No credentials found`;
-- `clasp run` output contains `Script function not found`;
-- `clasp run` output contains `Unable to run script function`; or
-- GAS test output contains `NG`, `Exception:`, or `Error:` even when `clasp run` exits 0.
+1. `CLASPRC_JSON` から `~/.clasprc.json` を生成する。
+2. `GAS_TEST_SCRIPT_ID` から `.clasp.json` を生成する。`CLASP_PROJECT_JSON` がある場合はそちらを使う。
+3. `CLASP_USER` がある場合は `clasp --user "$CLASP_USER" ...` として実行する。
+4. ソース管理された `.gs` / `.js` ファイル内に `runAllTests()` が存在することを確認する。
+5. CI runner上の `appsscript.json` に `executionApi: { access: 'ANYONE' }` を注入する。
+6. テスト専用 Apps Script プロジェクトへ `clasp push --force` する。
+7. `GAS_TEST_DEPLOYMENT_ID` が設定されている場合だけ、API executable deployment を更新する。未設定の場合は、新しいversioned deploymentを作成せずスキップする。
+8. 最新のpush済みコードに対して `clasp run runAllTests` を実行する。
 
-## Manual GAS Testing
+## ログと失敗判定
 
-Existing manual GAS testing can continue in the Apps Script editor. For local clasp use, create an untracked `.clasp.json` from `.clasp.example.json` and point it at the intended non-production project.
+`scripts/ci/run-gas-tests.sh` は、GitHub Actionsログを関数名ごとにgroup化し、各関数の結果をGitHub step summaryへ書きます。
+
+workflowは次の場合に明示的に失敗します。
+
+- forkまたは外部PRで `run-gas-tests` ラベルが付いた。
+- ソース管理された `.gs` / `.js` ファイル内に `runAllTests()` がない。
+- `clasp push`、`clasp create-deployment`、`clasp run` の出力に `No credentials found` が含まれる。
+- `clasp run` の出力に `Script function not found` が含まれる。
+- `clasp run` の出力に `Unable to run script function` が含まれる。
+- GASテスト出力に `NG`、`Exception:`、`Error:` が含まれる。
+
+つまり、GAS側の `runAllTests` の実結果が失敗した場合、GitHub Actionsのcheckも失敗します。
+
+## 手動GASテスト
+
+既存のApps Scriptエディタ上での手動テスト運用は残します。ローカルでclaspを使う場合は、未追跡の `.clasp.json` を `.clasp.example.json` から作成し、必ず非本番のApps Scriptプロジェクトを指定してください。

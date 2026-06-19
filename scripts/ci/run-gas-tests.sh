@@ -148,14 +148,15 @@ manifest.executionApi = { access: 'ANYONE' };
 fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
 NODE
 
-append_summary "## GAS CI" "" "- Target: test-only Apps Script project from \`GAS_TEST_SCRIPT_ID\`" "- Source entry points: verified before push" "- Test manifest: injects \`executionApi\` in CI before push" "- Push: \`clasp push --force\`" "- Deployment: \`clasp create-deployment\`" "- Execution: \`clasp run\` in devMode, using the latest pushed code" "- Optional clasp user: ${clasp_user_status}" "- Tests: \`${test_functions[*]}\`" ""
+append_summary "## GAS CI" "" "- Target: test-only Apps Script project from \`GAS_TEST_SCRIPT_ID\`" "- Source entry points: verified before push" "- Test manifest: injects \`executionApi\` in CI before push" "- Push: \`clasp push --force\`" "- Deployment: update only when \`GAS_TEST_DEPLOYMENT_ID\` is set; otherwise skip creating a new versioned deployment" "- Execution: \`clasp run\` in devMode, using the latest pushed code" "- Optional clasp user: ${clasp_user_status}" "- Tests: \`${test_functions[*]}\`" ""
 
 run_clasp_step "clasp push" push --force
 
 if [[ -n "${GAS_TEST_DEPLOYMENT_ID:-}" ]]; then
   run_clasp_step "clasp API executable deployment" create-deployment --deploymentId "${GAS_TEST_DEPLOYMENT_ID}" --description "${DEPLOYMENT_DESCRIPTION}"
 else
-  run_clasp_step "clasp API executable deployment" create-deployment --description "${DEPLOYMENT_DESCRIPTION}"
+  echo "::notice title=Skipping deployment creation::GAS_TEST_DEPLOYMENT_ID is not set, so CI will not create a new versioned deployment. The test Apps Script project must already have API executable access configured for clasp run."
+  append_summary "### API executable deployment" "- Result: SKIP" "- \`GAS_TEST_DEPLOYMENT_ID\` is not set, so CI did not create a new versioned deployment." "- The test Apps Script project must already have API executable access configured for \`clasp run\`." ""
 fi
 
 failures=()
@@ -173,7 +174,7 @@ for function_name in "${test_functions[@]}"; do
   unavailable_reason=""
   if printf '%s\n' "${output}" | grep -qi 'Script function not found'; then
     unavailable=1
-    unavailable_reason="function was not found after push/deployment"
+    unavailable_reason="function was not found after clasp push"
   elif printf '%s\n' "${output}" | grep -qi 'Unable to run script function'; then
     unavailable=1
     unavailable_reason="clasp was not authorized to execute the function"
@@ -191,7 +192,7 @@ for function_name in "${test_functions[@]}"; do
 
   if [[ ${unavailable} -eq 1 ]]; then
     exit_code=1
-    echo "::error title=GAS test function unavailable::${function_name} could not be executed after clasp push and deployment: ${unavailable_reason}."
+    echo "::error title=GAS test function unavailable::${function_name} could not be executed after clasp push: ${unavailable_reason}."
   elif [[ ${test_failed} -eq 1 ]]; then
     exit_code=1
     echo "::error title=GAS test reported failures::${function_name} output contained NG or Exception/Error."
