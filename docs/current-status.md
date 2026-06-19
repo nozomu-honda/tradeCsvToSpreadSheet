@@ -76,10 +76,15 @@
 
 ## 進行中 / 未マージ
 
-- なし
+- PR予定: GAS WebアプリE2E自動化。
+  - テスト専用GASへpushし、固定WebアプリDeploymentを更新してからPlaywrightで楽天配当金スプレッドシート取込1ケースを検証する。
+  - 初期運用では `workflow_dispatch` と `gas-web-e2e` ラベル付き同一リポジトリPRだけで実行する。
+  - 本番GAS / 本番Webアプリ / 本番DB / 本番Driveは対象外。
 
 ## 未完了 / 確認待ち
 
+- GAS WebアプリE2E用のSecretsとScript Properties設定。
+- 楽天配当金E2E入力スプレッドシートと楽天テストDBのCI専用アカウント共有。
 - 別ユーザーでのDrive OAuth承認とWebアプリ実行確認。
 - 楽天米国株の実取込結果の最終確認。
 - 楽天専用の出力処理本体・ロールバックUI分離は未実装。

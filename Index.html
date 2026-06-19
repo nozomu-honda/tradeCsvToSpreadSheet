@@ -19,6 +19,7 @@
       .danger { background: #fff5f5; border: 1px solid #d93025; color: #d93025; }
       .secondary { background: #f6f8fa; border: 1px solid #cfd8dc; color: #333; }
       .section-title { margin-top: 28px; font-size: 18px; font-weight: 700; }
+      .e2e-only { display: none; }
       a { word-break: break-all; }
     </style>
   </head>
@@ -27,34 +28,34 @@
       <h2>CSV / スプレッドシートから6シート生成</h2>
       <p class="muted">法人ごとに追加先DBを選べます。誤って登録した場合は、取込単位でロールバックできます。</p>
 
-      <div class="row">
+      <div class="row" data-testid="input-method-db">
         <label for="targetDbKey">追加先DB</label>
-        <select id="targetDbKey" onchange="onTargetDbChanged()"></select>
+        <select id="targetDbKey" data-testid="target-db-select" onchange="onTargetDbChanged()"></select>
       </div>
 
-      <div class="row">
+      <div class="row" data-testid="input-method-csv-url">
         <label for="csvUrl">CSVリンク</label>
-        <input id="csvUrl" type="text" value="<?= initialCsvUrl ?>" placeholder="https://..." />
+        <input id="csvUrl" data-testid="source-csv-url" type="text" value="<?= initialCsvUrl ?>" placeholder="https://..." />
       </div>
 
       <div class="sep">または</div>
 
-      <div class="row">
+      <div class="row" data-testid="input-method-spreadsheet">
         <label for="spreadsheetUrl">スプレッドシートURLまたはID</label>
-        <input id="spreadsheetUrl" type="text" value="<?= initialSpreadsheetUrl ?>" placeholder="https://docs.google.com/spreadsheets/... または スプレッドシートID" />
+        <input id="spreadsheetUrl" data-testid="source-spreadsheet-url" type="text" value="<?= initialSpreadsheetUrl ?>" placeholder="https://docs.google.com/spreadsheets/... または スプレッドシートID" />
         <div class="muted">シート名入力は不要です。ヘッダーを持つシートを自動判定します。</div>
       </div>
 
       <div class="sep">または</div>
 
-      <div class="row">
+      <div class="row" data-testid="input-method-upload">
         <label for="csvFile">ローカルCSVファイル</label>
-        <input id="csvFile" type="file" accept=".csv,text/csv" />
+        <input id="csvFile" data-testid="source-csv-file" type="file" accept=".csv,text/csv" />
       </div>
 
       <div class="row button-row">
-        <button id="runButton" onclick="run()">6シート生成</button>
-        <button id="stagingButton" class="secondary" onclick="createStaging()">一次受け枠を作成</button>
+        <button id="runButton" data-testid="run-button" onclick="run()">6シート生成</button>
+        <button id="stagingButton" data-testid="staging-button" class="secondary" onclick="createStaging()">一次受け枠を作成</button>
       </div>
 
       <div class="muted">
@@ -66,12 +67,12 @@
 
       <div class="row">
         <label for="resetDbKey">リセット対象DB</label>
-        <select id="resetDbKey"></select>
+        <select id="resetDbKey" data-testid="reset-db-select"></select>
       </div>
 
       <div class="row button-row">
-        <button id="openResetDbButton" class="secondary" onclick="openResetDb()">選択中DBを開く</button>
-        <button id="resetDbButton" class="danger" onclick="resetDb()">選択したDBをリセット</button>
+        <button id="openResetDbButton" data-testid="open-reset-db-button" class="secondary" onclick="openResetDb()">選択中DBを開く</button>
+        <button id="resetDbButton" data-testid="reset-db-button" class="danger" onclick="resetDb()">選択したDBをリセット</button>
       </div>
 
       <div class="section-title">ロールバック</div>
@@ -79,23 +80,36 @@
 
       <div class="row">
         <label for="rollbackDbKey">ロールバック対象DB</label>
-        <select id="rollbackDbKey" onchange="loadRecentImports()"></select>
+        <select id="rollbackDbKey" data-testid="rollback-db-select" onchange="loadRecentImports()"></select>
       </div>
 
       <div class="row">
         <label for="rollbackImportId">ロールバック対象の取込ID</label>
-        <select id="rollbackImportId"></select>
+        <select id="rollbackImportId" data-testid="rollback-import-select"></select>
       </div>
 
       <div class="row button-row">
-        <button id="openRollbackDbButton" class="secondary" onclick="openRollbackDb()">選択中DBを開く</button>
-        <button id="refreshImportsButton" class="secondary" onclick="loadRecentImports()">最近の取込を再読込</button>
-        <button id="rollbackButton" class="danger" onclick="rollbackImport()">選択した取込をロールバック</button>
+        <button id="openRollbackDbButton" data-testid="open-rollback-db-button" class="secondary" onclick="openRollbackDb()">選択中DBを開く</button>
+        <button id="refreshImportsButton" data-testid="refresh-imports-button" class="secondary" onclick="loadRecentImports()">最近の取込を再読込</button>
+        <button id="rollbackButton" data-testid="rollback-button" class="danger" onclick="rollbackImport()">選択した取込をロールバック</button>
       </div>
 
-      <div id="status" class="row muted"></div>
-      <pre id="result" class="row"></pre>
-      <div id="linkArea" class="row"></div>
+      <div id="status" class="row muted" data-testid="processing-status"></div>
+      <pre id="result" class="row" data-testid="completion-dialog"></pre>
+      <div id="errorResult" class="e2e-only" data-testid="error-dialog"></div>
+      <div id="linkArea" class="row" data-testid="output-links"></div>
+      <div id="e2eResultData" class="e2e-only" aria-hidden="true">
+        <span data-testid="detected-source-type"></span>
+        <span data-testid="db-row-count"></span>
+        <span data-testid="db-inserted-count"></span>
+        <span data-testid="db-skipped-count"></span>
+        <span data-testid="routed-target-db-key"></span>
+        <span data-testid="alert-count"></span>
+        <span data-testid="us-stock-count"></span>
+        <span data-testid="output-spreadsheet-id"></span>
+        <span data-testid="output-spreadsheet-mode"></span>
+        <span data-testid="import-id"></span>
+      </div>
     </div>
 
     <script>
@@ -214,7 +228,8 @@
           csvUrl: document.getElementById('csvUrl').value.trim(),
           spreadsheetUrl: document.getElementById('spreadsheetUrl').value.trim(),
           uploadedCsvText: uploadedCsvText || '',
-          uploadedFileName: uploadedFileName || ''
+          uploadedFileName: uploadedFileName || '',
+          ciE2eToken: getCiE2eToken_()
         };
       }
 
@@ -345,6 +360,8 @@
         const result = document.getElementById('result');
         const linkArea = document.getElementById('linkArea');
         result.className = 'ok';
+        window.__lastMainResult = res;
+        renderE2EResultData_(res);
 
         let alertText = '';
         if (res.alerts && res.alerts.length > 0) {
@@ -395,9 +412,9 @@
           dbText +
           alertText;
 
-        appendLink(linkArea, res.spreadsheetUrl, '作成したスプレッドシートを開く');
+        appendLink(linkArea, res.spreadsheetUrl, '作成したスプレッドシートを開く', 'output-sheet-link');
         if (res.db && res.db.dbSpreadsheetUrl) {
-          appendLink(linkArea, res.db.dbSpreadsheetUrl, '選択中DBを開く');
+          appendLink(linkArea, res.db.dbSpreadsheetUrl, '選択中DBを開く', 'db-sheet-link');
         }
       }
 
@@ -434,7 +451,10 @@
             document.getElementById('status').textContent = '';
             renderError_(err);
           })
-          .resetDbFromWebApp(target.key);
+          .resetDbFromWebApp({
+            targetDbKey: target.key,
+            ciE2eToken: getCiE2eToken_()
+          });
       }
 
       function loadRecentImports() {
@@ -540,15 +560,19 @@
         result.className = '';
         result.textContent = '';
         linkArea.innerHTML = '';
+        document.getElementById('errorResult').textContent = '';
+        window.__lastMainResult = null;
+        renderE2EResultData_(null);
       }
 
       function renderError_(err) {
         const result = document.getElementById('result');
         result.className = 'err';
         result.textContent = err && err.message ? err.message : String(err);
+        document.getElementById('errorResult').textContent = result.textContent;
       }
 
-      function appendLink(container, href, text) {
+      function appendLink(container, href, text, testId) {
         const div = document.createElement('div');
         div.className = 'link-block';
         const a = document.createElement('a');
@@ -556,8 +580,33 @@
         a.target = '_blank';
         a.rel = 'noopener noreferrer';
         a.textContent = text;
+        if (testId) a.setAttribute('data-testid', testId);
         div.appendChild(a);
         container.appendChild(div);
+      }
+
+      function getCiE2eToken_() {
+        return window.__CI_E2E_TOKEN__ || '';
+      }
+
+      function setE2EText_(testId, value) {
+        const el = document.querySelector('[data-testid="' + testId + '"]');
+        if (el) el.textContent = value === undefined || value === null ? '' : String(value);
+      }
+
+      function renderE2EResultData_(res) {
+        const db = res && res.db ? res.db : {};
+        const counts = res && res.counts ? res.counts : {};
+        setE2EText_('detected-source-type', res ? res.detectedSourceType || '' : '');
+        setE2EText_('db-row-count', db.rowCount || 0);
+        setE2EText_('db-inserted-count', db.insertedCount || 0);
+        setE2EText_('db-skipped-count', db.skippedCount || 0);
+        setE2EText_('routed-target-db-key', res ? res.routedTargetDbKey || db.dbTargetKey || '' : '');
+        setE2EText_('alert-count', res && res.alerts ? res.alerts.length : 0);
+        setE2EText_('us-stock-count', counts.usStocks || 0);
+        setE2EText_('output-spreadsheet-id', res ? res.spreadsheetId || '' : '');
+        setE2EText_('output-spreadsheet-mode', res ? res.outputSpreadsheetMode || '' : '');
+        setE2EText_('import-id', db.importId || '');
       }
 
       async function readFileAsTextWithFallback(file) {

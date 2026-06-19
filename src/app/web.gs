@@ -9,6 +9,8 @@ function doGet(e) {
 }
 
 function runFromWebApp(payload) {
+  assertCiE2eTokenForPayload_(payload);
+
   if (!payload) {
     throw new Error('入力がありません。');
   }
@@ -51,7 +53,11 @@ function runFromWebApp(payload) {
   });
 }
 
-function resetDbFromWebApp(targetDbKey) {
+function resetDbFromWebApp(payload) {
+  const targetDbKey = typeof payload === 'object' && payload !== null
+    ? payload.targetDbKey
+    : payload;
+  assertCiE2eTokenForPayload_(typeof payload === 'object' && payload !== null ? payload : null);
   return resetDbData_(targetDbKey);
 }
 
@@ -69,6 +75,8 @@ function listRecentImportsFromWebApp(targetDbKey) {
 }
 
 function rollbackImportFromWebApp(payload) {
+  assertCiE2eTokenForPayload_(payload);
+
   if (!payload) {
     throw new Error('ロールバック対象が指定されていません。');
   }

@@ -96,6 +96,8 @@
 ## 4. 次にやること
 
 ### 4.1 最優先
+- [ ] GAS WebアプリE2E workflowを `workflow_dispatch` または `gas-web-e2e` ラベル付きPRで実行確認する
+- [ ] `CI_E2E_TOKEN` / `GAS_TEST_WEBAPP_DEPLOYMENT_ID` / `GAS_TEST_WEBAPP_URL` / `E2E_INPUT_SPREADSHEET_URL` をGitHub Secretsへ設定する
 - [ ] 楽天DB保存処理を `RAKUTEN_DB_HEADERS` ベースに切り替えるPRを分けて作る
 - [ ] 楽天DBレコードから共通計算モデルへ変換する処理を設計/実装する
 - [ ] 楽天配当金CSVの手入力3カラムの検出・バリデーションを追加する

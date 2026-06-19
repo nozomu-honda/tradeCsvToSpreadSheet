@@ -2,3 +2,8 @@
 .clasp.json
 .clasprc.json
 .clasprc*.json
+node_modules/
+test-results/
+playwright-report/
+playwright/.cache/
+.auth/
