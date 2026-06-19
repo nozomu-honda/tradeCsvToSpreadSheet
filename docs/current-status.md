@@ -1,6 +1,6 @@
 # Current Status
 
-最終更新: 2026-06-18
+最終更新: 2026-06-19
 
 ## 完了
 
@@ -73,6 +73,17 @@
   - 楽天DBレコードから共通計算用レコードへの変換責務を、楽天出力入口 `buildRakutenOutputSheetsFromDbRecords_()` 側へ移動。
   - 野村DBレコード変換を `nomuraDbRecordToBaseRecord_()` に分離。
   - Apps Script 上での `runSmokeTests` / `runAllTests` と楽天/野村の出力確認は完了扱い。
+- PR #42「Add GAS PR test workflow」は develop にマージ済み。
+  - GitHub Actions でPR向けのGASテストワークフローを追加。
+  - `clasp push` 後にテスト用Apps Scriptプロジェクトへ反映し、GAS上でテストを実行する。
+  - 必須チェック名は `Push test GAS project and run tests`。
+- PR #41「Add Rakuten output body」は develop にマージ済み。
+  - 楽天専用出力処理本体の最初の入口として `buildRakutenOutputSheetsFromBaseRecords_()` を追加。
+  - 楽天専用分類入口として `groupRakutenOutputRecords_()` を追加。
+  - 現時点では出力内容・計算結果を変えず、計算コア `buildTradeRows_()` / `buildCashRows_()` は共通利用。
+  - 6シート分類と書き込みを `groupOutputRecords_()` / `writeOutputSheetsFromGroups_()` に分離。
+  - CIでは同一GASテストプロジェクトでの二重実行を避けるため、`runAllTests` の1回実行に整理。
+  - GitHub Actions の `Push test GAS project and run tests` は成功済み。
 
 ## 進行中 / 未マージ
 
@@ -82,11 +93,12 @@
 
 - 別ユーザーでのDrive OAuth承認とWebアプリ実行確認。
 - 楽天米国株の実取込結果の最終確認。
-- 楽天専用の出力処理本体・ロールバックUI分離は未実装。
+- 楽天専用の出力処理本体は入口分離まで完了。楽天DBレコード由来の専用分類・専用出力内容への差し替えは未実装。
+- 楽天専用ロールバックUI分離は未実装。
 
 ## 直近の優先順位
 
-1. 楽天専用出力処理本体を、`buildRakutenOutputSheetsFromDbRecords_()` 配下で段階的に実装する。
+1. 楽天専用出力処理本体を、`groupRakutenOutputRecords_()` / `buildRakutenOutputSheetsFromBaseRecords_()` 配下で段階的に実装する。
 2. 楽天専用ロールバック処理/UI分離を進める。
 3. 別ユーザーのDrive権限問題の結果を確認する。
 4. 楽天米国株の出力確認を完了する。
@@ -109,4 +121,5 @@ AutoHotkeyショートカットの説明は `docs/codex-shortcuts.md` を参照�
 - `appsscript.json` のOAuth scope変更後は、Webアプリの新バージョン再デプロイが必要。
 - Webアプリを「アクセスしているユーザー」として実行する場合、利用者ごとにDrive権限承認とDBフォルダ編集権限が必要。
 - `spreadsheetId` 未設定DBは Script Properties の `DB_SPREADSHEET_ID_<DB_KEY>` に実ファイルIDを保存して再利用する。
-- PR #31 / PR #32 / PR #33 / PR #34 / PR #35 / PR #36 / PR #37 / PR #38 / PR #39 / PR #40 は develop にマージ済み。
+- CIのPR必須チェック `Push test GAS project and run tests` は、`runAllTests` を1回実行する。`runAllTests` は `CORE_TESTS_` を含むため、`runSmokeTests` 相当の確認範囲も含まれる。
+- PR #31 / PR #32 / PR #33 / PR #34 / PR #35 / PR #36 / PR #37 / PR #38 / PR #39 / PR #40 / PR #41 / PR #42 は develop にマージ済み。
