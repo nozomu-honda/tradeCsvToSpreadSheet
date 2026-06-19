@@ -23,6 +23,23 @@ require_secret() {
   fi
 }
 
+ensure_source_function() {
+  local function_name="$1"
+
+  if grep -R \
+    --include='*.gs' \
+    --include='*.js' \
+    --exclude-dir='.git' \
+    --exclude-dir='node_modules' \
+    -E "function[[:space:]]+${function_name}[[:space:]]*\\(" . >/dev/null; then
+    return 0
+  fi
+
+  echo "::error title=Missing GAS test entry point::${function_name} is not defined in source-controlled .gs/.js files."
+  append_summary "### Missing test entry point" "- \`${function_name}\` is not defined in source-controlled .gs/.js files."
+  return 1
+}
+
 cleanup() {
   rm -f "${CLASP_RC_PATH}"
   rm -f "${CLASP_PROJECT_PATH}"
@@ -38,6 +55,10 @@ if [[ ! -f "appsscript.json" ]]; then
   echo "::error title=Missing appsscript.json::Run from the Apps Script source root."
   exit 1
 fi
+
+for function_name in "${test_functions[@]}"; do
+  ensure_source_function "${function_name}"
+done
 
 node <<'NODE'
 const fs = require('fs');
@@ -71,7 +92,7 @@ if ((process.env.CLASP_PROJECT_JSON || '').trim()) {
 }
 NODE
 
-append_summary "## GAS CI" "" "- Target: test-only Apps Script project from \`GAS_TEST_SCRIPT_ID\`" "- Push: \`clasp push --force\`" "- Tests: \`${test_functions[*]}\`" ""
+append_summary "## GAS CI" "" "- Target: test-only Apps Script project from \`GAS_TEST_SCRIPT_ID\`" "- Source entry points: verified before push" "- Push: \`clasp push --force\`" "- Tests: \`${test_functions[*]}\`" ""
 
 echo "::group::clasp push"
 clasp push --force
@@ -88,8 +109,18 @@ for function_name in "${test_functions[@]}"; do
 
   printf '%s\n' "${output}"
 
+  function_not_found=0
+  if printf '%s\n' "${output}" | grep -qi 'Script function not found'; then
+    function_not_found=1
+    exit_code=1
+    echo "::error title=GAS test function missing::${function_name} was not found after clasp push."
+  fi
+
   append_summary "### ${function_name}"
-  if [[ ${exit_code} -eq 0 ]]; then
+  if [[ ${function_not_found} -eq 1 ]]; then
+    append_summary "- Result: FAIL (Script function not found)" ""
+    failures+=("${function_name}")
+  elif [[ ${exit_code} -eq 0 ]]; then
     append_summary "- Result: PASS" ""
   else
     append_summary "- Result: FAIL (exit ${exit_code})" ""
