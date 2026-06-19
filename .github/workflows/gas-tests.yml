@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: gas-tests-${{ github.event.pull_request.number }}
+  group: gas-tests-${{ github.event.pull_request.number }}-${{ github.event.label.name == 'run-gas-tests' && 'final' || github.run_id }}
   cancel-in-progress: true
 
 jobs:
