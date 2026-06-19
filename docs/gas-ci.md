@@ -31,9 +31,11 @@ The first CI version uses clasp because it is the smallest path for this reposit
 1. Generate `.clasprc.json` from `CLASPRC_JSON`.
 2. Generate `.clasp.json` from `GAS_TEST_SCRIPT_ID`.
 3. Verify that source-controlled `.gs` / `.js` files define `runSmokeTests()` and `runAllTests()`.
-4. Run `clasp push --force` against the test-only Apps Script project.
-5. Run `clasp run runSmokeTests`.
-6. Run `clasp run runAllTests`.
+4. Inject `executionApi` into the CI runner copy of `appsscript.json` so only the test Apps Script project receives the API-executable manifest.
+5. Run `clasp push --force` against the test-only Apps Script project.
+6. Run `clasp create-deployment` to create or update the API executable deployment.
+7. Run `clasp run runSmokeTests`.
+8. Run `clasp run runAllTests`.
 
 The Apps Script API `scripts.run` path is still a reasonable later option, but it would still need a safe way to update the target script content first. For the initial PR, clasp keeps authentication and execution behavior closer to the existing Apps Script tooling.
 
@@ -44,10 +46,11 @@ The Apps Script API `scripts.run` path is still a reasonable later option, but i
 
 Optional:
 
+- `GAS_TEST_DEPLOYMENT_ID`: an existing API executable deployment ID for the test Apps Script project. If omitted, CI creates a new deployment in the test project for the run.
 - `CLASP_PROJECT_JSON`: full `.clasp.json` content, only if the CI project needs custom clasp settings beyond `GAS_TEST_SCRIPT_ID`.
 - `GOOGLE_OAUTH_CLIENT_SECRET_JSON`: not used by the first workflow. Keep this for a later Apps Script API implementation if needed.
 
-Do not commit real OAuth tokens, Script IDs, spreadsheet IDs, Drive folder IDs, or production database IDs. `.clasp.json` is intentionally ignored and generated in CI.
+Do not commit real OAuth tokens, Script IDs, deployment IDs, spreadsheet IDs, Drive folder IDs, or production database IDs. `.clasp.json` is intentionally ignored and generated in CI.
 
 ## Test project requirements
 
@@ -59,9 +62,12 @@ Before enabling the workflow:
 2. Enable the Apps Script API for the Google account used by CI.
 3. Run `clasp login` locally with the CI/test account and store the generated `~/.clasprc.json` content in `CLASPRC_JSON`.
 4. Store the test Apps Script project ID in `GAS_TEST_SCRIPT_ID`.
-5. Confirm that test helper configuration points only to test spreadsheets, test Drive folders, and other non-production resources.
+5. Optionally create an API executable deployment in the test project and store its deployment ID in `GAS_TEST_DEPLOYMENT_ID` to avoid creating a new deployment on each run.
+6. Confirm that test helper configuration points only to test spreadsheets, test Drive folders, and other non-production resources.
 
 `clasp push --force` updates the target Apps Script project content from the repository. The test runner and test helpers must live in source control; this PR uses `src/test/test_runner.gs` for `runSmokeTests()` and `runAllTests()`.
+
+The repository manifest is not broadened for production just to make CI work. Instead, `scripts/ci/run-gas-tests.sh` injects `executionApi: { access: 'ANYONE' }` into the CI runner copy of `appsscript.json` before pushing to the test Apps Script project.
 
 ## Logs and failures
 
@@ -70,7 +76,7 @@ Before enabling the workflow:
 The script also fails explicitly when:
 
 - either test entry point is missing from source-controlled `.gs` / `.js` files before `clasp push --force`; or
-- `clasp run` output contains `Script function not found` after the push.
+- `clasp run` output contains `Script function not found` after the push and deployment.
 
 ## Manual GAS testing
 
@@ -78,4 +84,4 @@ Existing manual GAS testing can continue in the Apps Script editor. For local cl
 
 ## Current status
 
-This PR adds the workflow and wrapper script. `runSmokeTests()` and `runAllTests()` are source-managed through `src/test/test_runner.gs`, so CI does not depend on editor-only test functions. The first real `clasp push` and `clasp run` results still must be verified after `CLASPRC_JSON` and `GAS_TEST_SCRIPT_ID` are configured in GitHub.
+This PR adds the workflow and wrapper script. `runSmokeTests()` and `runAllTests()` are source-managed through `src/test/test_runner.gs`, so CI does not depend on editor-only test functions. The latest observed CI run pushed `src/test/test_runner.gs` to the test project, then failed because the script was not available as an API executable. This PR now injects the CI-only `executionApi` manifest and creates or updates a test-project deployment before `clasp run`.
