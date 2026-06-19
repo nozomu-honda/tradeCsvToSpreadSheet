@@ -82,6 +82,11 @@
   - `pull_request_target` は使わず、forkや外部PRにはGoogle Secretsを渡さない。
   - docs-only / Markdown-only / GASに影響しない変更では、required checkを成功させつつ重いGAS実行をスキップする。
   - マージ前の最終確認では、最新headに対して `run-gas-tests` ラベルを付け直して `Push test GAS project and run tests` の成功を確認する。
+- PR #46「Run GAS tests from final-check label」は develop にマージ済み。
+  - `runAllTests()` が `CORE_TESTS_` を含むため、CIでは `runAllTests` の1回実行に整理。
+  - 最新コミットがdocs/Markdownだけで、直前headのrequired checkが成功済みなら、重いGAS実行をスキップする。
+  - `GAS_TEST_DEPLOYMENT_ID` が未設定の場合、CIで新しいversioned deploymentを作成しない。
+  - テスト専用Apps Scriptプロジェクト側でAPI executable accessを有効にし、`clasp run` できる状態を前提にする。
 - PR #41「Add Rakuten output body」は develop にマージ済み。
   - 楽天専用出力処理本体の最初の入口として `buildRakutenOutputSheetsFromBaseRecords_()` を追加。
   - 楽天専用分類入口として `groupRakutenOutputRecords_()` を追加。
@@ -92,11 +97,7 @@
 
 ## 進行中 / 未マージ
 
-- PR #46「Run GAS tests from final-check label」はDraftで未マージ。
-  - `runAllTests()` が `CORE_TESTS_` を含むため、CIでは `runAllTests` の1回実行に整理する。
-  - 最新コミットがdocs/Markdownだけで、直前headのrequired checkが成功済みなら、重いGAS実行をスキップする。
-  - `GAS_TEST_DEPLOYMENT_ID` が未設定の場合、CIで新しいversioned deploymentを作成しない。
-  - テスト専用Apps Scriptプロジェクト側でAPI executable accessを有効にし、`clasp run` できる状態を前提にする。
+- なし
 
 ## 未完了 / 確認待ち
 
@@ -131,4 +132,4 @@ AutoHotkeyショートカットの説明は `docs/codex-shortcuts.md` を参照�
 - Webアプリを「アクセスしているユーザー」として実行する場合、利用者ごとにDrive権限承認とDBフォルダ編集権限が必要。
 - `spreadsheetId` 未設定DBは Script Properties の `DB_SPREADSHEET_ID_<DB_KEY>` に実ファイルIDを保存して再利用する。
 - CIのPR必須チェック `Push test GAS project and run tests` は、`run-gas-tests` ラベル付与時だけ作成され、`runAllTests` を1回実行する。`runAllTests` は `CORE_TESTS_` を含むため、`runSmokeTests` 相当の確認範囲も含まれる。
-- PR #31 / PR #32 / PR #33 / PR #34 / PR #35 / PR #36 / PR #37 / PR #38 / PR #39 / PR #40 / PR #41 / PR #42 / PR #45 は develop にマージ済み。
+- PR #31 / PR #32 / PR #33 / PR #34 / PR #35 / PR #36 / PR #37 / PR #38 / PR #39 / PR #40 / PR #41 / PR #42 / PR #45 / PR #46 は develop にマージ済み。
