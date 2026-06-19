@@ -123,22 +123,22 @@ failures=()
 for function_name in "${test_functions[@]}"; do
   echo "::group::${function_name}"
   set +e
-  output="$(clasp run "${function_name}" 2>&1)"
+  output="$(clasp run --nondev "${function_name}" 2>&1)"
   exit_code=$?
   set -e
 
   printf '%s\n' "${output}"
 
-  function_not_found=0
-  if printf '%s\n' "${output}" | grep -qi 'Script function not found'; then
-    function_not_found=1
+  unavailable=0
+  if printf '%s\n' "${output}" | grep -Eqi 'Script function not found|Unable to run script function'; then
+    unavailable=1
     exit_code=1
-    echo "::error title=GAS test function unavailable::${function_name} was not available after clasp push and deployment."
+    echo "::error title=GAS test function unavailable::${function_name} could not be executed after clasp push and deployment."
   fi
 
   append_summary "### ${function_name}"
-  if [[ ${function_not_found} -eq 1 ]]; then
-    append_summary "- Result: FAIL (Script function not found)" ""
+  if [[ ${unavailable} -eq 1 ]]; then
+    append_summary "- Result: FAIL (function unavailable after push/deployment)" ""
     failures+=("${function_name}")
   elif [[ ${exit_code} -eq 0 ]]; then
     append_summary "- Result: PASS" ""
