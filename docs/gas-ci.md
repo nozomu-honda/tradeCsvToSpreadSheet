@@ -1,101 +1,154 @@
 # GAS CI
 
-This repository is a Google Apps Script / V8 project. The PR test workflow uses a test-only Apps Script project, pushes the PR source to that project with clasp, then runs the GAS test entry points.
+このリポジトリは Google Apps Script / V8 のプロジェクトです。GAS CI は、GitHub Actions からテスト専用 Apps Script プロジェクトへ clasp でソースを反映し、GAS 上の `runAllTests` を実行します。
 
-## Repository check
+`runAllTests()` は `CORE_TESTS_` を含むため、`runSmokeTests()` 相当の軽い確認範囲も含めて実行されます。CIでは同一テスト用 Apps Script プロジェクトでの二重実行を避けるため、`runSmokeTests` を別途実行せず `runAllTests` の1回実行に整理します。
 
-At implementation time:
+## 目的
 
-- `appsscript.json` exists.
-- `.clasp.json` existed and contained a concrete project binding. This PR removes it from source control, adds `.clasp.example.json`, and generates `.clasp.json` from GitHub Secrets during CI.
-- No existing `.github/workflows/*` workflow was present.
-- `runSmokeTests()` and `runAllTests()` are source-managed in `src/test/test_runner.gs`. They are not expected to live only in the Apps Script editor.
+個人アカウント所有の公開リポジトリでは GitHub Merge Queue を利用できないため、マージ直前の最終確認は `run-gas-tests` ラベルで明示的に起動します。
 
-## Added workflow
+現在の方針は次のとおりです。
 
-`.github/workflows/gas-tests.yml` runs on `pull_request` events for `develop`:
+- PR作成時には重いGASテストを実行しない。
+- PRブランチへのpushごとには重いGASテストを実行しない。
+- 最終レビュー後に `run-gas-tests` ラベルを付けた時だけGAS CIを起動する。
+- docs-only / Markdown-only / GASに影響しない変更では、workflow jobは成功させつつ重いGAS実行をスキップする。
+- GAS影響ファイルを含むPRでも、最新コミットがdocs/Markdownだけで、直前headのrequired checkが成功済みなら重いGAS実行をスキップする。
+- テスト成功後に追加コミットした場合は、`run-gas-tests` ラベルを外して再度付けることで新しいheadに対して再実行する。
+- `pull_request_target` は使わない。
+- forkや外部PRにはGoogle Secretsを渡さない。
 
-- `opened`
-- `synchronize`
-- `reopened`
-- `ready_for_review`
+## Workflow
 
-The workflow uses `pull_request`, not `pull_request_target`. Fork and external PRs are guarded with `github.event.pull_request.head.repo.full_name == github.repository`, so Google secrets are not loaded for outside contributors.
+`.github/workflows/gas-tests.yml` は `develop` 向けPRの次のイベントだけで起動します。
 
-Same-repository PRs can use these secrets by design. Keep `CLASPRC_JSON` scoped to a low-privilege test account, and restrict who can push branches to this repository.
+- `pull_request` `labeled`
 
-## Why clasp first
+対象ラベルは次の1つです。
 
-The first CI version uses clasp because it is the smallest path for this repository:
+- `run-gas-tests`
 
-1. Generate `.clasprc.json` from `CLASPRC_JSON`.
-2. Generate `.clasp.json` from `GAS_TEST_SCRIPT_ID`.
-3. Verify that source-controlled `.gs` / `.js` files define `runSmokeTests()` and `runAllTests()`.
-4. Inject `executionApi` into the CI runner copy of `appsscript.json` so only the test Apps Script project receives the API-executable manifest.
-5. Run `clasp push --force` against the test-only Apps Script project.
-6. Run `clasp create-deployment` to create or update the API executable deployment required by `scripts.run`.
-7. Run `clasp run runSmokeTests` in clasp's default devMode, so it uses the latest pushed code.
-8. Run `clasp run runAllTests` in clasp's default devMode, so it uses the latest pushed code.
+`opened`、`synchronize`、`reopened`、`ready_for_review`、`workflow_dispatch`、`merge_group` では起動しません。
 
-If `CLASP_USER` is set, the workflow runs clasp as `clasp --user "$CLASP_USER" ...`. This supports `.clasprc.json` files created with `clasp login --user <ci-user>` while keeping the no-user default login flow supported too.
+`run-gas-tests` 以外のラベルで起動した場合は、job名を `Ignore non-GAS label` に切り替えて軽く成功させます。required check名の `Push test GAS project and run tests` は `run-gas-tests` ラベルの時だけ作られるため、通常のラベル運用でGAS checkを誤って成功させたり失敗させたりしません。
 
-The CI intentionally does not pass `--nondev`. The default `clasp run` mode runs the latest saved script content; `--nondev` runs the deployed version and can report `Script function not found` even after the repository files were pushed to the test project.
+`run-gas-tests` ラベル同士は古い実行をキャンセルしますが、通常ラベルの実行は別concurrency groupに分けるため、進行中のGAS最終確認runをキャンセルしません。
 
-The Apps Script API `scripts.run` path is still a reasonable later option, but it would still need a safe way to update the target script content first. For the initial PR, clasp keeps authentication and execution behavior closer to the existing Apps Script tooling.
+## 推奨マージフロー
 
-## Required GitHub Secrets
+1. 実装を完了する。
+2. 最終レビューを行う。
+3. PRに `run-gas-tests` ラベルを付ける。
+4. `Push test GAS project and run tests` が成功することを確認する。
+5. 以降コード変更せずにマージする。
 
-- `CLASPRC_JSON`: the JSON content of the CI account's `~/.clasprc.json`.
-- `GAS_TEST_SCRIPT_ID`: the Script ID of the test-only Apps Script project.
+テスト成功後に追加コミットした場合は、`run-gas-tests` ラベルを一度外してから再度付けてください。これにより、新しいPR headでGAS CIを再確認できます。
 
-Optional:
+追加コミットがdocs/Markdownだけで、直前headの `Push test GAS project and run tests` が成功済みの場合、workflow jobは成功しますが重いGAS実行はスキップします。直前headのrequired checkが失敗・未実行・確認不能の場合は、docs/Markdownだけの最新コミットでもGAS実行を省略しません。
 
-- `CLASP_USER`: the clasp user name/email to pass through `clasp --user`. Set this when `CLASPRC_JSON` was generated with `clasp login --user <ci-user>`.
-- `GAS_TEST_DEPLOYMENT_ID`: an existing API executable deployment ID for the test Apps Script project. If omitted, CI creates a new deployment in the test project for the run.
-- `CLASP_PROJECT_JSON`: full `.clasp.json` content, only if the CI project needs custom clasp settings beyond `GAS_TEST_SCRIPT_ID`.
-- `GOOGLE_OAUTH_CLIENT_SECRET_JSON`: not used by the first workflow. Keep this for a later Apps Script API implementation if needed.
+## Codexにマージを依頼する場合
 
-Do not commit real OAuth tokens, Script IDs, deployment IDs, spreadsheet IDs, Drive folder IDs, or production database IDs. `.clasp.json` is intentionally ignored and generated in CI.
+ユーザーがCodexに「マージして」と依頼した場合、Codexはすぐにマージせず、次の順で進めます。
 
-## Test project requirements
+1. 対象PRのhead SHA、base branch、mergeable状態を確認する。
+2. `run-gas-tests` ラベルが付いていない場合は付ける。
+3. `run-gas-tests` ラベルが既に付いていて最新headのGAS Testsが未確認の場合は、ラベルを一度外して再度付ける。
+4. `Push test GAS project and run tests` が最新headで成功するまで待つ。
+5. チェック成功後にhead SHAを再確認し、変わっていなければマージする。
 
-Use a dedicated Apps Script project for CI. The CI account should have access only to test spreadsheets, test Drive folders, and other disposable test resources. It must not have access to production DBs, production spreadsheets, or production Drive folders.
+GAS Testsが失敗した場合、Codexはマージせず、失敗したcheck名とログ上の原因を報告します。
 
-Before enabling the workflow:
+## Required Check
 
-1. Create or choose a test-only Apps Script project.
-2. Enable the Apps Script API for the Google account used by CI.
-3. Run `clasp login` locally with the CI/test account and store the generated `~/.clasprc.json` content in `CLASPRC_JSON`.
-4. If that login used `clasp login --user <ci-user>`, store the same user in `CLASP_USER`. Alternatively, regenerate `CLASPRC_JSON` with a default, no-`--user` clasp login.
-5. If `clasp run` reports `Unable to run script function`, regenerate `CLASPRC_JSON` with the project scopes from `appsscript.json`, for example `clasp login --user <ci-user> --use-project-scopes --include-clasp-scopes --creds client_secret.json` plus `CLASP_USER=<ci-user>`, or the equivalent no-`--user` login.
-6. Store the test Apps Script project ID in `GAS_TEST_SCRIPT_ID`.
-7. Optionally create an API executable deployment in the test project and store its deployment ID in `GAS_TEST_DEPLOYMENT_ID` to avoid creating a new deployment on each run.
-8. Confirm that test helper configuration points only to test spreadsheets, test Drive folders, and other non-production resources.
+required check 名は次のまま維持します。
 
-`clasp push --force` updates the target Apps Script project content from the repository. The test runner and test helpers must live in source control; this PR uses `src/test/test_runner.gs` for `runSmokeTests()` and `runAllTests()`.
+- `Push test GAS project and run tests`
 
-The repository manifest is not broadened for production just to make CI work. Instead, `scripts/ci/run-gas-tests.sh` injects `executionApi: { access: 'ANYONE' }` into the CI runner copy of `appsscript.json` before pushing to the test Apps Script project.
+`develop` のrulesetでは、このcheckを必須にしてください。
 
-## Logs and failures
+このrequired check名は `run-gas-tests` ラベルの時だけ出します。`bug` や `docs` など別ラベルを付けた時は、別名の `Ignore non-GAS label` jobとして終了するため、required checkの偽陽性には使われません。
 
-`scripts/ci/run-gas-tests.sh` groups the Actions log by function name and writes each function result to the GitHub step summary. If either `runSmokeTests` or `runAllTests` exits non-zero, reports `NG`, or reports an Apps Script exception, the workflow emits an error with the failed function name and the GitHub check fails.
+## GAS実行対象の判定
 
-The script also fails explicitly when:
+`run-gas-tests` ラベルが付いた場合でも、すべての変更でGASを実行するわけではありません。workflow内で `develop` との差分を確認し、次のようなGAS影響ファイルがある場合だけ `clasp push --force` と `runAllTests` を実行します。
 
-- either test entry point is missing from source-controlled `.gs` / `.js` files before `clasp push --force`;
-- `clasp push`, `clasp create-deployment`, or `clasp run` output contains `No credentials found`;
-- `clasp run` output contains `Script function not found` after the push and deployment;
-- `clasp run` output contains `Unable to run script function`, which means the tests were not actually executed; or
-- GAS test output contains `NG`, `Exception:`, or `Error:` even when `clasp run` itself returns exit code 0.
+- `src/**`
+- `scripts/**`
+- `.github/workflows/**`
+- `appsscript.json`
+- `Index.html`
+- `.claspignore`
+- `.clasp.example.json`
+- `package.json`
+- `package-lock.json`
 
-## Manual GAS testing
+次のような変更だけの場合、workflow jobは成功しますが、重いGAS実行はスキップします。
 
-Existing manual GAS testing can continue in the Apps Script editor. For local clasp use, create an untracked `.clasp.json` from `.clasp.example.json` and point it at the intended non-production project.
+- `docs/**`
+- `*.md`
+- GASコード、CIスクリプト、workflow、設定に影響しないファイル
 
-## Current status
+ただし、PR全体にGAS影響ファイルが含まれていても、最新コミットがdocs/Markdownだけの場合は、直前headのrequired checkを確認します。直前headで `Push test GAS project and run tests` が成功済みなら、最新headのjobは成功させつつ重いGAS実行をスキップします。直前headの成功が確認できない場合は、安全側としてGASを実行します。
 
-This PR adds the workflow and wrapper script. `runSmokeTests()` and `runAllTests()` are source-managed through `src/test/test_runner.gs`, so CI does not depend on editor-only test functions.
+`paths-ignore` は使いません。workflow自体をスキップすると、required check が pending のままになりマージをブロックすることがあるためです。
 
-Observed CI runs confirmed that `clasp push --force` pushed `src/test/test_runner.gs` and the rest of the source-managed test files to the test Apps Script project. The wrapper now fails explicitly if clasp says credentials are missing, a test function is missing, a test function cannot be executed, or the GAS test runner output reports failures.
+## セキュリティ
 
-If the next CI run reports `No credentials found`, set `CLASP_USER` when `CLASPRC_JSON` was generated with `clasp login --user`, or regenerate `CLASPRC_JSON` with a no-`--user` login. If it reports `Unable to run script function`, update `CLASPRC_JSON` with a clasp login that includes the manifest project scopes. If it reports `NG` test failures, the CI wiring is working and the remaining work is fixing the failing tests or their test-only resource setup.
+- workflowは `pull_request` を使い、`pull_request_target` は使いません。
+- `run-gas-tests` ラベルが付いた同一リポジトリPRだけがsecret-backed GAS jobに進めます。
+- forkや外部PRでは冒頭のガードで失敗し、Google Secretsを使うstepへ進みません。
+- CIの対象はテスト専用 Apps Script プロジェクトだけです。
+- `.clasp.json` と `.clasprc.json` はGitHub Secretsから生成し、リポジトリにはコミットしません。
+- workflowはCI runner上の `appsscript.json` にだけ `executionApi` を注入してから、テスト専用Apps Scriptへpushします。
+- CI用Googleアカウントには、本番GAS、本番Spreadsheet、本番Driveフォルダへの権限を持たせないでください。
+
+## 必要なGitHub Secrets
+
+必須:
+
+- `CLASPRC_JSON`: CIアカウントの `~/.clasprc.json` のJSON内容。
+- `GAS_TEST_SCRIPT_ID`: テスト専用 Apps Script プロジェクトのScript ID。
+
+任意:
+
+- `CLASP_USER`: `clasp --user` に渡すユーザー名またはメールアドレス。`CLASPRC_JSON` を `clasp login --user <ci-user>` で生成した場合に設定します。
+- `GAS_TEST_DEPLOYMENT_ID`: テスト専用 Apps Script プロジェクトの既存API executable deployment ID。設定した場合だけ、CIが既存deploymentを更新します。未設定の場合、CIは新しいversioned deploymentを作成しません。
+- `CLASP_PROJECT_JSON`: `GAS_TEST_SCRIPT_ID` だけでは足りないclasp設定が必要な場合の `.clasp.json` 全体。
+- `GOOGLE_OAUTH_CLIENT_SECRET_JSON`: 現在のclaspベースworkflowでは未使用です。将来 Apps Script API ベースへ移行する場合の候補として残します。
+
+OAuth token、Script ID、deployment ID、Spreadsheet ID、Drive folder ID、本番DB IDなどの実値はコミットしないでください。
+
+テスト専用 Apps Script プロジェクトでは、初回設定としてAPI executable accessを有効にしてください。`GAS_TEST_DEPLOYMENT_ID` を未設定で運用する場合でも、`clasp run` が実行できる状態のテスト専用プロジェクトを使います。
+
+## 実行内容
+
+GAS実行対象と判定された場合、workflowは次を行います。
+
+1. `CLASPRC_JSON` から `~/.clasprc.json` を生成する。
+2. `GAS_TEST_SCRIPT_ID` から `.clasp.json` を生成する。`CLASP_PROJECT_JSON` がある場合はそちらを使う。
+3. `CLASP_USER` がある場合は `clasp --user "$CLASP_USER" ...` として実行する。
+4. ソース管理された `.gs` / `.js` ファイル内に `runAllTests()` が存在することを確認する。
+5. CI runner上の `appsscript.json` に `executionApi: { access: 'ANYONE' }` を注入する。
+6. テスト専用 Apps Script プロジェクトへ `clasp push --force` する。
+7. `GAS_TEST_DEPLOYMENT_ID` が設定されている場合だけ、API executable deployment を更新する。未設定の場合は、新しいversioned deploymentを作成せずスキップする。
+8. 最新のpush済みコードに対して `clasp run runAllTests` を実行する。
+
+## ログと失敗判定
+
+`scripts/ci/run-gas-tests.sh` は、GitHub Actionsログを関数名ごとにgroup化し、各関数の結果をGitHub step summaryへ書きます。
+
+workflowは次の場合に明示的に失敗します。
+
+- forkまたは外部PRで `run-gas-tests` ラベルが付いた。
+- ソース管理された `.gs` / `.js` ファイル内に `runAllTests()` がない。
+- `clasp push`、`clasp create-deployment`、`clasp run` の出力に `No credentials found` が含まれる。
+- `clasp run` の出力に `Script function not found` が含まれる。
+- `clasp run` の出力に `Unable to run script function` が含まれる。
+- GASテスト出力に `NG`、`Exception:`、`Error:` が含まれる。
+
+つまり、GAS側の `runAllTests` の実結果が失敗した場合、GitHub Actionsのcheckも失敗します。
+
+## 手動GASテスト
+
+既存のApps Scriptエディタ上での手動テスト運用は残します。ローカルでclaspを使う場合は、未追跡の `.clasp.json` を `.clasp.example.json` から作成し、必ず非本番のApps Scriptプロジェクトを指定してください。
