@@ -28,6 +28,81 @@ docs/codex-prompts.md
 
 AutoHotkey側は、各ショートカットから `docs/codex-prompts.md の Txx を使ってください` という短い依頼文を展開する。
 
+## ローカルPCへの反映手順
+
+PRやブランチで更新したAutoHotkey定義を、ローカルPCで使えるようにする手順です。
+
+### 1. PRブランチを取得する
+
+リポジトリのローカル作業フォルダで実行する。
+
+```powershell
+git fetch origin
+git switch docs/codex-efficiency-prompts
+```
+
+すでにPRがマージ済みなら、通常の作業ブランチではなく `develop` を最新化して使う。
+
+```powershell
+git switch develop
+git pull origin develop
+```
+
+### 2. AutoHotkeyファイルを起動する
+
+以下のファイルをダブルクリックする。
+
+```text
+codex-prompts-autohotkey-v2-instant.ahk
+```
+
+起動すると、Windows右下のタスクトレイにAutoHotkeyのアイコンが表示される。
+
+### 3. 動作確認する
+
+メモ帳などで以下を入力する。
+
+```text
+;ahtest
+```
+
+以下に展開されれば成功。
+
+```text
+OK
+```
+
+### 4. Codexで確認する
+
+Codex入力欄で以下を入力する。
+
+```text
+;cxgo
+```
+
+`docs/codex-prompts.md の T18 を使ってください。` から始まる文に展開されれば成功。
+
+### 5. PC起動時に自動起動する
+
+毎回 `.ahk` をダブルクリックしたくない場合は、スタートアップにショートカットを置く。
+
+1. `Win + R` を押す
+2. 以下を入力してEnter
+
+```text
+shell:startup
+```
+
+3. 開いたフォルダに `codex-prompts-autohotkey-v2-instant.ahk` のショートカットを置く
+
+次回PC起動時からAutoHotkeyが自動で起動する。
+
+### 6. 更新を反映する
+
+`.ahk` を更新した後は、タスクトレイのAutoHotkeyアイコンを右クリックして `Reload Script` を選ぶ。
+
+うまく反映されない場合は、一度 `Exit` してから `.ahk` を再度ダブルクリックする。
+
 ## AutoHotkeyの使い方
 
 ### 1. AutoHotkey v2を使う
