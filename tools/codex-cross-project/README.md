@@ -29,6 +29,43 @@ Copy-Item .\tools\codex-cross-project\README.md "$env:USERPROFILE\codex-prompts\
 & "$env:USERPROFILE\codex-prompts\common\codex-cross-project-autohotkey-v2.ahk"
 ```
 
+## PC起動時に自動起動する設定
+
+毎回 `.ahk` を手動で起動しなくてよいように、Windowsのスタートアップフォルダへショートカットを置きます。
+
+1. `Win + R` を押す
+2. 以下を入力してEnter
+
+```text
+shell:startup
+```
+
+3. スタートアップフォルダが開く
+4. 別のエクスプローラーで以下のファイルを開く
+
+```text
+C:\Users\user\codex-prompts\common\codex-cross-project-autohotkey-v2.ahk
+```
+
+5. `.ahk` ファイルを右クリックして、`その他のオプションを確認` → `ショートカットの作成`
+6. 作成したショートカットを、スタートアップフォルダへ移動する
+7. PCを再起動し、メモ帳で `;ahtest` → `OK` になるか確認する
+
+PowerShellでショートカットを作る場合は以下でもよいです。
+
+```powershell
+$ahkPath = "$env:USERPROFILE\codex-prompts\common\codex-cross-project-autohotkey-v2.ahk"
+$startup = [Environment]::GetFolderPath('Startup')
+$shortcutPath = Join-Path $startup 'Codex Cross Project Shortcuts.lnk'
+$wsh = New-Object -ComObject WScript.Shell
+$shortcut = $wsh.CreateShortcut($shortcutPath)
+$shortcut.TargetPath = $ahkPath
+$shortcut.WorkingDirectory = Split-Path $ahkPath
+$shortcut.Save()
+```
+
+AutoHotkeyを更新した場合は、タスクトレイのAutoHotkeyアイコンを右クリックして `Reload Script` するか、一度終了して `.ahk` を起動し直してください。
+
 ## ショートカット方針
 
 AutoHotkey側には、プロジェクト固有の長い仕様を書かない。
@@ -114,10 +151,11 @@ GAS以外のプロジェクトでは「デプロイ前チェック」として�
 
 1. このディレクトリの `.ahk` をローカル共通フォルダへコピーする
 2. `.ahk` を起動する
-3. メモ帳で `;ahtest` → `OK` を確認する
-4. Codex入力欄で `;cxgo` を確認する
-5. 各プロジェクトの `AGENTS.md` を整備する
-6. 必要ならプロジェクト固有の補足だけ、そのリポジトリ内の docs に置く
+3. 必要ならスタートアップフォルダへショートカットを置く
+4. メモ帳で `;ahtest` → `OK` を確認する
+5. Codex入力欄で `;cxgo` を確認する
+6. 各プロジェクトの `AGENTS.md` を整備する
+7. 必要ならプロジェクト固有の補足だけ、そのリポジトリ内の docs に置く
 
 ## このキットでやらないこと
 
