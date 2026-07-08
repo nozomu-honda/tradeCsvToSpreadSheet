@@ -1,6 +1,6 @@
 # Current Status
 
-最終更新: 2026-06-19
+最終更新: 2026-07-08
 
 ## 完了
 
@@ -131,5 +131,5 @@ AutoHotkeyショートカットの説明は `docs/codex-shortcuts.md` を参照�
 - `appsscript.json` のOAuth scope変更後は、Webアプリの新バージョン再デプロイが必要。
 - Webアプリを「アクセスしているユーザー」として実行する場合、利用者ごとにDrive権限承認とDBフォルダ編集権限が必要。
 - `spreadsheetId` 未設定DBは Script Properties の `DB_SPREADSHEET_ID_<DB_KEY>` に実ファイルIDを保存して再利用する。
-- CIのPR必須チェック `Push test GAS project and run tests` は、`run-gas-tests` ラベル付与時だけ作成され、`runAllTests` を1回実行する。`runAllTests` は `CORE_TESTS_` を含むため、`runSmokeTests` 相当の確認範囲も含まれる。
+- CIのPR必須チェック `Push test GAS project and run tests` は、`run-gas-tests` ラベル付与時だけ作成される。GAS影響ファイルがある場合は `runAllTests` の存在確認、`.gs` 構文チェック、`clasp push --force` を必須確認とし、`clasp run` が権限上使えない場合は Step Summary に `clasp run unavailable` と記録して、Apps Script エディタからの手動 `runAllTests` 実行結果をPR本文へ残す。
 - PR #31 / PR #32 / PR #33 / PR #34 / PR #35 / PR #36 / PR #37 / PR #38 / PR #39 / PR #40 / PR #41 / PR #42 / PR #45 / PR #46 は develop にマージ済み。
