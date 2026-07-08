@@ -417,6 +417,55 @@ function multiplyOptionalNumbers_(left, right) {
   return normalizeZero_(leftNumber * rightNumber);
 }
 
+function buildRakutenFundRows_(records, alerts) {
+  return buildTradeRows_(records, alerts).map(function(tradeRow) {
+    const get = function(header) {
+      const index = TRADE_HEADERS.indexOf(header);
+      return index >= 0 ? tradeRow[index] : '';
+    };
+
+    const tx = text_(get('取引区分'));
+    const row = [
+      get('約定日'),
+      get('受渡日'),
+      get('銘柄名'),
+      '',
+      get('預り区分'),
+      mapRakutenFundOutputTrade_(tx),
+      get('摘要'),
+      get('数量'),
+      get('単価'),
+      get('手数料（税込）'),
+      get('レート'),
+      '',
+      get('受渡金額/決済損益'),
+      get('決済通貨'),
+      get('国内手数料（円）'),
+      get('国内消費税等（円）'),
+      get('国内源泉所得税（円）'),
+      get('元本払戻金'),
+      get('保有数'),
+      get('手数料の消費税額'),
+      get('平均取得単価'),
+      get('手数料抜き売値'),
+      get('取得価格'),
+      get('売却損益'),
+      get('簿価'),
+      get('銘柄ごとの残高'),
+      get('FX2の期末簿価'),
+    ];
+
+    return row.concat([tradeRow[TRADE_HEADERS.length] || '']);
+  });
+}
+
+function mapRakutenFundOutputTrade_(tx) {
+  if (tx === '現物買付') return '買付';
+  if (tx === '現物買取') return '解約';
+  if (tx === '現物再投') return '再投資';
+  return tx || '';
+}
+
 function buildCashRows_(records) {
   const rows = [];
   let runningBalance = 0;
