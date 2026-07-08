@@ -73,13 +73,15 @@ function styleSheet_(sheet, headers, rowCount) {
     let width = 110;
     if (['約定日', '受渡日'].includes(h)) width = 95;
     if (h === '銘柄名') width = 280;
-    if (['取引区分', '摘要', '預り区分', '口座区分', '売買区分'].includes(h)) width = 120;
+    if (['取引区分', '摘要', '預り区分', '口座区分', '口座', '売買区分'].includes(h)) width = 120;
     if (['商品', '銘柄コード', '発行通貨', '決済通貨', '元本払戻金', '信用区分', '弁済期限'].includes(h)) width = 100;
     if ([
       '数量', '単価', '受渡金額/決済損益', '手数料（税込）', 'レート', '売買損益（円）',
       '国内消費税等（円）', '現地源泉税（円）', '国内源泉所得税（円）', '国内源泉地方税（円）',
       '国内手数料（円）', '現地手数料（円）',
-      '数量［株］', '単価［円］', '手数料［円］', '税金等［円］', '諸費用［円］', '受渡金額［円］'
+      '数量［株］', '単価［円］', '手数料［円］', '税金等［円］', '諸費用［円］', '受渡金額［円］',
+      '単価［USドル］', '約定代金［USドル］', '手数料［USドル］', '税金［USドル］',
+      '受渡金額［USドル］'
     ].includes(h)) {
       width = 120;
     }
@@ -102,19 +104,29 @@ function styleSheet_(sheet, headers, rowCount) {
     '簿価', '銘柄ごとの残高', '残高', '月次残高'
   ]);
 
+  const decimalCurrencyLike = new Set([
+    '単価［USドル］',
+    '約定代金［USドル］',
+    '手数料［USドル］',
+    '税金［USドル］',
+    '受渡金額［USドル］',
+  ]);
+
   const qtyLike = new Set(['数量', '数量［株］', '保有数']);
 
   headers.forEach(function(h, i) {
     if (rowCount <= 1) return;
     const range = sheet.getRange(2, i + 1, rowCount - 1, 1);
 
-    if (currencyLike.has(h)) {
+    if (decimalCurrencyLike.has(h)) {
+      range.setNumberFormat('#,##0.00;[Red]-#,##0.00;0.00');
+    } else if (currencyLike.has(h)) {
       range.setNumberFormat('#,##0;[Red]-#,##0;0');
     } else if (qtyLike.has(h)) {
       range.setNumberFormat('#,##0;[Red]-#,##0;0');
     } else if (h === '平均取得単価') {
       range.setNumberFormat('#,##0;[Red]-#,##0;0');
-    } else if (h === 'レート') {
+    } else if (h === 'レート' || h === '為替レート') {
       range.setNumberFormat('#,##0.00');
     }
   });
@@ -140,6 +152,10 @@ function hideColumnsByName_(sheet, headers, sheetName) {
     '貸株料',
     '事務管理費〔円〕（税抜）',
     '名義書換料〔円〕（税抜）',
+  ];
+  hideMap[CONFIG.RAKUTEN_OUTPUT_US_STOCK] = [
+    '信用区分',
+    '弁済期限',
   ];
 
   const targetNames = hideMap[sheetName] || [];

@@ -319,6 +319,104 @@ function mapRakutenJapanOutputSellBuy_(tx) {
   return tx || '';
 }
 
+function buildRakutenUsStockRows_(records, alerts) {
+  return buildTradeRows_(records, alerts).map(function(tradeRow) {
+    const get = function(header) {
+      const index = TRADE_HEADERS.indexOf(header);
+      return index >= 0 ? tradeRow[index] : '';
+    };
+
+    const tx = text_(get('取引区分'));
+    const qty = get('数量');
+    const price = get('単価');
+    const rate = get('レート');
+    const amount = get('受渡金額/決済損益');
+    const settlementCurrency = normalizeCurrency_(get('決済通貨'));
+    const settlementAmounts = getRakutenUsOutputSettlementAmounts_(amount, rate, settlementCurrency);
+    const feeUsd = get('現地手数料（円）');
+    const domesticFeeJpy = multiplyOptionalNumbers_(feeUsd, rate);
+    const domesticTaxJpy = get('国内消費税等（円）');
+
+    const row = [
+      get('約定日'),
+      get('受渡日'),
+      get('銘柄コード'),
+      get('銘柄名'),
+      get('預り区分'),
+      mapRakutenUsOutputTradeCategory_(tx),
+      mapRakutenUsOutputSellBuy_(tx),
+      '',
+      '',
+      get('決済通貨'),
+      qty,
+      price,
+      multiplyOptionalNumbers_(qty, price),
+      rate,
+      feeUsd,
+      '',
+      settlementAmounts.usd,
+      settlementAmounts.jpy,
+      get('現地源泉税（円）'),
+      get('国内源泉所得税（円）'),
+      get('保有数'),
+      domesticFeeJpy,
+      domesticTaxJpy !== '' ? domesticTaxJpy : '',
+      get('平均取得単価'),
+      get('手数料抜き売値'),
+      get('取得価格'),
+      get('売却損益'),
+      get('簿価'),
+      get('銘柄ごとの残高'),
+      get('FX2の期末簿価'),
+    ];
+
+    return row.concat([tradeRow[TRADE_HEADERS.length] || '']);
+  });
+}
+
+function mapRakutenUsOutputTradeCategory_(tx) {
+  if (tx === '現物買付' || tx === '現物売却') return '現物';
+  return tx || '';
+}
+
+function mapRakutenUsOutputSellBuy_(tx) {
+  if (tx === '現物買付') return '買付';
+  if (tx === '現物売却') return '売付';
+  return tx || '';
+}
+
+function getRakutenUsOutputSettlementAmounts_(amount, rate, settlementCurrency) {
+  const amountNumber = toOptionalNumber_(amount);
+  const rateNumber = toOptionalNumber_(rate);
+  const currency = normalizeCurrency_(settlementCurrency);
+  const result = { usd: '', jpy: '' };
+
+  if (amountNumber === '') {
+    return result;
+  }
+
+  if (currency === 'JPY') {
+    result.jpy = amountNumber;
+    if (rateNumber !== '' && rateNumber !== 0) {
+      result.usd = normalizeZero_(amountNumber / rateNumber);
+    }
+    return result;
+  }
+
+  result.usd = amountNumber;
+  if (rateNumber !== '' && rateNumber !== 0) {
+    result.jpy = normalizeZero_(amountNumber * rateNumber);
+  }
+  return result;
+}
+
+function multiplyOptionalNumbers_(left, right) {
+  const leftNumber = toOptionalNumber_(left);
+  const rightNumber = toOptionalNumber_(right);
+  if (leftNumber === '' || rightNumber === '') return '';
+  return normalizeZero_(leftNumber * rightNumber);
+}
+
 function buildCashRows_(records) {
   const rows = [];
   let runningBalance = 0;

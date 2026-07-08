@@ -214,6 +214,90 @@ function test_buildRakutenOutputSheetsFromBaseRecords_writesJapanStockFinalLook_
   });
 }
 
+function test_buildRakutenOutputSheetsFromBaseRecords_writesUsStockFinalLook_20260708_() {
+  withTempSpreadsheet_(function(ss) {
+    ss.insertSheet(CONFIG.OUTPUT_US_STOCK);
+
+    const records = [
+      makeTradeRecord_({
+        商品: '外株',
+        銘柄コード: 'AAPL',
+        銘柄名: 'APPLE INC',
+        預り区分: '特定',
+        取引区分: '現物買付',
+        数量: 10,
+        単価: 100,
+        受渡金額_決済損益: 1005,
+        手数料税込: 0,
+        レート: 150,
+        決済通貨: 'USD',
+        現地手数料円: 5,
+        約定日: '2026/07/01',
+        受渡日: '2026/07/03'
+      }),
+      makeTradeRecord_({
+        商品: '外株',
+        銘柄コード: 'AAPL',
+        銘柄名: 'APPLE INC',
+        預り区分: '特定',
+        取引区分: '現物売却',
+        数量: 4,
+        単価: 120,
+        受渡金額_決済損益: 480,
+        手数料税込: 0,
+        レート: 150,
+        決済通貨: 'USD',
+        現地手数料円: 0,
+        約定日: '2026/07/10',
+        受渡日: '2026/07/12'
+      })
+    ];
+
+    const result = buildRakutenOutputSheetsFromBaseRecords_(ss, records);
+    const sheet = ss.getSheetByName(CONFIG.RAKUTEN_OUTPUT_US_STOCK);
+
+    assertEquals_(2, result.counts.usStocks, '楽天米国株件数');
+    assertTrue_(!!sheet, '楽天米国株シートを作成');
+    assertFalse_(!!ss.getSheetByName(CONFIG.OUTPUT_US_STOCK), '楽天出力では共通米国株シートを作らない');
+
+    const headerRow = sheet.getRange(1, 1, 1, RAKUTEN_US_STOCK_HEADERS.length).getValues()[0];
+    assertArrayEquals_(RAKUTEN_US_STOCK_HEADERS, headerRow, '楽天米国株の列順はDrive最終見た目に合わせる');
+
+    assertEquals_('AAPL', getSheetValueByHeader_(sheet, RAKUTEN_US_STOCK_HEADERS, 2, 'ティッカー'), 'ティッカー');
+    assertEquals_('APPLE INC', getSheetValueByHeader_(sheet, RAKUTEN_US_STOCK_HEADERS, 2, '銘柄名'), '銘柄名');
+    assertEquals_('特定', getSheetValueByHeader_(sheet, RAKUTEN_US_STOCK_HEADERS, 2, '口座'), '口座');
+    assertEquals_('現物', getSheetValueByHeader_(sheet, RAKUTEN_US_STOCK_HEADERS, 2, '取引区分'), '買付の取引区分');
+    assertEquals_('買付', getSheetValueByHeader_(sheet, RAKUTEN_US_STOCK_HEADERS, 2, '売買区分'), '買付の売買区分');
+    assertEquals_('USD', getSheetValueByHeader_(sheet, RAKUTEN_US_STOCK_HEADERS, 2, '決済通貨'), '決済通貨');
+    assertEquals_(10, getSheetValueByHeader_(sheet, RAKUTEN_US_STOCK_HEADERS, 2, '数量［株］'), '数量［株］');
+    assertEquals_(100, getSheetValueByHeader_(sheet, RAKUTEN_US_STOCK_HEADERS, 2, '単価［USドル］'), '単価［USドル］');
+    assertEquals_(1000, getSheetValueByHeader_(sheet, RAKUTEN_US_STOCK_HEADERS, 2, '約定代金［USドル］'), '約定代金［USドル］');
+    assertEquals_(150, getSheetValueByHeader_(sheet, RAKUTEN_US_STOCK_HEADERS, 2, '為替レート'), '為替レート');
+    assertEquals_(5, getSheetValueByHeader_(sheet, RAKUTEN_US_STOCK_HEADERS, 2, '手数料［USドル］'), '手数料［USドル］');
+    assertEquals_('', getSheetValueByHeader_(sheet, RAKUTEN_US_STOCK_HEADERS, 2, '税金［USドル］'), '税金［USドル］');
+    assertEquals_(1005, getSheetValueByHeader_(sheet, RAKUTEN_US_STOCK_HEADERS, 2, '受渡金額［USドル］'), '受渡金額［USドル］');
+    assertEquals_(150750, getSheetValueByHeader_(sheet, RAKUTEN_US_STOCK_HEADERS, 2, '受渡金額［円］'), '受渡金額［円］');
+
+    assertEquals_(10, getSheetValueByHeader_(sheet, RAKUTEN_US_STOCK_HEADERS, 2, '保有数'), '買付後の保有数');
+    assertEquals_(750, getSheetValueByHeader_(sheet, RAKUTEN_US_STOCK_HEADERS, 2, '国内手数料（円）'), '国内手数料（円）');
+    assertEquals_('', getSheetValueByHeader_(sheet, RAKUTEN_US_STOCK_HEADERS, 2, '手数料の消費税額（円）'), '手数料の消費税額（円）');
+    assertEquals_(15075, getSheetValueByHeader_(sheet, RAKUTEN_US_STOCK_HEADERS, 2, '平均取得単価'), '平均取得単価');
+    assertEquals_(150750, getSheetValueByHeader_(sheet, RAKUTEN_US_STOCK_HEADERS, 2, '簿価'), '買付の簿価');
+
+    assertEquals_('売付', getSheetValueByHeader_(sheet, RAKUTEN_US_STOCK_HEADERS, 3, '売買区分'), '売却の売買区分');
+    assertEquals_(6, getSheetValueByHeader_(sheet, RAKUTEN_US_STOCK_HEADERS, 3, '保有数'), '売却後の保有数');
+    assertEquals_(72000, getSheetValueByHeader_(sheet, RAKUTEN_US_STOCK_HEADERS, 3, '手数料抜き売値'), '売却の手数料抜き売値');
+    assertEquals_(60300, getSheetValueByHeader_(sheet, RAKUTEN_US_STOCK_HEADERS, 3, '取得価格'), '売却の取得価格');
+    assertEquals_(11700, getSheetValueByHeader_(sheet, RAKUTEN_US_STOCK_HEADERS, 3, '売却損益'), '売却損益');
+    assertEquals_(-60300, getSheetValueByHeader_(sheet, RAKUTEN_US_STOCK_HEADERS, 3, '簿価'), '売却の簿価');
+    assertEquals_(90450, getSheetValueByHeader_(sheet, RAKUTEN_US_STOCK_HEADERS, 3, '銘柄ごとの残高'), '銘柄ごとの残高');
+    assertEquals_('', getSheetValueByHeader_(sheet, RAKUTEN_US_STOCK_HEADERS, 3, 'FX2の期末簿価'), 'FX2の期末簿価');
+
+    assertTrue_(sheet.isColumnHiddenByUser(getColumnIndexByHeader_(RAKUTEN_US_STOCK_HEADERS, '信用区分')), '信用区分は非表示');
+    assertFalse_(sheet.isColumnHiddenByUser(getColumnIndexByHeader_(RAKUTEN_US_STOCK_HEADERS, '約定日')), '約定日は表示');
+  });
+}
+
 function test_groupRakutenOutputRecords_splitsWithoutSpreadsheet_20260618_() {
   const records = [
     makeTradeRecord_({

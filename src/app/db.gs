@@ -729,7 +729,8 @@ function writeRakutenOutputSheetsFromGroups_(ss, groups) {
 
   writeSheet_(ss, CONFIG.RAKUTEN_OUTPUT_JAPAN_STOCK, RAKUTEN_JAPAN_STOCK_HEADERS, buildRakutenJapanStockRows_(groups.japanStocks, alerts), true);
   deleteSheetIfExists_(ss, CONFIG.OUTPUT_JAPAN_STOCK);
-  writeSheet_(ss, CONFIG.OUTPUT_US_STOCK, TRADE_HEADERS, buildTradeRows_(groups.usStocks, alerts), true);
+  writeSheet_(ss, CONFIG.RAKUTEN_OUTPUT_US_STOCK, RAKUTEN_US_STOCK_HEADERS, buildRakutenUsStockRows_(groups.usStocks, alerts), true);
+  deleteSheetIfExists_(ss, CONFIG.OUTPUT_US_STOCK);
   writeSheet_(ss, CONFIG.OUTPUT_FOREIGN_BOND, TRADE_HEADERS, buildTradeRows_(groups.foreignBonds, alerts), true);
   writeSheet_(ss, CONFIG.OUTPUT_FUND, TRADE_HEADERS, buildTradeRows_(groups.funds, alerts), true);
   writeSheet_(ss, CONFIG.OUTPUT_CASH_JPY, CASH_HEADERS, buildCashRows_(groups.cashJpy), false);
