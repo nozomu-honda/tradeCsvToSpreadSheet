@@ -712,7 +712,7 @@ function buildRakutenOutputSheetsFromDbRecords_(ss, records) {
 
 function buildRakutenOutputSheetsFromBaseRecords_(ss, records) {
   const groups = groupRakutenOutputRecords_(records);
-  return writeOutputSheetsFromGroups_(ss, groups);
+  return writeRakutenOutputSheetsFromGroups_(ss, groups);
 }
 
 function buildOutputSheetsFromDbRecords_(ss, records) {
@@ -722,6 +722,46 @@ function buildOutputSheetsFromDbRecords_(ss, records) {
 
 function groupRakutenOutputRecords_(records) {
   return groupOutputRecords_(records);
+}
+
+function writeRakutenOutputSheetsFromGroups_(ss, groups) {
+  const alerts = [];
+
+  writeSheet_(ss, CONFIG.RAKUTEN_OUTPUT_JAPAN_STOCK, RAKUTEN_JAPAN_STOCK_HEADERS, buildRakutenJapanStockRows_(groups.japanStocks, alerts), true);
+  deleteSheetIfExists_(ss, CONFIG.OUTPUT_JAPAN_STOCK);
+  writeSheet_(ss, CONFIG.OUTPUT_US_STOCK, TRADE_HEADERS, buildTradeRows_(groups.usStocks, alerts), true);
+  writeSheet_(ss, CONFIG.OUTPUT_FOREIGN_BOND, TRADE_HEADERS, buildTradeRows_(groups.foreignBonds, alerts), true);
+  writeSheet_(ss, CONFIG.OUTPUT_FUND, TRADE_HEADERS, buildTradeRows_(groups.funds, alerts), true);
+  writeSheet_(ss, CONFIG.OUTPUT_CASH_JPY, CASH_HEADERS, buildCashRows_(groups.cashJpy), false);
+  writeSheet_(ss, CONFIG.OUTPUT_CASH_USD, CASH_HEADERS, buildCashRows_(groups.cashUsd), false);
+  reorderRakutenOutputSheets_(ss);
+
+  return {
+    ok: true,
+    spreadsheetId: ss.getId(),
+    spreadsheetUrl: ss.getUrl(),
+    spreadsheetName: ss.getName(),
+    alerts: alerts,
+    counts: {
+      all: groups.all.length,
+      japanStocks: groups.japanStocks.length,
+      usStocks: groups.usStocks.length,
+      foreignBonds: groups.foreignBonds.length,
+      funds: groups.funds.length,
+      cashJpy: groups.cashJpy.length,
+      cashUsd: groups.cashUsd.length,
+    }
+  };
+}
+
+function deleteSheetIfExists_(ss, sheetName) {
+  const sheet = ss.getSheetByName(sheetName);
+  if (!sheet) return;
+  if (ss.getSheets().length <= 1) {
+    sheet.clear();
+    return;
+  }
+  ss.deleteSheet(sheet);
 }
 
 function groupOutputRecords_(records) {

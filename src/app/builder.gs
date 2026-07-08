@@ -254,6 +254,71 @@ function buildTradeRows_(records, alerts) {
   return rows;
 }
 
+function buildRakutenJapanStockRows_(records, alerts) {
+  return buildTradeRows_(records, alerts).map(function(tradeRow) {
+    const get = function(header) {
+      const index = TRADE_HEADERS.indexOf(header);
+      return index >= 0 ? tradeRow[index] : '';
+    };
+
+    const tx = text_(get('取引区分'));
+    const row = [
+      get('約定日'),
+      get('受渡日'),
+      get('銘柄コード'),
+      get('銘柄名'),
+      '',
+      get('預り区分'),
+      mapRakutenJapanOutputTradeCategory_(tx),
+      mapRakutenJapanOutputSellBuy_(tx),
+      '',
+      '',
+      get('数量'),
+      get('単価'),
+      get('国内手数料（円）'),
+      get('国内消費税等（円）'),
+      get('現地手数料（円）'),
+      '',
+      get('受渡金額/決済損益'),
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      get('保有数'),
+      get('手数料の消費税額'),
+      get('平均取得単価'),
+      get('手数料抜き売値'),
+      get('取得価格'),
+      get('売却損益'),
+      get('簿価'),
+      get('銘柄ごとの残高'),
+      get('FX2の期末簿価'),
+    ];
+
+    return row.concat([tradeRow[TRADE_HEADERS.length] || '']);
+  });
+}
+
+function mapRakutenJapanOutputTradeCategory_(tx) {
+  if (tx === '現物買付' || tx === '現物売却') return '現物';
+  if (tx === '入庫（増減資）') return '';
+  return tx || '';
+}
+
+function mapRakutenJapanOutputSellBuy_(tx) {
+  if (tx === '現物買付') return '買付';
+  if (tx === '現物売却') return '売付';
+  if (tx === '入庫（増減資）') return '入庫';
+  return tx || '';
+}
+
 function buildCashRows_(records) {
   const rows = [];
   let runningBalance = 0;
