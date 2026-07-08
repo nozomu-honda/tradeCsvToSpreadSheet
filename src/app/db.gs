@@ -734,8 +734,8 @@ function writeRakutenOutputSheetsFromGroups_(ss, groups) {
   writeSheet_(ss, CONFIG.OUTPUT_FOREIGN_BOND, TRADE_HEADERS, buildTradeRows_(groups.foreignBonds, alerts), true);
   writeSheet_(ss, CONFIG.RAKUTEN_OUTPUT_FUND, RAKUTEN_FUND_HEADERS, buildRakutenFundRows_(groups.funds, alerts), true);
   deleteSheetIfExists_(ss, CONFIG.OUTPUT_FUND);
-  writeSheet_(ss, CONFIG.OUTPUT_CASH_JPY, CASH_HEADERS, buildCashRows_(groups.cashJpy), false);
-  writeSheet_(ss, CONFIG.OUTPUT_CASH_USD, CASH_HEADERS, buildCashRows_(groups.cashUsd), false);
+  writeSheet_(ss, CONFIG.OUTPUT_CASH_JPY, RAKUTEN_CASH_JPY_HEADERS, buildRakutenCashJpyRows_(groups.cashJpy), false);
+  writeSheet_(ss, CONFIG.OUTPUT_CASH_USD, RAKUTEN_CASH_USD_HEADERS, buildRakutenCashUsdRows_(groups.cashUsd), false);
   reorderRakutenOutputSheets_(ss);
 
   return {

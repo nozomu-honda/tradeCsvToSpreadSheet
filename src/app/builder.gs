@@ -522,6 +522,72 @@ function buildCashRows_(records) {
   return rows;
 }
 
+function buildRakutenCashJpyRows_(records) {
+  return buildCashRows_(records).map(function(cashRow) {
+    const get = function(header) {
+      const index = CASH_HEADERS.indexOf(header);
+      return index >= 0 ? cashRow[index] : '';
+    };
+
+    const product = text_(get('商品'));
+    const tx = text_(get('取引区分'));
+    const amount = get('受渡金額/決済損益');
+    const isDeposit = tx === '入金（振込）';
+    const isWithdrawal = tx === '出金（振込）';
+
+    return [
+      get('約定日'),
+      get('受渡日'),
+      product,
+      get('銘柄コード'),
+      get('銘柄名'),
+      tx,
+      get('決済通貨'),
+      product === '株式' ? amount : '',
+      product === '外株' ? amount : '',
+      product === '投信' ? amount : '',
+      isDeposit ? amount : '',
+      isWithdrawal ? amount : '',
+      isDeposit || isWithdrawal ? get('摘要') : '',
+      '',
+      get('残高'),
+      get('月次残高'),
+    ];
+  });
+}
+
+function buildRakutenCashUsdRows_(records) {
+  return buildCashRows_(records).map(function(cashRow) {
+    const get = function(header) {
+      const index = CASH_HEADERS.indexOf(header);
+      return index >= 0 ? cashRow[index] : '';
+    };
+
+    const product = text_(get('商品'));
+    const tx = text_(get('取引区分'));
+    const amount = get('受渡金額/決済損益');
+    const isDividend = tx === '入金（配当金）' || tx === '入金（分配金）';
+
+    return [
+      get('約定日'),
+      get('受渡日'),
+      product,
+      get('銘柄コード'),
+      get('銘柄名'),
+      get('預り区分'),
+      tx,
+      get('発行通貨') || get('決済通貨'),
+      get('決済通貨'),
+      product === '外株' && !isDividend ? amount : '',
+      product === '投信' && !isDividend ? amount : '',
+      isDividend ? amount : '',
+      amount,
+      get('残高'),
+      get('月次残高'),
+    ];
+  });
+}
+
 function sortTradeRows_(a, b) {
   return compareText_(a['商品'], b['商品']) ||
          compareText_(a['銘柄名'], b['銘柄名']) ||

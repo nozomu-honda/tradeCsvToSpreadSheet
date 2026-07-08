@@ -383,6 +383,141 @@ function test_buildRakutenOutputSheetsFromBaseRecords_writesFundFinalLook_202607
   });
 }
 
+function test_buildRakutenOutputSheetsFromBaseRecords_writesCashFinalLook_20260708_() {
+  withTempSpreadsheet_(function(ss) {
+    const records = [
+      makeTradeRecord_({
+        商品: '現金',
+        摘要: '円入金テスト',
+        取引区分: '入金（振込）',
+        受渡金額_決済損益: 100000,
+        決済通貨: 'JPY',
+        約定日: '2026/07/01',
+        受渡日: '2026/07/01'
+      }),
+      makeTradeRecord_({
+        商品: '外株',
+        銘柄コード: 'AAPL',
+        銘柄名: 'APPLE INC',
+        預り区分: '特定',
+        取引区分: '現物買付',
+        数量: 10,
+        単価: 10,
+        受渡金額_決済損益: 100,
+        レート: 150,
+        発行通貨: 'USD',
+        決済通貨: 'USD',
+        約定日: '2026/07/02',
+        受渡日: '2026/07/02'
+      }),
+      makeTradeRecord_({
+        商品: '株式',
+        銘柄コード: '4755',
+        銘柄名: 'RAKUTEN_JP_CASH',
+        取引区分: '現物買付',
+        数量: 10,
+        単価: 500,
+        受渡金額_決済損益: 5000,
+        決済通貨: 'JPY',
+        約定日: '2026/07/05',
+        受渡日: '2026/07/05'
+      }),
+      makeTradeRecord_({
+        商品: '現金',
+        摘要: '円出金テスト',
+        取引区分: '出金（振込）',
+        受渡金額_決済損益: 30000,
+        決済通貨: 'JPY',
+        約定日: '2026/07/10',
+        受渡日: '2026/07/10'
+      }),
+      makeTradeRecord_({
+        商品: '投信',
+        銘柄名: 'USD_FUND_CASH',
+        取引区分: '現物買付',
+        数量: 10000,
+        単価: 20,
+        受渡金額_決済損益: 20,
+        レート: 150,
+        発行通貨: 'USD',
+        決済通貨: 'USD',
+        約定日: '2026/07/15',
+        受渡日: '2026/07/15'
+      }),
+      makeTradeRecord_({
+        商品: '投信',
+        銘柄名: 'JPY_FUND_CASH',
+        取引区分: '現物買付',
+        数量: 10000,
+        単価: 7000,
+        受渡金額_決済損益: 7000,
+        決済通貨: 'JPY',
+        約定日: '2026/07/18',
+        受渡日: '2026/07/18'
+      }),
+      makeTradeRecord_({
+        商品: '外株',
+        銘柄コード: 'AAPL',
+        銘柄名: 'APPLE INC',
+        預り区分: '特定',
+        取引区分: '入金（配当金）',
+        受渡金額_決済損益: 30,
+        発行通貨: 'USD',
+        決済通貨: 'USD',
+        約定日: '2026/07/20',
+        受渡日: '2026/07/20'
+      }),
+      makeTradeRecord_({
+        商品: '外株',
+        銘柄コード: 'MSFT',
+        銘柄名: 'MICROSOFT CORP',
+        取引区分: '現物売却',
+        受渡金額_決済損益: 2000,
+        決済通貨: 'JPY',
+        約定日: '2026/07/25',
+        受渡日: '2026/07/25'
+      })
+    ];
+
+    const result = buildRakutenOutputSheetsFromBaseRecords_(ss, records);
+    const jpySheet = ss.getSheetByName(CONFIG.OUTPUT_CASH_JPY);
+    const usdSheet = ss.getSheetByName(CONFIG.OUTPUT_CASH_USD);
+
+    assertEquals_(5, result.counts.cashJpy, '楽天金銭残高（円）件数');
+    assertEquals_(3, result.counts.cashUsd, '楽天金銭残高（ドル）件数');
+    assertTrue_(!!jpySheet, '金銭残高（円）シートを作成');
+    assertTrue_(!!usdSheet, '金銭残高（ドル）シートを作成');
+
+    const jpyHeaderRow = jpySheet.getRange(1, 1, 1, RAKUTEN_CASH_JPY_HEADERS.length).getValues()[0];
+    const usdHeaderRow = usdSheet.getRange(1, 1, 1, RAKUTEN_CASH_USD_HEADERS.length).getValues()[0];
+    assertArrayEquals_(RAKUTEN_CASH_JPY_HEADERS, jpyHeaderRow, '楽天金銭残高（円）の列順はDrive最終見た目に近づける');
+    assertArrayEquals_(RAKUTEN_CASH_USD_HEADERS, usdHeaderRow, '楽天金銭残高（ドル）の列順はDrive最終見た目に近づける');
+
+    assertEquals_(100000, getSheetValueByHeader_(jpySheet, RAKUTEN_CASH_JPY_HEADERS, 2, '入金額［円］'), '円入金額');
+    assertEquals_('円入金テスト', getSheetValueByHeader_(jpySheet, RAKUTEN_CASH_JPY_HEADERS, 2, '内容'), '円入金内容');
+    assertEquals_(100000, getSheetValueByHeader_(jpySheet, RAKUTEN_CASH_JPY_HEADERS, 2, '残高'), '円入金後残高');
+    assertEquals_(5000, getSheetValueByHeader_(jpySheet, RAKUTEN_CASH_JPY_HEADERS, 3, '日本株受渡金額［円］'), '日本株円受渡');
+    assertEquals_(95000, getSheetValueByHeader_(jpySheet, RAKUTEN_CASH_JPY_HEADERS, 3, '残高'), '日本株買付後残高');
+    assertEquals_(30000, getSheetValueByHeader_(jpySheet, RAKUTEN_CASH_JPY_HEADERS, 4, '出金額［円］'), '円出金額');
+    assertEquals_(65000, getSheetValueByHeader_(jpySheet, RAKUTEN_CASH_JPY_HEADERS, 4, '残高'), '円出金後残高');
+    assertEquals_(7000, getSheetValueByHeader_(jpySheet, RAKUTEN_CASH_JPY_HEADERS, 5, '投信受渡金額［円］'), '投信円受渡');
+    assertEquals_(2000, getSheetValueByHeader_(jpySheet, RAKUTEN_CASH_JPY_HEADERS, 6, '米国株受渡金額［円］'), '米国株円受渡');
+    assertEquals_(60000, getSheetValueByHeader_(jpySheet, RAKUTEN_CASH_JPY_HEADERS, 6, '残高'), '円最終残高');
+    assertEquals_(60000, getSheetValueByHeader_(jpySheet, RAKUTEN_CASH_JPY_HEADERS, 6, '月次残高'), '円月次残高');
+    assertEquals_('', getSheetValueByHeader_(jpySheet, RAKUTEN_CASH_JPY_HEADERS, 4, '出金先'), '出金先は現状モデルにないため空欄');
+
+    assertEquals_(100, getSheetValueByHeader_(usdSheet, RAKUTEN_CASH_USD_HEADERS, 2, '米国株受渡金額［USドル］'), '米国株USD受渡');
+    assertEquals_(100, getSheetValueByHeader_(usdSheet, RAKUTEN_CASH_USD_HEADERS, 2, '受渡金額［USドル］'), 'USD受渡金額');
+    assertEquals_(-100, getSheetValueByHeader_(usdSheet, RAKUTEN_CASH_USD_HEADERS, 2, '残高'), 'USD買付後残高');
+    assertEquals_(20, getSheetValueByHeader_(usdSheet, RAKUTEN_CASH_USD_HEADERS, 3, '投信受渡金額［USドル］'), '投信USD受渡');
+    assertEquals_(-120, getSheetValueByHeader_(usdSheet, RAKUTEN_CASH_USD_HEADERS, 3, '残高'), '投信USD買付後残高');
+    assertEquals_('USD', getSheetValueByHeader_(usdSheet, RAKUTEN_CASH_USD_HEADERS, 4, '受取通貨'), '受取通貨');
+    assertEquals_(30, getSheetValueByHeader_(usdSheet, RAKUTEN_CASH_USD_HEADERS, 4, '配当金・分配金受取金額［USドル］'), '配当金USD受取');
+    assertEquals_(-90, getSheetValueByHeader_(usdSheet, RAKUTEN_CASH_USD_HEADERS, 4, '残高'), 'USD最終残高');
+    assertEquals_(-90, getSheetValueByHeader_(usdSheet, RAKUTEN_CASH_USD_HEADERS, 4, '月次残高'), 'USD月次残高');
+  });
+}
+
 function test_groupRakutenOutputRecords_splitsWithoutSpreadsheet_20260618_() {
   const records = [
     makeTradeRecord_({
