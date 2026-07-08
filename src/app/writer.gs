@@ -25,22 +25,27 @@ function writeSheet_(ss, sheetName, headers, rows, isTradeSheet) {
 
   if (isTradeSheet && rows.length > 0) {
     const holdingCol = actualHeaders.indexOf('保有数') + 1;
-    const symbolCol = actualHeaders.indexOf('銘柄名') + 1;
+    const symbolIndex = actualHeaders.indexOf('銘柄名') >= 0
+      ? actualHeaders.indexOf('銘柄名')
+      : actualHeaders.indexOf('ファンド名');
+    const symbolCol = symbolIndex + 1;
     const helperCol = actualHeaders.indexOf('__highlight_symbol__') + 1;
 
-    const zeroRule = SpreadsheetApp.newConditionalFormatRule()
-      .whenNumberEqualTo(0)
-      .setFontColor('#d93025')
-      .setRanges([sheet.getRange(2, holdingCol, rows.length, 1)])
-      .build();
+    if (holdingCol > 0 && symbolCol > 0 && helperCol > 0) {
+      const zeroRule = SpreadsheetApp.newConditionalFormatRule()
+        .whenNumberEqualTo(0)
+        .setFontColor('#d93025')
+        .setRanges([sheet.getRange(2, holdingCol, rows.length, 1)])
+        .build();
 
-    const positiveHoldingLastTradeRule = SpreadsheetApp.newConditionalFormatRule()
-      .whenFormulaSatisfied('=$' + columnToLetter_(helperCol) + '2="YES"')
-      .setBackground('#d9f0ff')
-      .setRanges([sheet.getRange(2, symbolCol, rows.length, 1)])
-      .build();
+      const positiveHoldingLastTradeRule = SpreadsheetApp.newConditionalFormatRule()
+        .whenFormulaSatisfied('=$' + columnToLetter_(helperCol) + '2="YES"')
+        .setBackground('#d9f0ff')
+        .setRanges([sheet.getRange(2, symbolCol, rows.length, 1)])
+        .build();
 
-    sheet.setConditionalFormatRules([zeroRule, positiveHoldingLastTradeRule]);
+      sheet.setConditionalFormatRules([zeroRule, positiveHoldingLastTradeRule]);
+    }
   }
 
   hideColumnsByName_(sheet, actualHeaders, sheetName);
@@ -72,16 +77,17 @@ function styleSheet_(sheet, headers, rowCount) {
   headers.forEach(function(h, i) {
     let width = 110;
     if (['約定日', '受渡日'].includes(h)) width = 95;
-    if (h === '銘柄名') width = 280;
-    if (['取引区分', '摘要', '預り区分', '口座区分', '口座', '売買区分'].includes(h)) width = 120;
-    if (['商品', '銘柄コード', '発行通貨', '決済通貨', '元本払戻金', '信用区分', '弁済期限'].includes(h)) width = 100;
+    if (h === '銘柄名' || h === 'ファンド名') width = 280;
+    if (['取引区分', '摘要', '預り区分', '口座区分', '口座', '売買区分', '取引', '買付方法'].includes(h)) width = 120;
+    if (['商品', '銘柄コード', '発行通貨', '決済通貨', '元本払戻金', '元金払戻金', '信用区分', '弁済期限'].includes(h)) width = 100;
     if ([
       '数量', '単価', '受渡金額/決済損益', '手数料（税込）', 'レート', '売買損益（円）',
       '国内消費税等（円）', '現地源泉税（円）', '国内源泉所得税（円）', '国内源泉地方税（円）',
       '国内手数料（円）', '現地手数料（円）',
       '数量［株］', '単価［円］', '手数料［円］', '税金等［円］', '諸費用［円］', '受渡金額［円］',
       '単価［USドル］', '約定代金［USドル］', '手数料［USドル］', '税金［USドル］',
-      '受渡金額［USドル］'
+      '受渡金額［USドル］',
+      '経費', '受付金額', '受渡金額'
     ].includes(h)) {
       width = 120;
     }
@@ -100,6 +106,7 @@ function styleSheet_(sheet, headers, rowCount) {
     '国内消費税等（円）', '現地源泉税（円）', '国内源泉所得税（円）', '国内源泉地方税（円）',
     '国内手数料（円）', '現地手数料（円）',
     '単価［円］', '手数料［円］', '税金等［円］', '諸費用［円］', '受渡金額［円］',
+    '経費', '受付金額', '受渡金額',
     '手数料の消費税額', '手数料の消費税額（円）', '手数料抜き売値', '取得価格', '売却損益',
     '簿価', '銘柄ごとの残高', '残高', '月次残高'
   ]);
