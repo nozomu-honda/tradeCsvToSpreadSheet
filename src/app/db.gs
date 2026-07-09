@@ -41,6 +41,8 @@ function resolveDbTarget_(targetDbKey) {
   return {
     key: key,
     label: target.label,
+    dbKind: getDbTargetKind_(key),
+    dbKindLabel: getDbTargetKindLabel_(key),
     spreadsheetId: text_(target.spreadsheetId),
     spreadsheetName: text_(target.spreadsheetName),
     folderId: text_(target.folderId || DB_CONFIG.DB_FOLDER_ID || ''),
@@ -62,13 +64,18 @@ function getResetDbTargetList_() {
 }
 
 function serializeDbTargetForUi_(target, options) {
+  const key = text_(target.key);
   const label = options && options.preferImportLabel
     ? text_(target.importLabel) || target.label
     : target.label;
+  const dbKindLabel = getDbTargetKindLabel_(key);
 
   return {
-    key: target.key,
+    key: key,
     label: label,
+    dbKind: getDbTargetKind_(key),
+    dbKindLabel: dbKindLabel,
+    operationLabel: dbKindLabel + ': ' + label + ' (' + key + ')',
     spreadsheetId: text_(target.spreadsheetId),
     spreadsheetName: text_(target.spreadsheetName),
   };
@@ -76,6 +83,14 @@ function serializeDbTargetForUi_(target, options) {
 
 function isRakutenDbTargetKey_(targetDbKey) {
   return text_(targetDbKey).indexOf('rakuten_') === 0;
+}
+
+function getDbTargetKind_(targetDbKey) {
+  return isRakutenDbTargetKey_(targetDbKey) ? 'rakuten' : 'nomura';
+}
+
+function getDbTargetKindLabel_(targetDbKey) {
+  return getDbTargetKind_(targetDbKey) === 'rakuten' ? '楽天DB' : '野村DB';
 }
 
 function getTransactionHeadersForTargetKey_(targetDbKey) {
@@ -586,6 +601,8 @@ function appendRecordsToDb_(records, options) {
     dbSpreadsheetUrl: dbSs.getUrl(),
     dbTargetKey: target.key,
     dbTargetLabel: target.label,
+    dbTargetKind: getDbTargetKind_(target.key),
+    dbTargetKindLabel: getDbTargetKindLabel_(target.key),
     importId: importId,
     rowCount: records.length,
     insertedCount: insertedCount,
@@ -877,6 +894,8 @@ function getDbSpreadsheetMeta_(targetDbKey) {
     dbSpreadsheetUrl: dbSs.getUrl(),
     dbTargetKey: target.key,
     dbTargetLabel: target.label,
+    dbTargetKind: target.dbKind,
+    dbTargetKindLabel: target.dbKindLabel,
   };
 }
 
@@ -908,12 +927,18 @@ function listRecentImportsFromSpreadsheet_(dbSs, maxCount, fallbackTarget) {
 
       const sourceName = text_(log.sourceName) || '(sourceName空欄)';
       const insertedCount = toNumber_(log.insertedCount);
+      const targetDbKey = text_(log.targetDbKey) || text_(fallback.key);
+      const targetDbLabel = text_(log.targetDbLabel) || text_(fallback.label) || dbSs.getName();
+      const targetDbKind = getDbTargetKind_(targetDbKey);
+      const targetDbKindLabel = getDbTargetKindLabel_(targetDbKey);
 
       return {
         importId: text_(log.importId),
         importedAtText: importedAtText,
-        targetDbKey: text_(log.targetDbKey) || text_(fallback.key),
-        targetDbLabel: text_(log.targetDbLabel) || text_(fallback.label) || dbSs.getName(),
+        targetDbKey: targetDbKey,
+        targetDbLabel: targetDbLabel,
+        targetDbKind: targetDbKind,
+        targetDbKindLabel: targetDbKindLabel,
         sourceName: sourceName,
         rowCount: toNumber_(log.rowCount),
         insertedCount: insertedCount,
@@ -922,6 +947,9 @@ function listRecentImportsFromSpreadsheet_(dbSs, maxCount, fallbackTarget) {
         rolledBackAtText: rolledBackAtText,
         rolledBackRecordCount: toNumber_(log.rolledBackRecordCount),
         displayLabel:
+          targetDbKindLabel +
+          ' ' + targetDbKey +
+          ' / ' +
           text_(log.importId) +
           ' / ' + sourceName +
           ' / 追加:' + insertedCount +
@@ -975,6 +1003,7 @@ function rollbackImportInSpreadsheet_(dbSs, target, importId) {
     throw new Error('この取込IDはすでにロールバック済みです: ' + rollbackImportId);
   }
 
+  const now = new Date();
   const txLastRow = txSheet.getLastRow();
   let rolledBackCount = 0;
 
@@ -985,7 +1014,6 @@ function rollbackImportInSpreadsheet_(dbSs, target, importId) {
     const isActiveCol = transactionHeaders.indexOf('isActive');
     const updatedAtCol = transactionHeaders.indexOf('updatedAt');
     const rolledBackAtCol = transactionHeaders.indexOf('rolledBackAt');
-    const now = new Date();
 
     values.forEach(function(row) {
       const rowImportId = text_(row[importIdCol]);
@@ -1014,7 +1042,6 @@ function rollbackImportInSpreadsheet_(dbSs, target, importId) {
     const isRolledBackCol = IMPORT_LOG_HEADERS.indexOf('isRolledBack');
     const rolledBackAtCol = IMPORT_LOG_HEADERS.indexOf('rolledBackAt');
     const rolledBackRecordCountCol = IMPORT_LOG_HEADERS.indexOf('rolledBackRecordCount');
-    const now = new Date();
 
     logValues.forEach(function(row) {
       if (text_(row[importedIdCol]) === rollbackImportId) {
@@ -1033,8 +1060,12 @@ function rollbackImportInSpreadsheet_(dbSs, target, importId) {
     dbSpreadsheetUrl: dbSs.getUrl(),
     dbTargetKey: text_(target.key) || text_(targetLog.targetDbKey),
     dbTargetLabel: text_(target.label) || text_(targetLog.targetDbLabel) || dbSs.getName(),
+    dbTargetKind: getDbTargetKind_(target.key),
+    dbTargetKindLabel: getDbTargetKindLabel_(target.key),
     importId: rollbackImportId,
     rolledBackCount: rolledBackCount,
+    rolledBackAt: now,
+    rolledBackAtText: Utilities.formatDate(now, Session.getScriptTimeZone() || 'Asia/Tokyo', 'yyyy/MM/dd HH:mm:ss'),
   };
 }
 
@@ -1054,6 +1085,8 @@ function resetDbData_(targetDbKey) {
     dbSpreadsheetUrl: dbSs.getUrl(),
     dbTargetKey: target.key,
     dbTargetLabel: target.label,
+    dbTargetKind: target.dbKind,
+    dbTargetKindLabel: target.dbKindLabel,
     deletedTransactionCount: txDeletedCount,
     deletedImportLogCount: logDeletedCount,
   };

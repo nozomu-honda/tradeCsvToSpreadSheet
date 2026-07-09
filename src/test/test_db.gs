@@ -244,6 +244,9 @@ function test_getResetDbTargetList_includesHiddenTargets_20260616_() {
       assertArrayEquals_(['nomura_corp_a', 'rakuten_corp_a'], resetTargets, 'リセット用DBリストは楽天DBも含める');
       assertEquals_('Temp 法人A', importTargetList[0].label, '取込用DBリストは importLabel を表示する');
       assertEquals_('Temp nomura_corp_a', resetTargetList[0].label, 'リセット用DBリストは通常ラベルを表示する');
+      assertEquals_('nomura', resetTargetList[0].dbKind, '野村DB種別');
+      assertEquals_('楽天DB', resetTargetList[1].dbKindLabel, '楽天DB種別ラベル');
+      assertEquals_('楽天DB: Temp rakuten_corp_a (rakuten_corp_a)', resetTargetList[1].operationLabel, '操作用ラベルは種別とDBキーを含める');
     });
   } finally {
     temp.cleanup();
@@ -325,6 +328,8 @@ function test_listRecentImports_returnsOnlySelectedDbLogs_() {
       assertEquals_('nomura_corp_b.csv', logsB[0].sourceName, 'nomura_corp_b の sourceName');
       assertEquals_('nomura_corp_a', logsA[0].targetDbKey, 'nomura_corp_a の targetDbKey');
       assertEquals_('nomura_corp_b', logsB[0].targetDbKey, 'nomura_corp_b の targetDbKey');
+      assertEquals_('野村DB', logsA[0].targetDbKindLabel, '履歴にDB種別ラベルを含める');
+      assertTrue_(logsA[0].displayLabel.indexOf('野村DB nomura_corp_a') >= 0, '履歴表示名にDB種別とキーを含める');
     });
   } finally {
     temp.cleanup();
@@ -371,6 +376,10 @@ function test_rollbackImport_marksImportInactive_() {
 
       const rollback = rollbackImport_('nomura_corp_a', first.importId);
       assertEquals_(1, rollback.rolledBackCount, '1件ロールバック');
+      assertEquals_('nomura_corp_a', rollback.dbTargetKey, 'ロールバック対象DBキー');
+      assertEquals_('野村DB', rollback.dbTargetKindLabel, 'ロールバック対象DB種別');
+      assertTrue_(rollback.rolledBackAt instanceof Date, 'ロールバック結果にrolledBackAtが入る');
+      assertTrue_(!!rollback.rolledBackAtText, 'ロールバック結果にrolledBackAtTextが入る');
 
       const after = readDbRecords_('nomura_corp_a');
       assertEquals_(1, after.length, 'ロールバック後は有効レコード1件');
@@ -758,6 +767,69 @@ function test_rakutenDb_rollback_marksOnlyTargetImportInactive_20260617_() {
       assertTrue_(!!firstRow, 'ロールバック対象行が見つかる');
       assertFalse_(!(firstRow[isActiveCol] === false || String(firstRow[isActiveCol]).toUpperCase() === 'FALSE'), '楽天DB対象行 isActive は false');
       assertTrue_(firstRow[rolledBackAtCol] instanceof Date, '楽天DB対象行 rolledBackAt が入る');
+    });
+  } finally {
+    temp.cleanup();
+  }
+}
+
+function test_rollbackImport_sameImportIdOnlySelectedDb_20260709_() {
+  const temp = createTempDbTargets_(['nomura_corp_a', 'rakuten_corp_a']);
+  try {
+    withTempDbTargets_(temp.targets, 'nomura_corp_a', function() {
+      appendRecordsToDb_([
+        makeTradeRecord_({
+          銘柄名: 'NOMURA_SHARED_IMPORT',
+          商品: '株式',
+          取引区分: '現物買付',
+          数量: 1,
+          単価: 100,
+          受渡金額_決済損益: 100,
+          決済通貨: 'JPY'
+        })
+      ], {
+        targetDbKey: 'nomura_corp_a',
+        sourceName: 'nomura_shared.csv',
+        inputType: 'upload',
+        importId: 'shared_import'
+      });
+
+      appendRecordsToDb_([
+        makeTradeRecord_({
+          銘柄名: 'RAKUTEN_SHARED_IMPORT',
+          商品: '外株',
+          取引区分: '現物買付',
+          数量: 1,
+          単価: 100,
+          受渡金額_決済損益: 100,
+          レート: 150,
+          決済通貨: 'USD'
+        })
+      ], {
+        targetDbKey: 'rakuten_corp_a',
+        sourceName: 'rakuten_shared.csv',
+        inputType: 'upload',
+        sourceType: 'rakuten_us_stock',
+        importId: 'shared_import'
+      });
+
+      const rollback = rollbackImport_('rakuten_corp_a', 'shared_import');
+      assertEquals_('rakuten_corp_a', rollback.dbTargetKey, '楽天DBだけをロールバック対象にする');
+      assertEquals_('楽天DB', rollback.dbTargetKindLabel, '楽天DB種別を返す');
+      assertEquals_(1, rollback.rolledBackCount, '楽天DBの1件だけ無効化');
+
+      const nomuraRecords = readDbRecords_('nomura_corp_a');
+      const rakutenRecords = readDbRecords_('rakuten_corp_a');
+      assertEquals_(1, nomuraRecords.length, '同じimportIdでも野村DBのレコードは残る');
+      assertEquals_('NOMURA_SHARED_IMPORT', nomuraRecords[0]['銘柄名'], '野村DBの対象外レコード');
+      assertEquals_(0, rakutenRecords.length, '楽天DBの対象レコードだけ無効化');
+
+      const nomuraLogs = listRecentImports_('nomura_corp_a', 10);
+      const rakutenLogs = listRecentImports_('rakuten_corp_a', 10);
+      assertFalse_(nomuraLogs[0].isRolledBack, '野村DBの同名importIdログは未ロールバック');
+      assertTrue_(rakutenLogs[0].isRolledBack, '楽天DBの同名importIdログだけロールバック済み');
+      assertEquals_('楽天DB', rakutenLogs[0].targetDbKindLabel, '楽天履歴にDB種別を含める');
+      assertTrue_(rakutenLogs[0].displayLabel.indexOf('楽天DB rakuten_corp_a') >= 0, '楽天履歴表示名にDB種別とキーを含める');
     });
   } finally {
     temp.cleanup();

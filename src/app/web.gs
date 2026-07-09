@@ -64,6 +64,8 @@ function listRecentImportsFromWebApp(targetDbKey) {
   return {
     dbTargetKey: target.key,
     dbTargetLabel: target.label,
+    dbTargetKind: target.dbKind,
+    dbTargetKindLabel: target.dbKindLabel,
     imports: listRecentImports_(target.key, DB_CONFIG.MAX_RECENT_IMPORTS),
   };
 }
@@ -72,8 +74,18 @@ function rollbackImportFromWebApp(payload) {
   if (!payload) {
     throw new Error('ロールバック対象が指定されていません。');
   }
+  if (!payload.targetDbKey) {
+    throw new Error('ロールバック対象DBを選択してください。');
+  }
+  if (!payload.importId) {
+    throw new Error('ロールバック対象の取込IDを選択してください。');
+  }
 
-  return rollbackImport_(payload.targetDbKey, payload.importId);
+  const result = rollbackImport_(payload.targetDbKey, payload.importId);
+  if (result.rolledBackAt instanceof Date) {
+    result.rolledBackAt = result.rolledBackAtText;
+  }
+  return result;
 }
 
 function runStagingSheetFromWebApp(payload) {
