@@ -200,6 +200,10 @@
         return payload;
       }
 
+      function isCiE2eMode_() {
+        return !!window.__CI_E2E_TOKEN__;
+      }
+
       function setRollbackDbFromResult_(res) {
         const routedKey = (res && (res.routedTargetDbKey || (res.db && res.db.dbTargetKey))) || '';
         if (!routedKey) return;
@@ -321,7 +325,9 @@
               document.getElementById('status').textContent = '';
               renderMainResult_(res);
               setRollbackDbFromResult_(res);
-              loadRecentImports();
+              if (!isCiE2eMode_()) {
+                loadRecentImports();
+              }
             })
             .withFailureHandler(function(err) {
               setBusy_(false);

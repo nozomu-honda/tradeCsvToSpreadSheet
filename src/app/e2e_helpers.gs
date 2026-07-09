@@ -65,6 +65,7 @@ function prepareE2EWebAppRun(payload) {
 
 function cleanupE2EImportFromWebApp(payload) {
   assertConfiguredCiE2eTokenForPayload_(payload);
+  enableCiE2eRootDbFolderForPayload_(payload);
 
   const targetDbKey = text_(payload && payload.targetDbKey);
   const importId = text_(payload && payload.importId);
