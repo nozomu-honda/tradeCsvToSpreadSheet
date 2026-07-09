@@ -1,11 +1,11 @@
 # GAS Web App E2E
 
-最小構成の GAS Web アプリ E2E は、テスト専用 Apps Script プロジェクトへ `clasp push --force` し、GitHub Actions から開ける一時 Web アプリ deployment を作成してから Playwright で 1 ケースだけ確認する。
+最小構成の GAS Web アプリ E2E は、テスト専用 Apps Script プロジェクトへ `clasp push --force` し、GitHub Actions から開ける一時 Web アプリ deployment を作成してから Playwright で楽天CSVアップロードの代表ケースを確認する。
 
 ## 方針
 
 - PR #43 の古い楽天配当金 7 件 E2E は使わず、現在の `develop` に合わせて小さく作り直す。
-- 初回対象は楽天日本株 CSV アップロード 1 ケースだけにする。
+- 初回対象は楽天日本株 CSV アップロード 1 ケースだけにした。現在は楽天日本株、楽天米国株、楽天投資信託、楽天入出金履歴の代表ケースを確認する。
 - 外部スプレッドシート URL は使わず、Playwright のローカル CSV fixture をアップロードする。
 - workflow は `workflow_dispatch` または同一リポジトリ PR に `gas-web-e2e` ラベルが付いた時だけ実行する。
 - `pull_request_target` は使わない。
@@ -22,14 +22,24 @@
 
 ## 対象ケース
 
+各ケースは次の共通フローで確認する。
+
 1. GAS Web アプリを開く。
 2. 追加先 DB として UI 上の `nomura_test` を選ぶ。
-3. 楽天日本株 CSV fixture をアップロードする。
+3. CSV fixture をアップロードする。
 4. 実行する。
 5. 楽天入力として検出され、内部ルーティングで `rakuten_test` に保存されることを確認する。
-6. 結果表示で、検出形式、選択 DB キー、実際の追加先 DB キー、実際の追加先 DB 種別、取込 ID、出力リンクを確認する。
-7. E2E cleanup helper から対象 `importId` を `rakuten_test` 内で論理ロールバックする。
-8. cleanup 結果は Playwright attachment に保存する。
+6. 結果表示で、検出形式、選択 DB キー、実際の追加先 DB キー、実際の追加先 DB 種別、取込 ID、読込件数、追加件数、出力リンクを確認する。
+7. 出力件数表示から対象シート系統の件数が増えていることを確認する。
+8. E2E cleanup helper から対象 `importId` を `rakuten_test` 内で論理ロールバックする。
+9. cleanup 結果は Playwright attachment と workflow summary に保存する。
+
+現在の代表ケースは次の4つ。
+
+- 楽天日本株 CSV: `rakuten_jp_stock` として検出し、日本株出力件数が1件以上であることを確認する。
+- 楽天米国株 CSV: `rakuten_us_stock` として検出し、米国株と金銭残高（ドル）の出力件数が1件以上であることを確認する。
+- 楽天投資信託 CSV: `rakuten_fund` として検出し、投信と金銭残高（円）の出力件数が1件以上であることを確認する。
+- 楽天入出金履歴 CSV: `rakuten_cash` として検出し、金銭残高（円）の出力件数が2件以上であることを確認する。
 
 ## GitHub Actions から HTTP 403 になる主な原因
 
