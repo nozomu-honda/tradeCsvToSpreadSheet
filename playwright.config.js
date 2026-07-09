@@ -16,7 +16,7 @@ module.exports = defineConfig({
   ],
   use: {
     baseURL: process.env.GAS_TEST_WEBAPP_URL,
-    trace: 'retain-on-failure',
+    trace: 'off',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
     actionTimeout: 30000,

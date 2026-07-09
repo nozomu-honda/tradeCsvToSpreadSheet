@@ -140,10 +140,21 @@ test.describe('GAS Web app minimal E2E', () => {
 
   test('uploads a Rakuten Japan stock CSV and rolls back the routed test import', async ({ page }) => {
     const webAppUrl = readRequiredEnv('GAS_TEST_WEBAPP_URL');
+    const token = readRequiredEnv('CI_E2E_TOKEN');
     const fixture = buildUniqueRakutenJapanStockCsv();
 
     await page.goto(webAppUrl, { waitUntil: 'domcontentloaded' });
     const app = await resolveAppFrame(page);
+    const prepareResult = await callGoogleScript(app, 'prepareE2EWebAppRun', {
+      targetDbKey: 'rakuten_test',
+    }, token);
+
+    expect(prepareResult.ok, prepareResult.error || JSON.stringify(prepareResult.value)).toBe(true);
+    expect(prepareResult.value.ok, JSON.stringify(prepareResult.value || {})).toBe(true);
+
+    await app.evaluate((ciToken) => {
+      window.__CI_E2E_TOKEN__ = ciToken;
+    }, token);
 
     await expect(app.locator('[data-testid="csv-file-input"]')).toBeVisible();
     await app.locator('[data-testid="target-db-select"]').selectOption('nomura_test');

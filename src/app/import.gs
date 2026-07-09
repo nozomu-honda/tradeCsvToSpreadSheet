@@ -348,8 +348,11 @@ function getManagedOutputSpreadsheet_(targetDbKey, sourceNameForNewFile) {
   }
 
   const outputConfig = DB_CONFIG.TEST_OUTPUT_SPREADSHEET || {};
-  const fixedId = text_(outputConfig.spreadsheetId);
-  const fixedName = text_(outputConfig.spreadsheetName) || '株管理ツール_TEST_OUTPUT';
+  const useE2eRootOutput = shouldUseCiE2eRootDbFolder_({ key: targetDbKey });
+  const fixedId = useE2eRootOutput ? '' : text_(outputConfig.spreadsheetId);
+  const fixedName = useE2eRootOutput
+    ? '株管理ツール_E2E_TEST_OUTPUT'
+    : text_(outputConfig.spreadsheetName) || '株管理ツール_TEST_OUTPUT';
 
   if (fixedId) {
     return {

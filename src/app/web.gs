@@ -8,10 +8,21 @@ function doGet(e) {
   return template.evaluate().setTitle('CSV / スプレッドシートから6シート生成');
 }
 
+function normalizeWebAppTargetPayload_(payloadOrTargetDbKey) {
+  if (payloadOrTargetDbKey && typeof payloadOrTargetDbKey === 'object') {
+    return payloadOrTargetDbKey;
+  }
+  return {
+    targetDbKey: payloadOrTargetDbKey,
+  };
+}
+
 function runFromWebApp(payload) {
   if (!payload) {
     throw new Error('入力がありません。');
   }
+
+  assertCiE2eTokenForWebAppIfConfigured_(payload);
 
   const csvUrl = (payload.csvUrl || '').trim();
   const spreadsheetUrl = (payload.spreadsheetUrl || '').trim();
@@ -51,16 +62,22 @@ function runFromWebApp(payload) {
   });
 }
 
-function resetDbFromWebApp(targetDbKey) {
-  return resetDbData_(targetDbKey);
+function resetDbFromWebApp(payloadOrTargetDbKey) {
+  const payload = normalizeWebAppTargetPayload_(payloadOrTargetDbKey);
+  assertCiE2eTokenForWebAppIfConfigured_(payload);
+  return resetDbData_(payload.targetDbKey);
 }
 
-function getDbSpreadsheetFromWebApp(targetDbKey) {
-  return getDbSpreadsheetMeta_(targetDbKey);
+function getDbSpreadsheetFromWebApp(payloadOrTargetDbKey) {
+  const payload = normalizeWebAppTargetPayload_(payloadOrTargetDbKey);
+  assertCiE2eTokenForWebAppIfConfigured_(payload);
+  return getDbSpreadsheetMeta_(payload.targetDbKey);
 }
 
-function listRecentImportsFromWebApp(targetDbKey) {
-  const target = resolveDbTarget_(targetDbKey);
+function listRecentImportsFromWebApp(payloadOrTargetDbKey) {
+  const payload = normalizeWebAppTargetPayload_(payloadOrTargetDbKey);
+  assertCiE2eTokenForWebAppIfConfigured_(payload);
+  const target = resolveDbTarget_(payload.targetDbKey);
   return {
     dbTargetKey: target.key,
     dbTargetLabel: target.label,
@@ -74,6 +91,7 @@ function rollbackImportFromWebApp(payload) {
   if (!payload) {
     throw new Error('ロールバック対象が指定されていません。');
   }
+  assertCiE2eTokenForWebAppIfConfigured_(payload);
   if (!payload.targetDbKey) {
     throw new Error('ロールバック対象DBを選択してください。');
   }
@@ -92,6 +110,8 @@ function runStagingSheetFromWebApp(payload) {
   if (!payload) {
     throw new Error('入力がありません。');
   }
+
+  assertCiE2eTokenForWebAppIfConfigured_(payload);
 
   const csvUrl = (payload.csvUrl || '').trim();
   const spreadsheetUrl = (payload.spreadsheetUrl || '').trim();

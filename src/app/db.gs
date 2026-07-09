@@ -38,6 +38,10 @@ function resolveDbTarget_(targetDbKey) {
     throw new Error('DBの spreadsheetId か spreadsheetName を設定してください: ' + key);
   }
 
+  const folderId = shouldUseCiE2eRootDbFolder_(target)
+    ? ''
+    : text_(target.folderId || DB_CONFIG.DB_FOLDER_ID || '');
+
   return {
     key: key,
     label: target.label,
@@ -45,7 +49,7 @@ function resolveDbTarget_(targetDbKey) {
     dbKindLabel: getDbTargetKindLabel_(key),
     spreadsheetId: text_(target.spreadsheetId),
     spreadsheetName: text_(target.spreadsheetName),
-    folderId: text_(target.folderId || DB_CONFIG.DB_FOLDER_ID || ''),
+    folderId: folderId,
   };
 }
 
