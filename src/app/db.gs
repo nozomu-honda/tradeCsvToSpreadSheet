@@ -505,6 +505,13 @@ function rakutenDbRecordToBaseRecord_(obj) {
   const date = obj.tradeDate || obj.settlementDate || obj.paymentDate || obj.cashDate;
   const settlementDate = obj.settlementDate || obj.paymentDate || obj.cashDate || obj.tradeDate;
   const commonDomesticTax = product === '株式' ? toOptionalNumber_(obj.tax) : '';
+  const fee = toNumber_(obj.fee);
+  let domesticFee = '';
+  if (product === '株式' && fee !== 0) {
+    domesticFee = normalizeZero_(fee - (commonDomesticTax === '' ? 0 : commonDomesticTax));
+  } else if (product === '投信' && fee !== 0) {
+    domesticFee = fee;
+  }
 
   const record = {
     約定日: parseDate_(date),
@@ -519,7 +526,7 @@ function rakutenDbRecordToBaseRecord_(obj) {
     数量: toNumber_(obj.quantity),
     単価: toNumber_(obj.unitPrice),
     '受渡金額/決済損益': toNumber_(obj.settlementAmount || obj.netAmount),
-    '手数料（税込）': toNumber_(obj.fee),
+    '手数料（税込）': fee,
     レート: toNumber_(obj.exchangeRate || obj.manualRate),
     決済通貨: normalizeCurrency_(obj.settlementCurrency || obj.currency),
     '売買損益（円）': '',
@@ -528,7 +535,7 @@ function rakutenDbRecordToBaseRecord_(obj) {
     '国内源泉所得税（円）': toOptionalNumber_(obj.manualDomesticWithholdingTaxJpy),
     '国内源泉地方税（円）': '',
     '元本払戻金': '',
-    '国内手数料（円）': '',
+    '国内手数料（円）': domesticFee,
     '現地手数料（円）': toOptionalNumber_(obj.miscFee),
   };
   record.__rakutenDb = obj;
