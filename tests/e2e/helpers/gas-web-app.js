@@ -72,6 +72,14 @@ function extractResultValue(resultText, label) {
   return match ? match[1].trim() : '';
 }
 
+function extractSpreadsheetIdFromUrl(url) {
+  const match = String(url || '').match(/\/spreadsheets\/d\/([A-Za-z0-9_-]+)/);
+  if (!match) {
+    throw new Error('Could not extract spreadsheetId from output link.');
+  }
+  return match[1];
+}
+
 function appendStepSummary(lines) {
   const summaryPath = process.env.GITHUB_STEP_SUMMARY;
   if (!summaryPath) {
@@ -99,6 +107,49 @@ async function callGoogleScript(frame, functionName, payload, token) {
         ciE2eToken: ciToken,
       });
   }), { fn: functionName, data: payload, ciToken: token });
+}
+
+function sheetValuesFor(inspection, sheetName) {
+  return inspection && inspection.sheets && inspection.sheets[sheetName]
+    ? inspection.sheets[sheetName].values || []
+    : [];
+}
+
+function findValueInColumn(values, headerName, expectedValue) {
+  if (!values || values.length === 0) {
+    return false;
+  }
+
+  const headers = values[0] || [];
+  const columnIndex = headers.indexOf(headerName);
+  if (columnIndex < 0) {
+    return false;
+  }
+
+  return values.slice(1).some((row) => String(row[columnIndex] || '') === String(expectedValue));
+}
+
+function assertOutputInspection(inspection, expected) {
+  if (!expected) {
+    return;
+  }
+
+  (expected.requiredSheets || []).forEach((sheetName) => {
+    expect(inspection.sheetNames, `${sheetName} should exist`).toContain(sheetName);
+    expect(inspection.sheets[sheetName] && inspection.sheets[sheetName].exists, `${sheetName} should be readable`).toBe(true);
+  });
+
+  (expected.absentSheets || []).forEach((sheetName) => {
+    expect(inspection.sheetNames, `${sheetName} should not remain`).not.toContain(sheetName);
+  });
+
+  (expected.valueChecks || []).forEach(({ sheetName, headerName, expectedValue }) => {
+    const values = sheetValuesFor(inspection, sheetName);
+    expect(
+      findValueInColumn(values, headerName, expectedValue),
+      `${sheetName}.${headerName} should contain ${expectedValue}`
+    ).toBe(true);
+  });
 }
 
 async function openPreparedWebApp(page) {
@@ -178,15 +229,38 @@ async function runCsvUploadCase({ page, fixture, expected, registerCleanup }) {
   });
 
   await expect(app.locator('[data-testid="rollback-db-select"]')).toHaveValue('rakuten_test');
-  await expect(app.locator('[data-testid="link-area"] a', { hasText: '作成したスプレッドシートを開く' })).toHaveAttribute(
-    'href',
-    /^https:\/\/docs\.google\.com\/spreadsheets\//
-  );
+  const outputLink = app.locator('[data-testid="link-area"] a', { hasText: '作成したスプレッドシートを開く' });
+  await expect(outputLink).toHaveAttribute('href', /^https:\/\/docs\.google\.com\/spreadsheets\//);
+
+  const outputSpreadsheetUrl = await outputLink.getAttribute('href');
+  const outputSpreadsheetId = extractSpreadsheetIdFromUrl(outputSpreadsheetUrl);
+  let outputInspection = null;
+
+  if (expected.outputSpreadsheet) {
+    const sheetNames = Array.from(new Set([
+      ...(expected.outputSpreadsheet.requiredSheets || []),
+      ...(expected.outputSpreadsheet.absentSheets || []),
+      ...(expected.outputSpreadsheet.valueChecks || []).map((item) => item.sheetName),
+    ]));
+    const token = readRequiredEnv('CI_E2E_TOKEN');
+    const inspectionResult = await callGoogleScript(app, 'inspectE2EOutputSpreadsheetFromWebApp', {
+      targetDbKey: 'rakuten_test',
+      spreadsheetId: outputSpreadsheetId,
+      sheetNames,
+    }, token);
+
+    expect(inspectionResult.ok, inspectionResult.error || JSON.stringify(inspectionResult.value)).toBe(true);
+    expect(inspectionResult.value.ok, JSON.stringify(inspectionResult.value || {})).toBe(true);
+    outputInspection = inspectionResult.value;
+    assertOutputInspection(outputInspection, expected.outputSpreadsheet);
+  }
 
   return {
     app,
     resultText,
     parsed,
+    outputSpreadsheetId,
+    outputInspection,
     cleanupPayload,
   };
 }
