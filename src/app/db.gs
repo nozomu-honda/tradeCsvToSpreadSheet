@@ -103,6 +103,9 @@ function getTransactionHeadersForTargetKey_(targetDbKey) {
 
 function getOrCreateDbSpreadsheet_(targetDbKey, options) {
   const target = resolveDbTarget_(targetDbKey);
+  if (options && options.e2eUseRootStorage && isTestDbTarget_(target.key)) {
+    target.folderId = '';
+  }
   const transactionHeaders = getTransactionHeadersForTargetKey_(target.key);
   const shouldRejectExistingDataHeaderMismatch =
     isRakutenDbTargetKey_(target.key) &&
@@ -548,7 +551,9 @@ function rakutenDbRecordToBaseRecord_(obj) {
 
 function appendRecordsToDb_(records, options) {
   const target = resolveDbTarget_(options.targetDbKey);
-  const dbSs = getOrCreateDbSpreadsheet_(target.key);
+  const dbSs = getOrCreateDbSpreadsheet_(target.key, {
+    e2eUseRootStorage: options && options.e2eUseRootStorage,
+  });
   const transactionHeaders = getTransactionHeadersForTargetKey_(target.key);
   const txSheet = getOrCreateDbSheet_(dbSs, DB_CONFIG.SHEET_TRANSACTIONS, transactionHeaders);
 
@@ -658,10 +663,12 @@ function readDbRecords_(targetDbKey) {
   });
 }
 
-function readDbRecordObjects_(targetDbKey) {
+function readDbRecordObjects_(targetDbKey, options) {
   const target = resolveDbTarget_(targetDbKey);
   const transactionHeaders = getTransactionHeadersForTargetKey_(target.key);
-  const dbSs = getOrCreateDbSpreadsheet_(target.key);
+  const dbSs = getOrCreateDbSpreadsheet_(target.key, {
+    e2eUseRootStorage: options && options.e2eUseRootStorage,
+  });
   const txSheet = getOrCreateDbSheet_(dbSs, DB_CONFIG.SHEET_TRANSACTIONS, transactionHeaders);
 
   assertDbSheetCompatible_(txSheet, transactionHeaders);
@@ -723,8 +730,8 @@ function nomuraDbRecordToBaseRecord_(obj) {
   };
 }
 
-function buildOutputSheetsFromDb_(ss, targetDbKey) {
-  const records = readDbRecordObjects_(targetDbKey);
+function buildOutputSheetsFromDb_(ss, targetDbKey, options) {
+  const records = readDbRecordObjects_(targetDbKey, options);
   return buildOutputSheetsFromRecordsForTarget_(ss, targetDbKey, records);
 }
 

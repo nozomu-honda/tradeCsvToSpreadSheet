@@ -24,6 +24,7 @@ function runFromWebApp(payload) {
 
   assertCiE2eTokenForWebAppIfConfigured_(payload);
   enableCiE2eRootDbFolderForPayload_(payload);
+  const e2eUseRootStorage = !!text_(payload && payload.ciE2eToken);
 
   const csvUrl = (payload.csvUrl || '').trim();
   const spreadsheetUrl = (payload.spreadsheetUrl || '').trim();
@@ -49,17 +50,20 @@ function runFromWebApp(payload) {
   if (uploadedCsvText) {
     return createSpreadsheetFromCsvText_(uploadedCsvText, uploadedFileName || 'uploaded.csv', '', {
       targetDbKey: targetDbKey,
+      e2eUseRootStorage: e2eUseRootStorage,
     });
   }
 
   if (spreadsheetUrl) {
     return createSpreadsheetFromSourceSpreadsheet_(spreadsheetUrl, {
       targetDbKey: targetDbKey,
+      e2eUseRootStorage: e2eUseRootStorage,
     });
   }
 
   return createSpreadsheetFromCsvUrl_(csvUrl, {
     targetDbKey: targetDbKey,
+    e2eUseRootStorage: e2eUseRootStorage,
   });
 }
 
