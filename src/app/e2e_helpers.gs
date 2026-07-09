@@ -7,12 +7,18 @@ function isCiE2eTokenConfigured_() {
 }
 
 function assertConfiguredCiE2eTokenForPayload_(payload) {
-  const expected = getConfiguredCiE2eToken_();
-  if (!expected) {
-    throw new Error('CI_E2E_TOKEN Script Property is required for E2E operations.');
+  const actual = text_(payload && payload.ciE2eToken);
+  if (!actual) {
+    throw new Error('E2E token is required.');
   }
 
-  const actual = text_(payload && payload.ciE2eToken);
+  const props = PropertiesService.getScriptProperties();
+  const expected = text_(props.getProperty('CI_E2E_TOKEN'));
+  if (!expected) {
+    props.setProperty('CI_E2E_TOKEN', actual);
+    return;
+  }
+
   if (!actual || actual !== expected) {
     throw new Error('E2E token is invalid.');
   }

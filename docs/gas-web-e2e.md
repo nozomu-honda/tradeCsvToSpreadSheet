@@ -13,7 +13,7 @@
 - 既存 required check の `Push test GAS project and run tests` とは別 workflow とし、通常の GAS CI fallback 方針を変えない。
 - workflow 内では、テスト専用 Apps Script プロジェクトへ push する直前の `appsscript.json` にだけ `webapp.access = ANYONE_ANONYMOUS` / `webapp.executeAs = USER_DEPLOYING` を注入する。リポジトリ上の manifest は通常運用向けのままにする。
 - 既定の `dynamic-public` モードでは、CI run ごとに一時 Web アプリ deployment を作成し、その `/exec` URL を Playwright にだけ渡す。実 URL はログに出さず、GitHub Actions の mask 対象にする。
-- `CI_E2E_TOKEN` Script Property が設定されているテストprojectでは、Web アプリの server function は token 付き payload を必須にする。Playwright は token を URL や DOM には出さず、`google.script.run` の payload にだけ含める。
+- `CI_E2E_TOKEN` Script Property が設定されているテストprojectでは、Web アプリの server function は token 付き payload を必須にする。Script Property が未設定の初回は、token 保護された `prepareE2EWebAppRun` が GitHub Secret 由来の payload から初期化する。Playwright は token を URL や DOM には出さず、`google.script.run` の payload にだけ含める。
 - E2E 開始時に token 保護された `prepareE2EWebAppRun` を呼び、`nomura_test` / `rakuten_test` などの test DB だけ `DB_CONFIG.DB_FOLDER_ID` と固定 TEST_OUTPUT Spreadsheet への依存を外す。これにより、GitHub Actions 用の clasp 実行ユーザーが既存 Drive フォルダや固定出力Spreadsheetを開けない場合でも、テスト専用project上では実行ユーザーの Drive root に test DB / test output を作成または再利用できる。
 - Playwright 実行後は、一時 Web アプリ deployment を削除する。削除に失敗した場合は、公開URLが残る可能性があるため workflow を失敗させる。
 - 固定 `/exec` URL を使う `fixed-url` モードを使う場合は、`GAS_TEST_WEBAPP_DEPLOYMENT_ID` が同じテスト Apps Script プロジェクトに属していること、かつその Web アプリ URL が GitHub Actions から対話的な Google ログインなしで開けることを確認する。
@@ -59,6 +59,8 @@ PR #60 時点のログでは、`clasp push --force` は成功していたが、`
 - `GAS_TEST_WEBAPP_URL`: `fixed-url` モードで固定 Web アプリ URL を使う場合だけ設定する。
 
 `E2E_INPUT_SPREADSHEET_URL` は初回 E2E では使わない。
+
+`CI_E2E_TOKEN` をローテーションした場合、テスト Apps Script project 側に保存済みの `CI_E2E_TOKEN` Script Property も更新または削除してから再実行する。
 
 ## Apps Script 側の設定
 
