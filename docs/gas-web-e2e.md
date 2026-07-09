@@ -1,6 +1,6 @@
 # GAS Web App E2E
 
-最小構成の GAS Web アプリ E2E は、テスト専用 Apps Script プロジェクトへ `clasp push --force` し、可能なら固定の Web アプリ deployment を更新してから Playwright で 1 ケースだけ確認する。
+最小構成の GAS Web アプリ E2E は、テスト専用 Apps Script プロジェクトへ `clasp push --force` し、GitHub Actions から開ける一時 Web アプリ deployment を作成してから Playwright で 1 ケースだけ確認する。
 
 ## 方針
 
@@ -11,8 +11,14 @@
 - `pull_request_target` は使わない。
 - fork / external PR では Google Secrets を使う step へ進ませない。
 - 既存 required check の `Push test GAS project and run tests` とは別 workflow とし、通常の GAS CI fallback 方針を変えない。
-- `clasp deploy --deploymentId` が `Requested entity was not found` で失敗する環境では、ID や URL を出力せず警告にし、設定済み Web アプリ URL の疎通確認へ進む。固定 `/exec` URL を使う場合は、`GAS_TEST_WEBAPP_DEPLOYMENT_ID` が同じテスト Apps Script プロジェクトに属していることを確認する。
-- 設定済み Web アプリ URL が GitHub Actions から HTTP 403 を返す場合、ソース push と deployment update 試行までは確認し、Playwright E2E は明示的に skip する。ブラウザ E2E まで実行するには、GitHub Actions が対話的な Google ログインなしで開けるテスト用 Web アプリ URL を使う。
+- workflow 内では、テスト専用 Apps Script プロジェクトへ push する直前の `appsscript.json` にだけ `webapp.access = ANYONE_ANONYMOUS` / `webapp.executeAs = USER_DEPLOYING` を注入する。リポジトリ上の manifest は通常運用向けのままにする。
+- 同じく push 直前の CI ローカル source にだけ、`DB_CONFIG.DB_FOLDER_ID` と固定 TEST_OUTPUT Spreadsheet ID を空にする。これにより、動的公開E2Eは clasp 実行ユーザーがアクセスできない既存Driveフォルダや固定Spreadsheetへ向かわず、テスト専用projectの実行ユーザーDrive rootに test DB / test output を作成または再利用する。リポジトリ上の `db_config.gs` は変更しない。
+- 既定の `dynamic-public` モードでは、CI run ごとに一時 Web アプリ deployment を作成し、その `/exec` URL を Playwright にだけ渡す。実 URL はログに出さず、GitHub Actions の mask 対象にする。
+- `CI_E2E_TOKEN` Script Property が設定されているテストprojectでは、Web アプリの server function は token 付き payload を必須にする。Script Property が未設定の初回は、token 保護された `prepareE2EWebAppRun` が GitHub Secret 由来の payload から初期化する。Playwright は token を URL や DOM には出さず、`google.script.run` の payload にだけ含める。
+- E2E 開始時に token 保護された `prepareE2EWebAppRun` を呼び、`nomura_test` / `rakuten_test` などの test DB だけ root storage mode を有効化する。
+- Playwright 実行後は、一時 Web アプリ deployment を削除する。削除に失敗した場合は、公開URLが残る可能性があるため workflow を失敗させる。
+- 固定 `/exec` URL を使う `fixed-url` モードを使う場合は、`GAS_TEST_WEBAPP_DEPLOYMENT_ID` が同じテスト Apps Script プロジェクトに属していること、かつその Web アプリ URL が GitHub Actions から対話的な Google ログインなしで開けることを確認する。
+- Web アプリ URL が GitHub Actions から HTTP 403 を返す場合、ソース push と deployment 試行までは確認し、Playwright E2E は明示的に skip する。`dynamic-public` モードでも 403 が続く場合は、Google Workspace / OAuth / アカウント側の公開制限を確認する。
 
 ## 対象ケース
 
@@ -25,26 +31,58 @@
 7. E2E cleanup helper から対象 `importId` を `rakuten_test` 内で論理ロールバックする。
 8. cleanup 結果は Playwright attachment に保存する。
 
+## GitHub Actions から HTTP 403 になる主な原因
+
+PR #60 時点のログでは、`clasp push --force` は成功していたが、`clasp deploy --deploymentId` は `Requested entity was not found` で固定 deployment を更新できていなかった。その後、設定済み Web アプリ URL への probe はすべて HTTP 403 だった。
+
+主な原因候補は次のとおり。
+
+- `GAS_TEST_WEBAPP_DEPLOYMENT_ID` が `GAS_TEST_SCRIPT_ID` のテスト Apps Script プロジェクトに属していない。
+- 固定 Web アプリ deployment のアクセス設定が `MYSELF` / `DOMAIN` / `ANYONE` で、GitHub Actions runner がログインなしで開けない。
+- Web アプリが `USER_ACCESSING` 実行になっており、GitHub Actions runner で利用者OAuthができない。
+- `USER_DEPLOYING` 実行に切り替えたものの、clasp 実行ユーザーが `DB_CONFIG.DB_FOLDER_ID` の Drive フォルダを開けない。
+- Google Workspace または OAuth consent / 公開制限により、匿名アクセス可能な Web アプリ deployment を作れない。
+- `GAS_TEST_WEBAPP_URL` が固定 deployment と一致していない、または古い deployment URL を指している。
+
+公式の Apps Script Web app 設定では、アクセス権は `MYSELF` / `DOMAIN` / `ANYONE` / `ANYONE_ANONYMOUS`、実行主体は `USER_ACCESSING` / `USER_DEPLOYING` を使う。GitHub Actions 上でブラウザE2Eを通すには、テスト専用projectで `ANYONE_ANONYMOUS` + `USER_DEPLOYING` の一時deploymentを使う。
+
 ## 必要な GitHub Secrets
 
 - `CLASPRC_JSON`: CI アカウントの clasp 認証 JSON。
 - `GAS_TEST_SCRIPT_ID`: テスト専用 Apps Script プロジェクトの Script ID。
-- `GAS_TEST_WEBAPP_DEPLOYMENT_ID`: 更新対象の固定 Web アプリ deployment ID。
-- `GAS_TEST_WEBAPP_URL`: テスト専用 Web アプリ URL。
 - `CI_E2E_TOKEN`: cleanup helper 呼び出し用トークン。
 
 任意:
 
 - `CLASP_USER`: `clasp --user` が必要な場合だけ設定する。
 - `CLASP_PROJECT_JSON`: `GAS_TEST_SCRIPT_ID` だけでは足りない `.clasp.json` 設定が必要な場合だけ設定する。
+- `GAS_TEST_WEBAPP_DEPLOYMENT_ID`: `fixed-url` モードで更新対象の固定 Web アプリ deployment ID を使う場合だけ設定する。
+- `GAS_TEST_WEBAPP_URL`: `fixed-url` モードで固定 Web アプリ URL を使う場合だけ設定する。
 
 `E2E_INPUT_SPREADSHEET_URL` は初回 E2E では使わない。
+
+`CI_E2E_TOKEN` をローテーションした場合、テスト Apps Script project 側に保存済みの `CI_E2E_TOKEN` Script Property も更新または削除してから再実行する。
 
 ## Apps Script 側の設定
 
 テスト専用 Apps Script プロジェクトの Script Properties に、GitHub Secret と同じ値の `CI_E2E_TOKEN` を設定する。トークンは URL や DOM に出さず、Playwright から `google.script.run` の payload にだけ含める。
 
-cleanup helper は `nomura_test` / `rakuten_test` だけを対象にし、既存の `rollbackImport_()` を使って `rolledBackAt` を記録する。物理削除はしない。
+cleanup helper は `nomura_test` / `rakuten_test` だけを対象にし、既存の `rollbackImport_()` を使って `rolledBackAt` を記録する。取込レコードの物理削除はしない。
+
+`dynamic-public` モードの Web アプリ画面自体は、GitHub Actions が開けるよう一時的に匿名アクセス可能になる。そのため、この workflow の対象は必ずテスト専用 Apps Script プロジェクトに限定し、本番 DB / 本番 Drive フォルダ / 本番 Spreadsheet へ権限を持たせない。`CI_E2E_TOKEN` Script Property がある場合は、通常の upload / staging / reset / rollback / DB参照 server function も token 付き payload を必須にする。
+
+## Workflow Summary
+
+workflow summary には次を残す。
+
+- deploy mode
+- deployment inventory の件数と、固定 deployment ID がテストprojectに属しているか
+- 一時 Web アプリ deployment の作成結果
+- Web app probe の結果
+- Playwright 実行または skip 理由
+- cleanup / rollback 結果
+- CI ローカルの test storage 設定
+- 一時 Web アプリ deployment の削除結果
 
 ## ローカル確認
 

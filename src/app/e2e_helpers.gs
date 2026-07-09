@@ -1,17 +1,71 @@
+function getConfiguredCiE2eToken_() {
+  return text_(PropertiesService.getScriptProperties().getProperty('CI_E2E_TOKEN'));
+}
+
+function isCiE2eTokenConfigured_() {
+  return !!getConfiguredCiE2eToken_();
+}
+
 function assertConfiguredCiE2eTokenForPayload_(payload) {
-  const expected = text_(PropertiesService.getScriptProperties().getProperty('CI_E2E_TOKEN'));
-  if (!expected) {
-    throw new Error('CI_E2E_TOKEN Script Property is required for E2E cleanup.');
+  const actual = text_(payload && payload.ciE2eToken);
+  if (!actual) {
+    throw new Error('E2E token is required.');
   }
 
-  const actual = text_(payload && payload.ciE2eToken);
+  const props = PropertiesService.getScriptProperties();
+  const expected = text_(props.getProperty('CI_E2E_TOKEN'));
+  if (!expected) {
+    props.setProperty('CI_E2E_TOKEN', actual);
+    return;
+  }
+
   if (!actual || actual !== expected) {
     throw new Error('E2E token is invalid.');
   }
 }
 
+function assertCiE2eTokenForWebAppIfConfigured_(payload) {
+  if (isCiE2eTokenConfigured_()) {
+    assertConfiguredCiE2eTokenForPayload_(payload);
+  }
+}
+
+function shouldUseCiE2eRootDbFolder_(target) {
+  const key = text_(target && target.key);
+  if (!isTestDbTarget_(key)) {
+    return false;
+  }
+
+  return text_(PropertiesService.getScriptProperties().getProperty('CI_E2E_DISABLE_DB_FOLDER')) === '1';
+}
+
+function enableCiE2eRootDbFolderForPayload_(payload) {
+  if (!text_(payload && payload.ciE2eToken)) {
+    return;
+  }
+
+  PropertiesService.getScriptProperties().setProperty('CI_E2E_DISABLE_DB_FOLDER', '1');
+}
+
+function prepareE2EWebAppRun(payload) {
+  assertConfiguredCiE2eTokenForPayload_(payload);
+  enableCiE2eRootDbFolderForPayload_(payload);
+
+  const targetDbKey = text_(payload && payload.targetDbKey) || 'rakuten_test';
+  if (!isTestDbTarget_(targetDbKey)) {
+    throw new Error('E2E preparation is limited to test DB targets.');
+  }
+
+  return {
+    ok: true,
+    targetDbKey: targetDbKey,
+    dbFolderMode: 'root',
+  };
+}
+
 function cleanupE2EImportFromWebApp(payload) {
   assertConfiguredCiE2eTokenForPayload_(payload);
+  enableCiE2eRootDbFolderForPayload_(payload);
 
   const targetDbKey = text_(payload && payload.targetDbKey);
   const importId = text_(payload && payload.importId);

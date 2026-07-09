@@ -63,6 +63,15 @@ function extractResultValue(resultText, label) {
   return match ? match[1].trim() : '';
 }
 
+function appendStepSummary(lines) {
+  const summaryPath = process.env.GITHUB_STEP_SUMMARY;
+  if (!summaryPath) {
+    return;
+  }
+
+  fs.appendFileSync(summaryPath, `${lines.join('\n')}\n`);
+}
+
 async function callGoogleScript(frame, functionName, payload, token) {
   return frame.evaluate(({ fn, data, ciToken }) => new Promise((resolve) => {
     if (!window.google || !window.google.script || !window.google.script.run) {
@@ -114,6 +123,15 @@ test.describe('GAS Web app minimal E2E', () => {
       body: JSON.stringify(cleanupResult, null, 2),
     });
 
+    const rollback = cleanupResult && cleanupResult.value ? cleanupResult.value.rollback : null;
+    appendStepSummary([
+      '### E2E import cleanup',
+      `- Result: ${cleanupResult.ok && cleanupResult.value && cleanupResult.value.ok ? 'PASS' : 'FAIL'}`,
+      `- Target DB: ${rollback && rollback.dbTargetKey ? rollback.dbTargetKey : payload.targetDbKey}`,
+      `- Rolled back count: ${rollback && typeof rollback.rolledBackCount !== 'undefined' ? rollback.rolledBackCount : 0}`,
+      '',
+    ]);
+
     expect(cleanupResult.ok, cleanupResult.error || JSON.stringify(cleanupResult.value)).toBe(true);
     expect(cleanupResult.value.ok, JSON.stringify(cleanupResult.value.errors || [])).toBe(true);
     expect(cleanupResult.value.rollback.rolledBackCount).toBeGreaterThan(0);
@@ -122,10 +140,21 @@ test.describe('GAS Web app minimal E2E', () => {
 
   test('uploads a Rakuten Japan stock CSV and rolls back the routed test import', async ({ page }) => {
     const webAppUrl = readRequiredEnv('GAS_TEST_WEBAPP_URL');
+    const token = readRequiredEnv('CI_E2E_TOKEN');
     const fixture = buildUniqueRakutenJapanStockCsv();
 
     await page.goto(webAppUrl, { waitUntil: 'domcontentloaded' });
     const app = await resolveAppFrame(page);
+    const prepareResult = await callGoogleScript(app, 'prepareE2EWebAppRun', {
+      targetDbKey: 'rakuten_test',
+    }, token);
+
+    expect(prepareResult.ok, prepareResult.error || JSON.stringify(prepareResult.value)).toBe(true);
+    expect(prepareResult.value.ok, JSON.stringify(prepareResult.value || {})).toBe(true);
+
+    await app.evaluate((ciToken) => {
+      window.__CI_E2E_TOKEN__ = ciToken;
+    }, token);
 
     await expect(app.locator('[data-testid="csv-file-input"]')).toBeVisible();
     await app.locator('[data-testid="target-db-select"]').selectOption('nomura_test');

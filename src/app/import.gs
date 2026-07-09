@@ -338,7 +338,7 @@ function a1_(row, col) {
   return columnToLetter_(col) + row;
 }
 
-function getManagedOutputSpreadsheet_(targetDbKey, sourceNameForNewFile) {
+function getManagedOutputSpreadsheet_(targetDbKey, sourceNameForNewFile, options) {
   if (!isTestDbTarget_(targetDbKey)) {
     return {
       ss: SpreadsheetApp.create(buildSpreadsheetName_(sourceNameForNewFile)),
@@ -348,8 +348,13 @@ function getManagedOutputSpreadsheet_(targetDbKey, sourceNameForNewFile) {
   }
 
   const outputConfig = DB_CONFIG.TEST_OUTPUT_SPREADSHEET || {};
-  const fixedId = text_(outputConfig.spreadsheetId);
-  const fixedName = text_(outputConfig.spreadsheetName) || '株管理ツール_TEST_OUTPUT';
+  const useE2eRootOutput =
+    (options && options.e2eUseRootStorage) ||
+    shouldUseCiE2eRootDbFolder_({ key: targetDbKey });
+  const fixedId = useE2eRootOutput ? '' : text_(outputConfig.spreadsheetId);
+  const fixedName = useE2eRootOutput
+    ? '株管理ツール_E2E_TEST_OUTPUT'
+    : text_(outputConfig.spreadsheetName) || '株管理ツール_TEST_OUTPUT';
 
   if (fixedId) {
     return {
@@ -449,7 +454,10 @@ function createSpreadsheetFromCsvTextUsingDb_(csvText, sourceName, normalizedUrl
   const normalizedInput = normalizeRowsForImport_(rows);
   const selectedTargetDbKey = options && options.targetDbKey ? options.targetDbKey : getDefaultDbTargetKey_();
   const targetDbKey = routeTargetDbKeyBySource_(selectedTargetDbKey, normalizedInput.sourceType);
-  const outputMeta = getManagedOutputSpreadsheet_(targetDbKey, sourceName);
+  const e2eUseRootStorage = !!(options && options.e2eUseRootStorage);
+  const outputMeta = getManagedOutputSpreadsheet_(targetDbKey, sourceName, {
+    e2eUseRootStorage: e2eUseRootStorage,
+  });
   const ss = outputMeta.ss;
 
   let sourceSheet = ss.getSheetByName(CONFIG.SOURCE_SHEET_NAME);
@@ -476,9 +484,12 @@ function createSpreadsheetFromCsvTextUsingDb_(csvText, sourceName, normalizedUrl
     alertCount: inputAlerts.length,
     targetDbKey: targetDbKey,
     sourceType: normalizedInput.sourceType,
+    e2eUseRootStorage: e2eUseRootStorage,
   });
 
-  const result = buildOutputSheetsFromDb_(ss, targetDbKey);
+  const result = buildOutputSheetsFromDb_(ss, targetDbKey, {
+    e2eUseRootStorage: e2eUseRootStorage,
+  });
   result.alerts = inputAlerts.concat(result.alerts || []);
 
   result.inputType = normalizedUrl ? 'url' : 'upload';
@@ -523,7 +534,10 @@ function createSpreadsheetFromSourceSpreadsheetUsingDb_(spreadsheetUrlOrId, opti
   const normalizedInput = normalizeRowsForImport_(sourceValues);
   const selectedTargetDbKey = options && options.targetDbKey ? options.targetDbKey : getDefaultDbTargetKey_();
   const targetDbKey = routeTargetDbKeyBySource_(selectedTargetDbKey, normalizedInput.sourceType);
-  const outputMeta = getManagedOutputSpreadsheet_(targetDbKey, sourceSs.getName());
+  const e2eUseRootStorage = !!(options && options.e2eUseRootStorage);
+  const outputMeta = getManagedOutputSpreadsheet_(targetDbKey, sourceSs.getName(), {
+    e2eUseRootStorage: e2eUseRootStorage,
+  });
   const ss = outputMeta.ss;
 
   let outputSourceSheet = ss.getSheetByName(CONFIG.SOURCE_SHEET_NAME);
@@ -555,9 +569,12 @@ function createSpreadsheetFromSourceSpreadsheetUsingDb_(spreadsheetUrlOrId, opti
     alertCount: inputAlerts.length,
     targetDbKey: targetDbKey,
     sourceType: normalizedInput.sourceType,
+    e2eUseRootStorage: e2eUseRootStorage,
   });
 
-  const result = buildOutputSheetsFromDb_(ss, targetDbKey);
+  const result = buildOutputSheetsFromDb_(ss, targetDbKey, {
+    e2eUseRootStorage: e2eUseRootStorage,
+  });
   result.alerts = inputAlerts.concat(result.alerts || []);
 
   result.inputType = 'spreadsheet';

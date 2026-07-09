@@ -192,6 +192,18 @@
         return '対象: ' + (target.dbKindLabel || 'DB') + ' / key: ' + target.key + ' / ' + target.label;
       }
 
+      function withCiE2eToken_(payload) {
+        const token = window.__CI_E2E_TOKEN__;
+        if (token && payload && typeof payload === 'object') {
+          payload.ciE2eToken = token;
+        }
+        return payload;
+      }
+
+      function isCiE2eMode_() {
+        return !!window.__CI_E2E_TOKEN__;
+      }
+
       function setRollbackDbFromResult_(res) {
         const routedKey = (res && (res.routedTargetDbKey || (res.db && res.db.dbTargetKey))) || '';
         if (!routedKey) return;
@@ -241,7 +253,7 @@
             document.getElementById('status').textContent = '';
             renderError_(err);
           })
-          .getDbSpreadsheetFromWebApp(target.key);
+          .getDbSpreadsheetFromWebApp(withCiE2eToken_({ targetDbKey: target.key }));
       }
 
       function buildInputPayloadBase_(uploadedCsvText, uploadedFileName) {
@@ -289,7 +301,7 @@
           uploadedFileName = file.name;
         }
 
-        const payload = buildInputPayloadBase_(uploadedCsvText, uploadedFileName);
+        const payload = withCiE2eToken_(buildInputPayloadBase_(uploadedCsvText, uploadedFileName));
         validateSingleInput_(payload, allowSpreadsheet);
         return payload;
       }
@@ -313,7 +325,9 @@
               document.getElementById('status').textContent = '';
               renderMainResult_(res);
               setRollbackDbFromResult_(res);
-              loadRecentImports();
+              if (!isCiE2eMode_()) {
+                loadRecentImports();
+              }
             })
             .withFailureHandler(function(err) {
               setBusy_(false);
@@ -479,7 +493,7 @@
             document.getElementById('status').textContent = '';
             renderError_(err);
           })
-          .resetDbFromWebApp(target.key);
+          .resetDbFromWebApp(withCiE2eToken_({ targetDbKey: target.key }));
       }
 
       function loadRecentImports() {
@@ -522,7 +536,7 @@
           .withFailureHandler(function(err) {
             renderError_(err);
           })
-          .listRecentImportsFromWebApp(target.key);
+          .listRecentImportsFromWebApp(withCiE2eToken_({ targetDbKey: target.key }));
       }
 
       function rollbackImport() {
@@ -575,7 +589,7 @@
             document.getElementById('status').textContent = '';
             renderError_(err);
           })
-          .rollbackImportFromWebApp({ targetDbKey: target.key, importId: importId });
+          .rollbackImportFromWebApp(withCiE2eToken_({ targetDbKey: target.key, importId: importId }));
       }
 
       function setBusy_(isBusy) {
