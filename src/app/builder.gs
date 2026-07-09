@@ -320,7 +320,10 @@ function mapRakutenJapanOutputSellBuy_(tx) {
 }
 
 function buildRakutenUsStockRows_(records, alerts) {
+  const state = { index: 0 };
   return buildTradeRows_(records, alerts).map(function(tradeRow) {
+    const sourceRecord = takeSourceRecordForOutputRow_(records, tradeRow, state);
+    const sourceDb = getRakutenDbSource_(sourceRecord);
     const get = function(header) {
       const index = TRADE_HEADERS.indexOf(header);
       return index >= 0 ? tradeRow[index] : '';
@@ -336,6 +339,10 @@ function buildRakutenUsStockRows_(records, alerts) {
     const feeUsd = get('現地手数料（円）');
     const domesticFeeJpy = multiplyOptionalNumbers_(feeUsd, rate);
     const domesticTaxJpy = get('国内消費税等（円）');
+    const sourceTaxUsd = getRakutenSourceNumber_(sourceDb, 'tax');
+    const grossAmountUsd = getRakutenSourceNumber_(sourceDb, 'grossAmount');
+    const isDividend = tx === '入金（配当金）' || tx === '入金（分配金）';
+    const calculatedDomesticTaxJpy = !isDividend ? multiplyOptionalNumbers_(sourceTaxUsd, rate) : '';
 
     const row = [
       get('約定日'),
@@ -350,17 +357,17 @@ function buildRakutenUsStockRows_(records, alerts) {
       get('決済通貨'),
       qty,
       price,
-      multiplyOptionalNumbers_(qty, price),
+      grossAmountUsd !== '' ? grossAmountUsd : multiplyOptionalNumbers_(qty, price),
       rate,
       feeUsd,
-      '',
+      sourceTaxUsd,
       settlementAmounts.usd,
       settlementAmounts.jpy,
       get('現地源泉税（円）'),
       get('国内源泉所得税（円）'),
       get('保有数'),
       domesticFeeJpy,
-      domesticTaxJpy !== '' ? domesticTaxJpy : '',
+      domesticTaxJpy !== '' ? domesticTaxJpy : calculatedDomesticTaxJpy,
       get('平均取得単価'),
       get('手数料抜き売値'),
       get('取得価格'),
@@ -418,18 +425,24 @@ function multiplyOptionalNumbers_(left, right) {
 }
 
 function buildRakutenFundRows_(records, alerts) {
+  const state = { index: 0 };
   return buildTradeRows_(records, alerts).map(function(tradeRow) {
+    const sourceRecord = takeSourceRecordForOutputRow_(records, tradeRow, state);
+    const sourceDb = getRakutenDbSource_(sourceRecord);
     const get = function(header) {
       const index = TRADE_HEADERS.indexOf(header);
       return index >= 0 ? tradeRow[index] : '';
     };
 
     const tx = text_(get('取引区分'));
+    const sourceType = text_(sourceDb.sourceType);
+    const distributionType = sourceType === 'rakuten_fund' ? text_(sourceDb.rawProduct) : '';
+    const receiptAmount = sourceType === 'rakuten_fund' ? getRakutenSourceNumber_(sourceDb, 'grossAmount') : '';
     const row = [
       get('約定日'),
       get('受渡日'),
       get('銘柄名'),
-      '',
+      distributionType,
       get('預り区分'),
       mapRakutenFundOutputTrade_(tx),
       get('摘要'),
@@ -437,7 +450,7 @@ function buildRakutenFundRows_(records, alerts) {
       get('単価'),
       get('手数料（税込）'),
       get('レート'),
-      '',
+      receiptAmount,
       get('受渡金額/決済損益'),
       get('決済通貨'),
       get('国内手数料（円）'),
@@ -557,7 +570,8 @@ function buildRakutenCashJpyRows_(records) {
 }
 
 function buildRakutenCashUsdRows_(records) {
-  return buildCashRows_(records).map(function(cashRow) {
+  return buildCashRows_(records).map(function(cashRow, index) {
+    const sourceDb = getRakutenDbSource_(records[index]);
     const get = function(header) {
       const index = CASH_HEADERS.indexOf(header);
       return index >= 0 ? cashRow[index] : '';
@@ -567,6 +581,8 @@ function buildRakutenCashUsdRows_(records) {
     const tx = text_(get('取引区分'));
     const amount = get('受渡金額/決済損益');
     const isDividend = tx === '入金（配当金）' || tx === '入金（分配金）';
+    const dividendGrossAmount = isDividend ? getRakutenSourceNumber_(sourceDb, 'grossAmount') : '';
+    const dividendTaxAmount = isDividend ? getRakutenSourceNumber_(sourceDb, 'tax') : '';
 
     return [
       get('約定日'),
@@ -581,11 +597,42 @@ function buildRakutenCashUsdRows_(records) {
       product === '外株' && !isDividend ? amount : '',
       product === '投信' && !isDividend ? amount : '',
       isDividend ? amount : '',
+      dividendGrossAmount,
+      dividendTaxAmount,
+      isDividend ? get('レート') : '',
+      isDividend ? get('現地源泉税（円）') : '',
+      isDividend ? get('国内源泉所得税（円）') : '',
       amount,
       get('残高'),
       get('月次残高'),
     ];
   });
+}
+
+function takeSourceRecordForOutputRow_(records, outputRow, state) {
+  if (isBlankOutputRow_(outputRow)) {
+    return null;
+  }
+  const record = records[state.index] || null;
+  state.index++;
+  return record;
+}
+
+function isBlankOutputRow_(row) {
+  return (row || []).every(function(value) {
+    return value === '' || value === null || value === undefined;
+  });
+}
+
+function getRakutenDbSource_(record) {
+  return record && record.__rakutenDb ? record.__rakutenDb : {};
+}
+
+function getRakutenSourceNumber_(sourceDb, key) {
+  if (!sourceDb || !sourceDb.hasOwnProperty(key)) {
+    return '';
+  }
+  return toOptionalNumber_(sourceDb[key]);
 }
 
 function sortTradeRows_(a, b) {

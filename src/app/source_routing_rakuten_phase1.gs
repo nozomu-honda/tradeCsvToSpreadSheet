@@ -69,6 +69,7 @@ function normalizeRowsForImport_(rows) {
     sourceType: detected.sourceType,
     headerRowIndex: detected.headerRowIndex,
     normalizedRows: buildRowsFromRecords_(records),
+    sourceRecords: records,
     hasManualColumns: false,
     alerts: detected.sourceType === 'rakuten_dividend'
       ? collectRakutenDividendManualInputAlerts_(records)
@@ -222,6 +223,11 @@ function buildRowsFromRecords_(records) {
   return rows;
 }
 
+function setRakutenSourceFields_(record, fields) {
+  record.__rakutenSource = fields || {};
+  return record;
+}
+
 function hasAllAdditionalManualHeadersInHeader_(headers) {
   const normalized = (headers || []).map(function(h) {
     return String(h || '').trim();
@@ -347,6 +353,14 @@ function normalizeRakutenUsStockRowsToRecords_(rows, headerRowIndex) {
     record['国内手数料（円）'] = '';
     record['現地手数料（円）'] = getByHeaderCandidates_(row, headerIndexMap, ['手数料[USドル]', '手数料［USドル］']);
 
+    setRakutenSourceFields_(record, {
+      grossAmount: getByHeaderCandidates_(row, headerIndexMap, ['約定代金[USドル]', '約定代金［USドル］']),
+      tax: getByHeaderCandidates_(row, headerIndexMap, ['税金[USドル]', '税金［USドル］']),
+      exchangeRate: record['レート'],
+      rawTradeType: text_(getByHeaderCandidates_(row, headerIndexMap, ['取引区分'])),
+      rawSellBuyType: text_(getByHeaderCandidates_(row, headerIndexMap, ['売買区分'])),
+    });
+
     records.push(record);
   }
 
@@ -405,6 +419,14 @@ function normalizeRakutenFundRowsToRecords_(rows, headerRowIndex) {
     record['国内手数料（円）'] = getByHeaderCandidates_(row, headerIndexMap, ['経費']);
     record['現地手数料（円）'] = '';
 
+    setRakutenSourceFields_(record, {
+      rawProduct: getByHeaderCandidates_(row, headerIndexMap, ['分配金']),
+      grossAmount: getByHeaderCandidates_(row, headerIndexMap, ['受付金額[現地通貨]', '受付金額［現地通貨］']),
+      exchangeRate: record['レート'],
+      rawTradeType: text_(getByHeaderCandidates_(row, headerIndexMap, ['取引'])),
+      description: getByHeaderCandidates_(row, headerIndexMap, ['買付方法']),
+    });
+
     records.push(record);
   }
 
@@ -437,6 +459,32 @@ function normalizeRakutenDividendRowsToRecords_(rows, headerRowIndex) {
 
     const productRaw = text_(getByHeaderCandidates_(row, headerIndexMap, ['商品']));
     const currency = normalizeCurrency_(getByHeaderCandidates_(row, headerIndexMap, ['受取通貨']));
+    const grossAmount = getByHeaderCandidates_(row, headerIndexMap, [
+      '配当・分配金合計(税引前)[円/現地通貨]',
+      '配当・分配金合計（税引前）[円/現地通貨]',
+      '配当・分配金合計(税引前)［円/現地通貨］',
+      '配当・分配金合計（税引前）［円/現地通貨］'
+    ]);
+    const taxAmount = getByHeaderCandidates_(row, headerIndexMap, [
+      '税額合計[円/現地通貨]',
+      '税額合計［円/現地通貨］'
+    ]);
+    const netAmount = getByHeaderCandidates_(row, headerIndexMap, [
+      '受取金額[円/現地通貨]',
+      '受取金額［円/現地通貨］'
+    ]);
+    const manualRate = getByHeaderCandidates_(row, headerIndexMap, ['レート', '為替レート']);
+    const foreignWithholdingTaxJpy = getByHeaderCandidates_(row, headerIndexMap, [
+      '現地源泉税[円]',
+      '現地源泉税［円］',
+      '現地源泉税（円）'
+    ]);
+    const domesticWithholdingTaxJpy = getByHeaderCandidates_(row, headerIndexMap, [
+      '国内源泉税[円]',
+      '国内源泉税［円］',
+      '国内源泉税（円）',
+      '国内源泉所得税（円）'
+    ]);
     const record = buildEmptyBaseRecord_();
 
     record['約定日'] = paymentDate;
@@ -450,18 +498,32 @@ function normalizeRakutenDividendRowsToRecords_(rows, headerRowIndex) {
     record['発行通貨'] = currency;
     record['数量'] = getByHeaderCandidates_(row, headerIndexMap, ['数量[株/口]', '数量［株/口］']);
     record['単価'] = getByHeaderCandidates_(row, headerIndexMap, ['単価[円/現地通貨]', '単価［円/現地通貨］']);
-    record['受渡金額/決済損益'] = getByHeaderCandidates_(row, headerIndexMap, ['受取金額[円/現地通貨]', '受取金額［円/現地通貨］']);
+    record['受渡金額/決済損益'] = netAmount;
     record['手数料（税込）'] = 0;
-    record['レート'] = getByHeaderCandidates_(row, headerIndexMap, ['レート']);
+    record['レート'] = manualRate;
     record['決済通貨'] = currency || 'JPY';
     record['売買損益（円）'] = '';
     record['国内消費税等（円）'] = '';
-    record['現地源泉税（円）'] = getByHeaderCandidates_(row, headerIndexMap, ['現地源泉税[円]', '現地源泉税［円］']);
-    record['国内源泉所得税（円）'] = getByHeaderCandidates_(row, headerIndexMap, ['国内源泉税[円]', '国内源泉税［円］']);
-    record['国内源泉地方税（円）'] = '';
+    record['現地源泉税（円）'] = foreignWithholdingTaxJpy;
+    record['国内源泉所得税（円）'] = domesticWithholdingTaxJpy;
+    record['国内源泉地方税（円）'] = getByHeaderCandidates_(row, headerIndexMap, ['国内源泉地方税[円]', '国内源泉地方税［円］', '国内源泉地方税（円）']);
     record['元本払戻金'] = '';
     record['国内手数料（円）'] = '';
     record['現地手数料（円）'] = '';
+
+    setRakutenSourceFields_(record, {
+      paymentDate: paymentDate,
+      rawProduct: productRaw,
+      sourceCurrency: currency,
+      grossAmount: grossAmount,
+      tax: taxAmount,
+      netAmount: netAmount,
+      exchangeRate: manualRate,
+      manualForeignWithholdingTaxJpy: foreignWithholdingTaxJpy,
+      manualDomesticWithholdingTaxJpy: domesticWithholdingTaxJpy,
+      manualDomesticLocalTaxJpy: record['国内源泉地方税（円）'],
+      description: getByHeaderCandidates_(row, headerIndexMap, ['備考', '摘要']),
+    });
 
     if (currency && currency !== 'JPY' && isBlankCell_(record['レート'])) {
       throw new Error('楽天配当金CSVの外貨配当は「レート」を入力してください。 row=' + (r + 1));
@@ -474,9 +536,17 @@ function normalizeRakutenDividendRowsToRecords_(rows, headerRowIndex) {
 }
 
 function validateRakutenDividendManualHeaders_(headerIndexMap) {
-  const required = ['レート', '現地源泉税[円]', '国内源泉税[円]'];
-  const missing = required.filter(function(header) {
-    return !headerIndexMap.hasOwnProperty(normalizeSourceHeaderName_(header));
+  const requiredGroups = [
+    { label: 'レート', candidates: ['レート', '為替レート'] },
+    { label: '現地源泉税[円]', candidates: ['現地源泉税[円]', '現地源泉税［円］', '現地源泉税（円）'] },
+    { label: '国内源泉税[円]', candidates: ['国内源泉税[円]', '国内源泉税［円］', '国内源泉税（円）', '国内源泉所得税（円）'] },
+  ];
+  const missing = requiredGroups.filter(function(group) {
+    return !group.candidates.some(function(header) {
+      return headerIndexMap.hasOwnProperty(normalizeSourceHeaderName_(header));
+    });
+  }).map(function(group) {
+    return group.label;
   });
 
   if (missing.length > 0) {

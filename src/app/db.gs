@@ -432,10 +432,15 @@ function dbRecordToRowByHeaders_(dbRecord, headers) {
 
 function normalizeRakutenRecordForDb_(record, options) {
   const base = normalizeRecordForDb_(record, options);
+  const source = record.__rakutenSource || {};
   const tx = text_(base['取引区分']);
   const product = text_(base['商品']);
   const isDividend = tx === '入金（配当金）' || tx === '入金（分配金）';
   const isCash = product === '現金';
+  const sourceGrossAmount = source.hasOwnProperty('grossAmount') ? toOptionalNumber_(source.grossAmount) : '';
+  const sourceNetAmount = source.hasOwnProperty('netAmount') ? toOptionalNumber_(source.netAmount) : '';
+  const sourceTax = source.hasOwnProperty('tax') ? toOptionalNumber_(source.tax) : '';
+  const sourceExchangeRate = source.hasOwnProperty('exchangeRate') ? toOptionalNumber_(source.exchangeRate) : '';
 
   return {
     recordId: base.recordId,
@@ -450,28 +455,28 @@ function normalizeRakutenRecordForDb_(record, options) {
     paymentDate: isDividend ? base['受渡日'] : '',
     cashDate: isCash ? base['受渡日'] : '',
     product: product,
-    rawProduct: text_(record['摘要']) || product,
+    rawProduct: text_(source.rawProduct) || text_(record['摘要']) || product,
     symbolCode: text_(base['銘柄コード']),
     symbolName: text_(base['銘柄名']),
-    rawTradeType: tx,
+    rawTradeType: text_(source.rawTradeType) || tx,
     normalizedTradeType: tx,
     accountType: text_(base['預り区分']),
-    market: '',
+    market: text_(source.market),
     currency: normalizeCurrency_(base['発行通貨']),
     settlementCurrency: normalizeCurrency_(base['決済通貨']),
     quantity: base['数量'],
     unitPrice: base['単価'],
-    grossAmount: '',
-    netAmount: isDividend ? base['受渡金額/決済損益'] : '',
+    grossAmount: sourceGrossAmount,
+    netAmount: sourceNetAmount !== '' ? sourceNetAmount : (isDividend ? base['受渡金額/決済損益'] : ''),
     settlementAmount: base['受渡金額/決済損益'],
     fee: base['手数料（税込）'],
-    tax: base['国内消費税等（円）'],
+    tax: sourceTax !== '' ? sourceTax : base['国内消費税等（円）'],
     miscFee: base['現地手数料（円）'],
-    exchangeRate: isDividend ? '' : base['レート'],
-    manualRate: isDividend ? base['レート'] : '',
+    exchangeRate: isDividend ? '' : (sourceExchangeRate !== '' ? sourceExchangeRate : base['レート']),
+    manualRate: isDividend ? (sourceExchangeRate !== '' ? sourceExchangeRate : base['レート']) : '',
     manualForeignWithholdingTaxJpy: isDividend ? base['現地源泉税（円）'] : '',
     manualDomesticWithholdingTaxJpy: isDividend ? base['国内源泉所得税（円）'] : '',
-    description: text_(base['摘要']),
+    description: text_(source.description) || text_(base['摘要']),
     createdAt: base.createdAt,
     updatedAt: base.updatedAt,
     rolledBackAt: base.rolledBackAt,
@@ -484,8 +489,9 @@ function rakutenDbRecordToBaseRecord_(obj) {
   const product = text_(obj.product);
   const date = obj.tradeDate || obj.settlementDate || obj.paymentDate || obj.cashDate;
   const settlementDate = obj.settlementDate || obj.paymentDate || obj.cashDate || obj.tradeDate;
+  const commonDomesticTax = product === '株式' ? toOptionalNumber_(obj.tax) : '';
 
-  return {
+  const record = {
     約定日: parseDate_(date),
     受渡日: parseDate_(settlementDate),
     商品: product,
@@ -502,7 +508,7 @@ function rakutenDbRecordToBaseRecord_(obj) {
     レート: toNumber_(obj.exchangeRate || obj.manualRate),
     決済通貨: normalizeCurrency_(obj.settlementCurrency || obj.currency),
     '売買損益（円）': '',
-    '国内消費税等（円）': toOptionalNumber_(obj.tax),
+    '国内消費税等（円）': commonDomesticTax,
     '現地源泉税（円）': toOptionalNumber_(obj.manualForeignWithholdingTaxJpy),
     '国内源泉所得税（円）': toOptionalNumber_(obj.manualDomesticWithholdingTaxJpy),
     '国内源泉地方税（円）': '',
@@ -510,6 +516,8 @@ function rakutenDbRecordToBaseRecord_(obj) {
     '国内手数料（円）': '',
     '現地手数料（円）': toOptionalNumber_(obj.miscFee),
   };
+  record.__rakutenDb = obj;
+  return record;
 }
 
 function appendRecordsToDb_(records, options) {

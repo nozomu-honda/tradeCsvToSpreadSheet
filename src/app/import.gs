@@ -464,11 +464,12 @@ function createSpreadsheetFromCsvTextUsingDb_(csvText, sourceName, normalizedUrl
     .setValues(normalizedInput.normalizedRows);
 
   const records = readInputRecords_(sourceSheet);
+  const recordsForDb = normalizedInput.sourceRecords || records;
 
   const inputAlerts = (normalizedInput.alerts || []).slice();
-  collectInputAlerts_(records, inputAlerts);
+  collectInputAlerts_(recordsForDb, inputAlerts);
 
-  const dbAppendResult = appendRecordsToDb_(records, {
+  const dbAppendResult = appendRecordsToDb_(recordsForDb, {
     sourceName: sourceName || '',
     inputType: normalizedUrl ? 'url' : 'upload',
     normalizedUrl: normalizedUrl || '',
@@ -540,11 +541,12 @@ function createSpreadsheetFromSourceSpreadsheetUsingDb_(spreadsheetUrlOrId, opti
   }
 
   const records = readInputRecords_(outputSourceSheet);
+  const recordsForDb = normalizedInput.sourceRecords || records;
 
   const inputAlerts = (normalizedInput.alerts || []).slice();
-  collectInputAlerts_(records, inputAlerts);
+  collectInputAlerts_(recordsForDb, inputAlerts);
 
-  const dbAppendResult = appendRecordsToDb_(records, {
+  const dbAppendResult = appendRecordsToDb_(recordsForDb, {
     sourceName: sourceSs.getName() + ' / ' + sourceSheet.getName(),
     inputType: 'spreadsheet',
     normalizedUrl: text_(spreadsheetUrlOrId),
