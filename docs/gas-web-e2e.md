@@ -12,9 +12,10 @@
 - fork / external PR では Google Secrets を使う step へ進ませない。
 - 既存 required check の `Push test GAS project and run tests` とは別 workflow とし、通常の GAS CI fallback 方針を変えない。
 - workflow 内では、テスト専用 Apps Script プロジェクトへ push する直前の `appsscript.json` にだけ `webapp.access = ANYONE_ANONYMOUS` / `webapp.executeAs = USER_DEPLOYING` を注入する。リポジトリ上の manifest は通常運用向けのままにする。
+- 同じく push 直前の CI ローカル source にだけ、`DB_CONFIG.DB_FOLDER_ID` と固定 TEST_OUTPUT Spreadsheet ID を空にする。これにより、動的公開E2Eは clasp 実行ユーザーがアクセスできない既存Driveフォルダや固定Spreadsheetへ向かわず、テスト専用projectの実行ユーザーDrive rootに test DB / test output を作成または再利用する。リポジトリ上の `db_config.gs` は変更しない。
 - 既定の `dynamic-public` モードでは、CI run ごとに一時 Web アプリ deployment を作成し、その `/exec` URL を Playwright にだけ渡す。実 URL はログに出さず、GitHub Actions の mask 対象にする。
 - `CI_E2E_TOKEN` Script Property が設定されているテストprojectでは、Web アプリの server function は token 付き payload を必須にする。Script Property が未設定の初回は、token 保護された `prepareE2EWebAppRun` が GitHub Secret 由来の payload から初期化する。Playwright は token を URL や DOM には出さず、`google.script.run` の payload にだけ含める。
-- E2E 開始時に token 保護された `prepareE2EWebAppRun` を呼び、`nomura_test` / `rakuten_test` などの test DB だけ `DB_CONFIG.DB_FOLDER_ID` と固定 TEST_OUTPUT Spreadsheet への依存を外す。これにより、GitHub Actions 用の clasp 実行ユーザーが既存 Drive フォルダや固定出力Spreadsheetを開けない場合でも、テスト専用project上では実行ユーザーの Drive root に test DB / test output を作成または再利用できる。
+- E2E 開始時に token 保護された `prepareE2EWebAppRun` を呼び、`nomura_test` / `rakuten_test` などの test DB だけ root storage mode を有効化する。
 - Playwright 実行後は、一時 Web アプリ deployment を削除する。削除に失敗した場合は、公開URLが残る可能性があるため workflow を失敗させる。
 - 固定 `/exec` URL を使う `fixed-url` モードを使う場合は、`GAS_TEST_WEBAPP_DEPLOYMENT_ID` が同じテスト Apps Script プロジェクトに属していること、かつその Web アプリ URL が GitHub Actions から対話的な Google ログインなしで開けることを確認する。
 - Web アプリ URL が GitHub Actions から HTTP 403 を返す場合、ソース push と deployment 試行までは確認し、Playwright E2E は明示的に skip する。`dynamic-public` モードでも 403 が続く場合は、Google Workspace / OAuth / アカウント側の公開制限を確認する。
@@ -80,6 +81,7 @@ workflow summary には次を残す。
 - Web app probe の結果
 - Playwright 実行または skip 理由
 - cleanup / rollback 結果
+- CI ローカルの test storage 設定
 - 一時 Web アプリ deployment の削除結果
 
 ## ローカル確認

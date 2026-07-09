@@ -10,6 +10,7 @@ readonly CLASP_DEPLOY_LOG="${RUNNER_TEMP:-/tmp}/clasp-deploy.log"
 readonly CLASP_DEPLOYMENTS_LOG="${RUNNER_TEMP:-/tmp}/clasp-deployments.log"
 readonly WEBAPP_DEPLOY_MODE="${GAS_WEB_E2E_DEPLOY_MODE:-dynamic-public}"
 readonly MANIFEST_BACKUP_PATH="${RUNNER_TEMP:-/tmp}/gas-web-e2e-appsscript.json.bak"
+readonly DB_CONFIG_BACKUP_PATH="${RUNNER_TEMP:-/tmp}/gas-web-e2e-db_config.gs.bak"
 
 clasp_command=(clasp)
 clasp_user_status="not configured"
@@ -85,6 +86,10 @@ cleanup() {
     cp "${MANIFEST_BACKUP_PATH}" appsscript.json
     rm -f "${MANIFEST_BACKUP_PATH}"
   fi
+  if [[ -f "${DB_CONFIG_BACKUP_PATH}" ]]; then
+    cp "${DB_CONFIG_BACKUP_PATH}" src/app/db_config.gs
+    rm -f "${DB_CONFIG_BACKUP_PATH}"
+  fi
 }
 trap cleanup EXIT
 
@@ -148,6 +153,7 @@ NODE
 echo "::endgroup::"
 
 cp appsscript.json "${MANIFEST_BACKUP_PATH}"
+cp src/app/db_config.gs "${DB_CONFIG_BACKUP_PATH}"
 
 node <<'NODE'
 const fs = require('fs');
@@ -190,6 +196,18 @@ manifest.webapp = {
   executeAs: 'USER_DEPLOYING'
 };
 fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+
+const dbConfigPath = 'src/app/db_config.gs';
+let dbConfigSource = fs.readFileSync(dbConfigPath, 'utf8');
+dbConfigSource = dbConfigSource.replace(
+  /DB_FOLDER_ID:\s*'[^']*'/,
+  "DB_FOLDER_ID: ''"
+);
+dbConfigSource = dbConfigSource.replace(
+  /(TEST_OUTPUT_SPREADSHEET:\s*\{\s*spreadsheetId:\s*)'[^']*'/,
+  "$1''"
+);
+fs.writeFileSync(dbConfigPath, dbConfigSource);
 NODE
 
 append_summary \
@@ -198,6 +216,7 @@ append_summary \
   "- Target: test-only Apps Script project from \`GAS_TEST_SCRIPT_ID\`" \
   "- Deploy mode: \`${WEBAPP_DEPLOY_MODE}\`" \
   "- Test manifest: injects \`webapp.access = ANYONE_ANONYMOUS\` and \`webapp.executeAs = USER_DEPLOYING\` before push" \
+  "- Test storage: clears \`DB_CONFIG.DB_FOLDER_ID\` and fixed TEST_OUTPUT ID in the CI-local source before push" \
   "- Push: \`clasp push --force\`" \
   "- Optional clasp user: ${clasp_user_status}" \
   ""
@@ -209,6 +228,10 @@ cleanup_manifest_backup() {
   if [[ -f "${MANIFEST_BACKUP_PATH}" ]]; then
     cp "${MANIFEST_BACKUP_PATH}" appsscript.json
     rm -f "${MANIFEST_BACKUP_PATH}"
+  fi
+  if [[ -f "${DB_CONFIG_BACKUP_PATH}" ]]; then
+    cp "${DB_CONFIG_BACKUP_PATH}" src/app/db_config.gs
+    rm -f "${DB_CONFIG_BACKUP_PATH}"
   fi
 }
 cleanup_manifest_backup
