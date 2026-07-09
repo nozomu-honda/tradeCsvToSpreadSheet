@@ -63,6 +63,7 @@ jobs:
           npx playwright install --with-deps chromium
 
       - name: Push source and update fixed test Web app deployment
+        id: deploy_webapp
         shell: bash
         env:
           CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
@@ -73,7 +74,12 @@ jobs:
           CLASP_PROJECT_JSON: ${{ secrets.CLASP_PROJECT_JSON }}
         run: bash scripts/ci/deploy-test-webapp.sh
 
+      - name: Skip Playwright E2E for protected Web app
+        if: ${{ steps.deploy_webapp.outputs.webapp_probe == 'protected' }}
+        run: echo "Skipping Playwright E2E because the configured Web app URL returned HTTP 403 from GitHub Actions."
+
       - name: Run Playwright E2E
+        if: ${{ steps.deploy_webapp.outputs.webapp_probe == 'ready' }}
         env:
           GAS_TEST_WEBAPP_URL: ${{ secrets.GAS_TEST_WEBAPP_URL }}
           CI_E2E_TOKEN: ${{ secrets.CI_E2E_TOKEN }}

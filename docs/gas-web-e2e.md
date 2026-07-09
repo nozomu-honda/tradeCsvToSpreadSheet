@@ -12,6 +12,7 @@
 - fork / external PR では Google Secrets を使う step へ進ませない。
 - 既存 required check の `Push test GAS project and run tests` とは別 workflow とし、通常の GAS CI fallback 方針を変えない。
 - `clasp deploy --deploymentId` が `Requested entity was not found` で失敗する環境では、ID や URL を出力せず警告にし、設定済み Web アプリ URL の疎通確認へ進む。固定 `/exec` URL を使う場合は、`GAS_TEST_WEBAPP_DEPLOYMENT_ID` が同じテスト Apps Script プロジェクトに属していることを確認する。
+- 設定済み Web アプリ URL が GitHub Actions から HTTP 403 を返す場合、ソース push と deployment update 試行までは確認し、Playwright E2E は明示的に skip する。ブラウザ E2E まで実行するには、GitHub Actions が対話的な Google ログインなしで開けるテスト用 Web アプリ URL を使う。
 
 ## 対象ケース
 

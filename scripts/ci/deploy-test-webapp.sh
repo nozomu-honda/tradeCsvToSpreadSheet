@@ -21,6 +21,14 @@ append_summary() {
   fi
 }
 
+set_github_output() {
+  local name="$1"
+  local value="$2"
+  if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
+    printf '%s=%s\n' "${name}" "${value}" >> "${GITHUB_OUTPUT}"
+  fi
+}
+
 require_secret() {
   local name="$1"
   local value="${!name:-}"
@@ -159,11 +167,14 @@ fi
 echo "::endgroup::"
 
 echo "::group::wait for Web app"
+last_http_code=""
 for attempt in $(seq 1 12); do
   http_code="$(curl -L -sS -o "${WEBAPP_PROBE_PATH}" -w '%{http_code}' "${GAS_TEST_WEBAPP_URL}" || true)"
+  last_http_code="${http_code}"
   if [[ "${http_code}" =~ ^[23] ]] && grep -q 'CSV / スプレッドシートから6シート生成' "${WEBAPP_PROBE_PATH}"; then
     echo "Web app is reachable after attempt ${attempt}."
     append_summary "### Web app probe" "- Result: reachable" ""
+    set_github_output "webapp_probe" "ready"
     echo "::endgroup::"
     exit 0
   fi
@@ -172,7 +183,16 @@ for attempt in $(seq 1 12); do
   sleep $((attempt * 5))
 done
 
+if [[ "${last_http_code}" == "403" ]]; then
+  echo "::warning title=Web app is protected::The configured Web app URL returned HTTP 403 from GitHub Actions. Source was pushed, deployment update was attempted, and browser E2E will be skipped because the runner cannot open the protected Web app without Google sign-in."
+  append_summary "### Web app probe" "- Result: SKIP (protected; HTTP 403 from GitHub Actions)" "- Follow-up: use a test Web app URL that GitHub Actions can open without interactive Google sign-in to run the browser E2E." ""
+  set_github_output "webapp_probe" "protected"
+  echo "::endgroup::"
+  exit 0
+fi
+
 echo "::endgroup::"
 echo "::error title=Web app not reachable::The test Web app did not serve the expected top page after deployment."
 append_summary "### Web app probe" "- Result: FAIL" ""
+set_github_output "webapp_probe" "unreachable"
 exit 1
