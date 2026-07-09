@@ -238,9 +238,12 @@ DBには `取込履歴` シートを持ち、少なくとも以下を保持す�
 - ロールバックは `importId` 単位で行う
 - ロールバック対象DBは、DB配置フォルダ内のGoogleスプレッドシート一覧からファイル名で選択する
 - ロールバック対象一覧は、選択したDBファイルの最近の取込だけを表示する
+- Web UIでは、ロールバック対象のDB種別（野村DB / 楽天DB）、DBキー、DBラベル、`importId` を確認できるようにする
+- 楽天CSV取込などで通常DB選択から楽天DBへ内部ルーティングされた場合、ロールバック対象は実際の追加先DB（例: `rakuten_corp_a`）に合わせる
 - ロールバック方式は **論理削除**
 - ロールバック時は、対象レコードの `isActive` を `false` にし、`updatedAt` と `rolledBackAt` を更新する
 - `取込履歴` 側にも `isRolledBack`、`rolledBackAt`、`rolledBackRecordCount` を記録する
+- 同じ `importId` が別DBに存在しても、選択したDBファイル内のレコードと取込履歴だけを更新する
 
 ### 4.6 DBリセット
 

@@ -19,6 +19,7 @@
       .danger { background: #fff5f5; border: 1px solid #d93025; color: #d93025; }
       .secondary { background: #f6f8fa; border: 1px solid #cfd8dc; color: #333; }
       .section-title { margin-top: 28px; font-size: 18px; font-weight: 700; }
+      .db-summary { margin-top: 6px; color: #444; font-size: 13px; }
       a { word-break: break-all; }
     </style>
   </head>
@@ -66,7 +67,8 @@
 
       <div class="row">
         <label for="resetDbKey">リセット対象DB</label>
-        <select id="resetDbKey"></select>
+        <select id="resetDbKey" onchange="updateResetDbSummary_()"></select>
+        <div id="resetDbSummary" class="db-summary"></div>
       </div>
 
       <div class="row button-row">
@@ -80,6 +82,7 @@
       <div class="row">
         <label for="rollbackDbKey">ロールバック対象DB</label>
         <select id="rollbackDbKey" onchange="loadRecentImports()"></select>
+        <div id="rollbackDbSummary" class="db-summary"></div>
       </div>
 
       <div class="row">
@@ -129,11 +132,12 @@
         RESET_DB_TARGETS.forEach(function(target) {
           const option = document.createElement('option');
           option.value = target.key;
-          option.textContent = target.label;
+          option.textContent = buildOperationDbLabel_(target);
           select.appendChild(option);
         });
         const exists = RESET_DB_TARGETS.some(function(target) { return target.key === DEFAULT_TARGET_DB_KEY; });
         select.value = exists ? DEFAULT_TARGET_DB_KEY : (RESET_DB_TARGETS[0] ? RESET_DB_TARGETS[0].key : '');
+        updateResetDbSummary_();
       }
 
       function getSelectedDbTarget_() {
@@ -152,11 +156,12 @@
         RESET_DB_TARGETS.forEach(function(target) {
           const option = document.createElement('option');
           option.value = target.key;
-          option.textContent = target.label;
+          option.textContent = buildOperationDbLabel_(target);
           select.appendChild(option);
         });
         const exists = RESET_DB_TARGETS.some(function(target) { return target.key === DEFAULT_TARGET_DB_KEY; });
         select.value = exists ? DEFAULT_TARGET_DB_KEY : (RESET_DB_TARGETS[0] ? RESET_DB_TARGETS[0].key : '');
+        updateRollbackDbSummary_();
       }
 
       function onTargetDbChanged() {
@@ -165,6 +170,35 @@
       function getSelectedRollbackDbTarget_() {
         const key = document.getElementById('rollbackDbKey').value;
         return RESET_DB_TARGETS.find(function(target) { return target.key === key; }) || null;
+      }
+
+      function buildOperationDbLabel_(target) {
+        if (!target) return '';
+        return (target.operationLabel || ((target.dbKindLabel || 'DB') + ': ' + target.label + ' (' + target.key + ')'));
+      }
+
+      function updateResetDbSummary_() {
+        const target = getSelectedResetDbTarget_();
+        document.getElementById('resetDbSummary').textContent = buildDbSummaryText_(target);
+      }
+
+      function updateRollbackDbSummary_() {
+        const target = getSelectedRollbackDbTarget_();
+        document.getElementById('rollbackDbSummary').textContent = buildDbSummaryText_(target);
+      }
+
+      function buildDbSummaryText_(target) {
+        if (!target) return '';
+        return '対象: ' + (target.dbKindLabel || 'DB') + ' / key: ' + target.key + ' / ' + target.label;
+      }
+
+      function setRollbackDbFromResult_(res) {
+        const routedKey = (res && (res.routedTargetDbKey || (res.db && res.db.dbTargetKey))) || '';
+        if (!routedKey) return;
+        const exists = RESET_DB_TARGETS.some(function(target) { return target.key === routedKey; });
+        if (!exists) return;
+        document.getElementById('rollbackDbKey').value = routedKey;
+        updateRollbackDbSummary_();
       }
 
       function openResetDb() {
@@ -194,6 +228,8 @@
             result.className = 'ok';
             result.textContent =
               'DBを開く準備ができました。\n\n' +
+              '対象DB種別: ' + (res.dbTargetKindLabel || target.dbKindLabel || '') + '\n' +
+              '対象DBキー: ' + (res.dbTargetKey || target.key || '') + '\n' +
               '対象DB: ' + (res.dbTargetLabel || target.label || '');
             if (res.dbSpreadsheetUrl) {
               window.open(res.dbSpreadsheetUrl, '_blank', 'noopener,noreferrer');
@@ -276,6 +312,7 @@
               setBusy_(false);
               document.getElementById('status').textContent = '';
               renderMainResult_(res);
+              setRollbackDbFromResult_(res);
               loadRecentImports();
             })
             .withFailureHandler(function(err) {
@@ -358,6 +395,7 @@
             '検出形式: ' + (res.detectedSourceType || '') + '\n' +
             '選択DBキー: ' + (res.requestedTargetDbKey || '') + '\n' +
             '実際の追加先DBキー: ' + (res.routedTargetDbKey || res.db.dbTargetKey || '') + '\n' +
+            '実際の追加先DB種別: ' + (res.db.dbTargetKindLabel || '') + '\n' +
             '追加先DB: ' + (res.db.dbTargetLabel || '') + '\n' +
             '取込ID: ' + (res.db.importId || '') + '\n' +
             '読込件数: ' + (res.db.rowCount || 0) + '\n' +
@@ -404,7 +442,12 @@
       function resetDb() {
         const target = getSelectedResetDbTarget_();
         if (!target) return;
-        const confirmed = window.confirm('本当に削除しますか？\n\n対象DB: ' + target.label);
+        const confirmed = window.confirm(
+          '本当に削除しますか？\n\n' +
+          '対象DB種別: ' + (target.dbKindLabel || '') + '\n' +
+          '対象DBキー: ' + target.key + '\n' +
+          '対象DB: ' + target.label
+        );
         if (!confirmed) return;
 
         clearOutput_();
@@ -420,6 +463,8 @@
             result.className = 'ok';
             result.textContent =
               'データベースをリセットしました。\n\n' +
+              '対象DB種別: ' + (res.dbTargetKindLabel || target.dbKindLabel || '') + '\n' +
+              '対象DBキー: ' + (res.dbTargetKey || target.key || '') + '\n' +
               '対象DB: ' + (res.dbTargetLabel || '') + '\n' +
               '取引DB削除件数: ' + (res.deletedTransactionCount || 0) + '\n' +
               '取込履歴削除件数: ' + (res.deletedImportLogCount || 0);
@@ -439,6 +484,7 @@
 
       function loadRecentImports() {
         const target = getSelectedRollbackDbTarget_();
+        updateRollbackDbSummary_();
         const select = document.getElementById('rollbackImportId');
         select.innerHTML = '';
         if (!target) return;
@@ -464,6 +510,9 @@
                 const option = document.createElement('option');
                 option.value = item.importId || '';
                 option.textContent = item.displayLabel || item.importId || '(表示名なし)';
+                option.dataset.dbTargetKey = item.targetDbKey || '';
+                option.dataset.dbTargetKindLabel = item.targetDbKindLabel || '';
+                option.dataset.rolledBackAtText = item.rolledBackAtText || '';
                 select.appendChild(option);
               });
             } catch (e) {
@@ -488,7 +537,13 @@
           return;
         }
 
-        const confirmed = window.confirm('この取込をロールバックしますか？\n\n対象DB: ' + target.label + '\n取込ID: ' + importId);
+        const confirmed = window.confirm(
+          'この取込をロールバックしますか？\n\n' +
+          '対象DB種別: ' + (target.dbKindLabel || '') + '\n' +
+          '対象DBキー: ' + target.key + '\n' +
+          '対象DB: ' + target.label + '\n' +
+          '取込ID: ' + importId
+        );
         if (!confirmed) return;
 
         clearOutput_();
@@ -504,9 +559,12 @@
             result.className = 'ok';
             result.textContent =
               'ロールバックしました。\n\n' +
+              '対象DB種別: ' + (res.dbTargetKindLabel || target.dbKindLabel || '') + '\n' +
+              '対象DBキー: ' + (res.dbTargetKey || target.key || '') + '\n' +
               '対象DB: ' + (res.dbTargetLabel || '') + '\n' +
               '取込ID: ' + (res.importId || '') + '\n' +
-              '無効化件数: ' + (res.rolledBackCount || 0);
+              '無効化件数: ' + (res.rolledBackCount || 0) + '\n' +
+              'ロールバック日時: ' + (res.rolledBackAtText || '');
             if (res.dbSpreadsheetUrl) {
               appendLink(linkArea, res.dbSpreadsheetUrl, '選択中DBを開く');
             }
