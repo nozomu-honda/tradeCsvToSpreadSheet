@@ -11,6 +11,9 @@ on:
 permissions:
   contents: read
 
+env:
+  GAS_WEB_E2E_DEPLOY_MODE: dynamic-public
+
 concurrency:
   group: gas-web-e2e-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
@@ -42,13 +45,11 @@ jobs:
         env:
           CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
           GAS_TEST_SCRIPT_ID: ${{ secrets.GAS_TEST_SCRIPT_ID }}
-          GAS_TEST_WEBAPP_DEPLOYMENT_ID: ${{ secrets.GAS_TEST_WEBAPP_DEPLOYMENT_ID }}
-          GAS_TEST_WEBAPP_URL: ${{ secrets.GAS_TEST_WEBAPP_URL }}
           CI_E2E_TOKEN: ${{ secrets.CI_E2E_TOKEN }}
         run: |
           set -euo pipefail
           missing=0
-          for name in CLASPRC_JSON GAS_TEST_SCRIPT_ID GAS_TEST_WEBAPP_DEPLOYMENT_ID GAS_TEST_WEBAPP_URL CI_E2E_TOKEN; do
+          for name in CLASPRC_JSON GAS_TEST_SCRIPT_ID CI_E2E_TOKEN; do
             if [[ -z "${!name:-}" ]]; then
               echo "::error title=Missing GitHub secret::${name} is required for GAS Web app E2E."
               missing=1
@@ -62,7 +63,7 @@ jobs:
           npm install --global @google/clasp
           npx playwright install --with-deps chromium
 
-      - name: Push source and update fixed test Web app deployment
+      - name: Push source and prepare test Web app deployment
         id: deploy_webapp
         shell: bash
         env:
@@ -72,18 +73,34 @@ jobs:
           GAS_TEST_WEBAPP_DEPLOYMENT_ID: ${{ secrets.GAS_TEST_WEBAPP_DEPLOYMENT_ID }}
           GAS_TEST_WEBAPP_URL: ${{ secrets.GAS_TEST_WEBAPP_URL }}
           CLASP_PROJECT_JSON: ${{ secrets.CLASP_PROJECT_JSON }}
+          GAS_WEB_E2E_DEPLOY_MODE: ${{ env.GAS_WEB_E2E_DEPLOY_MODE }}
         run: bash scripts/ci/deploy-test-webapp.sh
 
       - name: Skip Playwright E2E for protected Web app
         if: ${{ steps.deploy_webapp.outputs.webapp_probe == 'protected' }}
-        run: echo "Skipping Playwright E2E because the configured Web app URL returned HTTP 403 from GitHub Actions."
+        run: |
+          echo "Skipping Playwright E2E because the Web app URL returned HTTP 403 from GitHub Actions."
+          {
+            echo "### Playwright E2E"
+            echo "- Result: SKIP"
+            echo "- Reason: Web app URL returned HTTP 403 from GitHub Actions."
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Run Playwright E2E
         if: ${{ steps.deploy_webapp.outputs.webapp_probe == 'ready' }}
         env:
-          GAS_TEST_WEBAPP_URL: ${{ secrets.GAS_TEST_WEBAPP_URL }}
+          GAS_TEST_WEBAPP_URL: ${{ steps.deploy_webapp.outputs.webapp_url }}
           CI_E2E_TOKEN: ${{ secrets.CI_E2E_TOKEN }}
         run: npx playwright test
+
+      - name: Report Playwright E2E success
+        if: ${{ steps.deploy_webapp.outputs.webapp_probe == 'ready' && success() }}
+        run: |
+          {
+            echo "### Playwright E2E"
+            echo "- Result: PASS"
+            echo "- Case: Rakuten Japan stock CSV upload and cleanup"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload Playwright artifacts
         if: failure()
@@ -95,6 +112,17 @@ jobs:
             test-results/
           if-no-files-found: ignore
           retention-days: 14
+
+      - name: Delete dynamic Web app deployment
+        if: ${{ always() && steps.deploy_webapp.outputs.dynamic_deployment_id != '' }}
+        shell: bash
+        env:
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+          CLASP_USER: ${{ secrets.CLASP_USER }}
+          GAS_TEST_SCRIPT_ID: ${{ secrets.GAS_TEST_SCRIPT_ID }}
+          CLASP_PROJECT_JSON: ${{ secrets.CLASP_PROJECT_JSON }}
+          GAS_WEB_E2E_DYNAMIC_DEPLOYMENT_ID: ${{ steps.deploy_webapp.outputs.dynamic_deployment_id }}
+        run: bash scripts/ci/delete-dynamic-webapp-deployment.sh
 
   external-pr-guard:
     name: External PR guard

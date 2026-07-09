@@ -63,6 +63,15 @@ function extractResultValue(resultText, label) {
   return match ? match[1].trim() : '';
 }
 
+function appendStepSummary(lines) {
+  const summaryPath = process.env.GITHUB_STEP_SUMMARY;
+  if (!summaryPath) {
+    return;
+  }
+
+  fs.appendFileSync(summaryPath, `${lines.join('\n')}\n`);
+}
+
 async function callGoogleScript(frame, functionName, payload, token) {
   return frame.evaluate(({ fn, data, ciToken }) => new Promise((resolve) => {
     if (!window.google || !window.google.script || !window.google.script.run) {
@@ -113,6 +122,15 @@ test.describe('GAS Web app minimal E2E', () => {
       contentType: 'application/json',
       body: JSON.stringify(cleanupResult, null, 2),
     });
+
+    const rollback = cleanupResult && cleanupResult.value ? cleanupResult.value.rollback : null;
+    appendStepSummary([
+      '### E2E import cleanup',
+      `- Result: ${cleanupResult.ok && cleanupResult.value && cleanupResult.value.ok ? 'PASS' : 'FAIL'}`,
+      `- Target DB: ${rollback && rollback.dbTargetKey ? rollback.dbTargetKey : payload.targetDbKey}`,
+      `- Rolled back count: ${rollback && typeof rollback.rolledBackCount !== 'undefined' ? rollback.rolledBackCount : 0}`,
+      '',
+    ]);
 
     expect(cleanupResult.ok, cleanupResult.error || JSON.stringify(cleanupResult.value)).toBe(true);
     expect(cleanupResult.value.ok, JSON.stringify(cleanupResult.value.errors || [])).toBe(true);
