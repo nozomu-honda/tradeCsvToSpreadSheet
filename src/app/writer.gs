@@ -91,7 +91,8 @@ function styleSheet_(sheet, headers, rowCount) {
       '日本株受渡金額［円］', '米国株受渡金額［円］', '投信受渡金額［円］',
       '入金額［円］', '出金額［円］',
       '米国株受渡金額［USドル］', '投信受渡金額［USドル］',
-      '配当金・分配金受取金額［USドル］'
+      '配当金・分配金受取金額［USドル］',
+      '配当金・分配金合計［USドル］'
     ].includes(h)) {
       width = 120;
     }
@@ -126,6 +127,7 @@ function styleSheet_(sheet, headers, rowCount) {
     '米国株受渡金額［USドル］',
     '投信受渡金額［USドル］',
     '配当金・分配金受取金額［USドル］',
+    '配当金・分配金合計［USドル］',
   ]);
 
   const qtyLike = new Set(['数量', '数量［株］', '保有数']);

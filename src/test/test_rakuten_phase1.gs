@@ -124,6 +124,27 @@ function test_normalizeRakutenDividendRowsToRecords_usStockDividend_20260616_() 
   assertEquals_(45, record['国内源泉所得税（円）'], '手入力国内源泉税');
 }
 
+function test_normalizeRowsForImport_rakutenDividend_preservesSourceColumns_20260709_() {
+  const rows = [
+    ['入金日', '商品', '口座', '銘柄コード', '銘柄', '受取通貨', '単価[円/現地通貨]', '数量[株/口]', '配当・分配金合計（税引前）[円/現地通貨]', '税額合計[円/現地通貨]', '受取金額[円/現地通貨]', '為替レート', '現地源泉税（円）', '国内源泉所得税（円）', '備考'],
+    ['2026/04/03', '米国株式', '特定・一般', 'AVGO', 'BROADCOM INC', 'USドル', 0.65, 18, 11.7, 2.78, 8.92, 150, 123, 45, '配当メモ']
+  ];
+
+  const normalized = normalizeRowsForImport_(rows);
+  const record = normalized.sourceRecords[0];
+  const source = record.__rakutenSource;
+
+  assertEquals_('rakuten_dividend', normalized.sourceType, '楽天配当金として検出');
+  assertEquals_(BASE_HEADERS.length, normalized.normalizedRows[0].length, '元データシートはBASE_HEADERSのまま');
+  assertEquals_(11.7, source.grossAmount, '税引前合計を元列として保持');
+  assertEquals_(2.78, source.tax, '税額合計を元列として保持');
+  assertEquals_(8.92, source.netAmount, '受取金額を元列として保持');
+  assertEquals_(150, source.exchangeRate, 'Drive仕様名の為替レートを許容');
+  assertEquals_(123, source.manualForeignWithholdingTaxJpy, '現地源泉税（円）を保持');
+  assertEquals_(45, source.manualDomesticWithholdingTaxJpy, '国内源泉所得税（円）を保持');
+  assertEquals_('配当メモ', source.description, '備考を保持');
+}
+
 function test_normalizeRakutenDividendRowsToRecords_requiresManualHeaders_20260618_() {
   const rows = [
     ['入金日', '商品', '口座', '銘柄コード', '銘柄', '受取通貨', '単価[円/現地通貨]', '数量[株/口]', '配当・分配金合計（税引前）[円/現地通貨]', '税額合計[円/現地通貨]', '受取金額[円/現地通貨]'],

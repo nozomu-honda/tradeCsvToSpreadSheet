@@ -518,6 +518,98 @@ function test_buildRakutenOutputSheetsFromBaseRecords_writesCashFinalLook_202607
   });
 }
 
+function test_buildRakutenOutputSheetsFromRecordsForTarget_reflectsDividendSourceColumns_20260709_() {
+  withTempSpreadsheet_(function(ss) {
+    const now = new Date('2026-07-09T00:00:00Z');
+    const rows = [
+      ['入金日', '商品', '口座', '銘柄コード', '銘柄', '受取通貨', '単価[円/現地通貨]', '数量[株/口]', '配当・分配金合計（税引前）[円/現地通貨]', '税額合計[円/現地通貨]', '受取金額[円/現地通貨]', 'レート', '現地源泉税［円］', '国内源泉税［円］'],
+      ['2026/04/03', '米国株式', '特定・一般', 'AVGO', 'BROADCOM INC', 'USドル', 0.65, 18, 11.7, 2.78, 8.92, 150, 123, 45]
+    ];
+    const dbRecords = normalizeRakutenDividendRowsToRecords_(rows, 0).map(function(record, index) {
+      return normalizeRakutenRecordForDb_(record, {
+        importId: 'import_rakuten_dividend_source',
+        sourceName: 'rakuten_dividend.csv',
+        sourceRowNo: index + 2,
+        sourceType: 'rakuten_dividend',
+        now: now,
+      });
+    });
+
+    const result = buildOutputSheetsFromRecordsForTarget_(ss, 'rakuten_corp_a', dbRecords);
+    const usSheet = ss.getSheetByName(CONFIG.RAKUTEN_OUTPUT_US_STOCK);
+    const usdCashSheet = ss.getSheetByName(CONFIG.OUTPUT_CASH_USD);
+
+    assertEquals_(1, result.counts.usStocks, '配当金由来の外株件数');
+    assertEquals_(1, result.counts.cashUsd, '配当金由来のUSD残高件数');
+    assertEquals_(11.7, getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, 2, '約定代金［USドル］'), '米国株出力に税引前合計を反映');
+    assertEquals_(2.78, getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, 2, '税金［USドル］'), '米国株出力に税額合計を反映');
+    assertEquals_(8.92, getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, 2, '受渡金額［USドル］'), '米国株出力に受取金額を反映');
+    assertEquals_(150, getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, 2, '為替レート'), '米国株出力に手入力レートを反映');
+    assertEquals_(123, getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, 2, '現地源泉税（円）'), '米国株出力に現地源泉税を反映');
+    assertEquals_(45, getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, 2, '国内源泉所得税（円）'), '米国株出力に国内源泉税を反映');
+    assertEquals_('', getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, 2, '手数料の消費税額（円）'), '配当金税額は手数料消費税へ流さない');
+
+    assertEquals_(8.92, getSheetValueByHeader_(usdCashSheet, RAKUTEN_CASH_USD_HEADERS, 2, '配当金・分配金受取金額［USドル］'), 'USD残高に受取金額を反映');
+    assertEquals_(11.7, getSheetValueByHeader_(usdCashSheet, RAKUTEN_CASH_USD_HEADERS, 2, '配当金・分配金合計［USドル］'), 'USD残高に税引前合計を反映');
+    assertEquals_(2.78, getSheetValueByHeader_(usdCashSheet, RAKUTEN_CASH_USD_HEADERS, 2, '税金［USドル］'), 'USD残高に税額合計を反映');
+    assertEquals_(150, getSheetValueByHeader_(usdCashSheet, RAKUTEN_CASH_USD_HEADERS, 2, '為替レート'), 'USD残高にレートを反映');
+    assertEquals_(123, getSheetValueByHeader_(usdCashSheet, RAKUTEN_CASH_USD_HEADERS, 2, '現地源泉税（円）'), 'USD残高に現地源泉税を反映');
+    assertEquals_(45, getSheetValueByHeader_(usdCashSheet, RAKUTEN_CASH_USD_HEADERS, 2, '国内源泉所得税（円）'), 'USD残高に国内源泉税を反映');
+    assertEquals_(8.92, getSheetValueByHeader_(usdCashSheet, RAKUTEN_CASH_USD_HEADERS, 2, '残高'), 'USD残高計算は受取金額ベース');
+  });
+}
+
+function test_buildRakutenOutputSheetsFromRecordsForTarget_reflectsUsStockTaxSourceColumn_20260709_() {
+  withTempSpreadsheet_(function(ss) {
+    const now = new Date('2026-07-09T00:00:00Z');
+    const rows = [
+      ['約定日', '受渡日', 'ティッカー', '銘柄名', '口座', '売買区分', '決済通貨', '数量［株］', '単価［USドル］', '約定代金［USドル］', '為替レート', '手数料［USドル］', '税金［USドル］', '受渡金額［USドル］', '受渡金額［円］'],
+      ['2026/06/01', '2026/06/03', 'AAPL', 'Apple Inc.', '特定', '買付', 'USドル', 1, 200, 200, 150, 1.5, 0.2, 201.7, 30255]
+    ];
+    const dbRecords = normalizeRakutenUsStockRowsToRecords_(rows, 0).map(function(record, index) {
+      return normalizeRakutenRecordForDb_(record, {
+        importId: 'import_rakuten_us_tax',
+        sourceName: 'rakuten_us_stock.csv',
+        sourceRowNo: index + 2,
+        sourceType: 'rakuten_us_stock',
+        now: now,
+      });
+    });
+
+    buildOutputSheetsFromRecordsForTarget_(ss, 'rakuten_corp_a', dbRecords);
+    const usSheet = ss.getSheetByName(CONFIG.RAKUTEN_OUTPUT_US_STOCK);
+
+    assertEquals_(200, getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, 2, '約定代金［USドル］'), '米国株CSVの約定代金を反映');
+    assertEquals_(0.2, getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, 2, '税金［USドル］'), '米国株CSVの税金を反映');
+    assertEquals_(30, getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, 2, '手数料の消費税額（円）'), '米国株CSVの税金を円換算');
+  });
+}
+
+function test_buildRakutenOutputSheetsFromRecordsForTarget_reflectsFundSourceColumns_20260709_() {
+  withTempSpreadsheet_(function(ss) {
+    const now = new Date('2026-07-09T00:00:00Z');
+    const rows = [
+      ['約定日', '受渡日', 'ファンド名', '分配金', '口座', '取引', '買付方法', '数量［口］', '単価', '経費', '為替レート', '受付金額[現地通貨]', '受渡金額/(ポイント利用)[円]', '決済通貨'],
+      ['2025/03/14', '2025/03/19', 'eMAXIS Slim 米国株式(S&P500)', '再投資型', '一般', '買付', '通常', 10000, 12000, 0, 1, 12000, 12000, '円']
+    ];
+    const dbRecords = normalizeRakutenFundRowsToRecords_(rows, 0).map(function(record, index) {
+      return normalizeRakutenRecordForDb_(record, {
+        importId: 'import_rakuten_fund_source',
+        sourceName: 'rakuten_fund.csv',
+        sourceRowNo: index + 2,
+        sourceType: 'rakuten_fund',
+        now: now,
+      });
+    });
+
+    buildOutputSheetsFromRecordsForTarget_(ss, 'rakuten_corp_a', dbRecords);
+    const fundSheet = ss.getSheetByName(CONFIG.RAKUTEN_OUTPUT_FUND);
+
+    assertEquals_('再投資型', getSheetValueByHeader_(fundSheet, RAKUTEN_FUND_HEADERS, 2, '分配金'), '投信CSVの分配金列を反映');
+    assertEquals_(12000, getSheetValueByHeader_(fundSheet, RAKUTEN_FUND_HEADERS, 2, '受付金額'), '投信CSVの受付金額を反映');
+  });
+}
+
 function test_groupRakutenOutputRecords_splitsWithoutSpreadsheet_20260618_() {
   const records = [
     makeTradeRecord_({

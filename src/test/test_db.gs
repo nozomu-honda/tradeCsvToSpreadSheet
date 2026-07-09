@@ -131,6 +131,34 @@ function test_normalizeRakutenRecordForDb_mapsDividendManualColumns_20260618_() 
   assertEquals_(45, dbRecord.manualDomesticWithholdingTaxJpy, '楽天配当金の手入力国内源泉税');
 }
 
+function test_normalizeRakutenRecordForDb_preservesDividendSourceColumns_20260709_() {
+  const now = new Date('2026-07-09T00:00:00Z');
+  const rows = [
+    ['入金日', '商品', '口座', '銘柄コード', '銘柄', '受取通貨', '単価[円/現地通貨]', '数量[株/口]', '配当・分配金合計（税引前）[円/現地通貨]', '税額合計[円/現地通貨]', '受取金額[円/現地通貨]', 'レート', '現地源泉税［円］', '国内源泉税［円］', '備考'],
+    ['2026/04/03', '米国株式', '特定・一般', 'AVGO', 'BROADCOM INC', 'USドル', 0.65, 18, 11.7, 2.78, 8.92, 150, 123, 45, '配当メモ']
+  ];
+  const record = normalizeRakutenDividendRowsToRecords_(rows, 0)[0];
+
+  const dbRecord = normalizeRakutenRecordForDb_(record, {
+    importId: 'import_rakuten_dividend_source',
+    sourceName: 'rakuten_dividend.csv',
+    sourceRowNo: 2,
+    sourceType: 'rakuten_dividend',
+    now: now,
+  });
+  const baseRecord = rakutenDbRecordToBaseRecord_(dbRecord);
+
+  assertEquals_(11.7, dbRecord.grossAmount, '配当・分配金合計を楽天DBに保持');
+  assertEquals_(2.78, dbRecord.tax, '税額合計を楽天DBに保持');
+  assertEquals_(8.92, dbRecord.netAmount, '受取金額を楽天DBに保持');
+  assertEquals_(8.92, dbRecord.settlementAmount, '共通金銭残高用の受渡金額');
+  assertEquals_(150, dbRecord.manualRate, '手入力レート');
+  assertEquals_('配当メモ', dbRecord.description, '備考を楽天DBに保持');
+  assertEquals_(8.92, baseRecord['受渡金額/決済損益'], '共通計算には受取金額を渡す');
+  assertEquals_('', baseRecord['国内消費税等（円）'], 'USD税額は共通の国内消費税等へ戻さない');
+  assertEquals_(2.78, baseRecord.__rakutenDb.tax, '楽天専用出力用metadataに税額を残す');
+}
+
 function test_getDbSpreadsheetPropertyKey_skipsFixedSpreadsheetId_20260618_() {
   assertEquals_(
     'DB_SPREADSHEET_ID_RAKUTEN_CORP_A',
