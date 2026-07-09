@@ -1,0 +1,111 @@
+name: GAS Web App E2E
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - develop
+    types:
+      - labeled
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gas-web-e2e-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gas-web-e2e:
+    name: Deploy test Web app and run minimal Playwright E2E
+    if: >-
+      ${{
+        github.event_name == 'workflow_dispatch' ||
+        (
+          github.event.label.name == 'gas-web-e2e' &&
+          github.event.pull_request.head.repo.full_name == github.repository
+        )
+      }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+
+      - name: Validate E2E secrets
+        shell: bash
+        env:
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+          GAS_TEST_SCRIPT_ID: ${{ secrets.GAS_TEST_SCRIPT_ID }}
+          GAS_TEST_WEBAPP_DEPLOYMENT_ID: ${{ secrets.GAS_TEST_WEBAPP_DEPLOYMENT_ID }}
+          GAS_TEST_WEBAPP_URL: ${{ secrets.GAS_TEST_WEBAPP_URL }}
+          CI_E2E_TOKEN: ${{ secrets.CI_E2E_TOKEN }}
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in CLASPRC_JSON GAS_TEST_SCRIPT_ID GAS_TEST_WEBAPP_DEPLOYMENT_ID GAS_TEST_WEBAPP_URL CI_E2E_TOKEN; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "::error title=Missing GitHub secret::${name} is required for GAS Web app E2E."
+              missing=1
+            fi
+          done
+          exit "${missing}"
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          npm install --global @google/clasp
+          npx playwright install --with-deps chromium
+
+      - name: Push source and update fixed test Web app deployment
+        id: deploy_webapp
+        shell: bash
+        env:
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+          CLASP_USER: ${{ secrets.CLASP_USER }}
+          GAS_TEST_SCRIPT_ID: ${{ secrets.GAS_TEST_SCRIPT_ID }}
+          GAS_TEST_WEBAPP_DEPLOYMENT_ID: ${{ secrets.GAS_TEST_WEBAPP_DEPLOYMENT_ID }}
+          GAS_TEST_WEBAPP_URL: ${{ secrets.GAS_TEST_WEBAPP_URL }}
+          CLASP_PROJECT_JSON: ${{ secrets.CLASP_PROJECT_JSON }}
+        run: bash scripts/ci/deploy-test-webapp.sh
+
+      - name: Skip Playwright E2E for protected Web app
+        if: ${{ steps.deploy_webapp.outputs.webapp_probe == 'protected' }}
+        run: echo "Skipping Playwright E2E because the configured Web app URL returned HTTP 403 from GitHub Actions."
+
+      - name: Run Playwright E2E
+        if: ${{ steps.deploy_webapp.outputs.webapp_probe == 'ready' }}
+        env:
+          GAS_TEST_WEBAPP_URL: ${{ secrets.GAS_TEST_WEBAPP_URL }}
+          CI_E2E_TOKEN: ${{ secrets.CI_E2E_TOKEN }}
+        run: npx playwright test
+
+      - name: Upload Playwright artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gas-web-e2e-artifacts
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  external-pr-guard:
+    name: External PR guard
+    if: >-
+      ${{
+        github.event_name == 'pull_request' &&
+        github.event.label.name == 'gas-web-e2e' &&
+        github.event.pull_request.head.repo.full_name != github.repository
+      }}
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Skip secret-backed Web app E2E
+        run: echo "Skipping GAS Web app E2E for fork or external PRs so Google secrets are not exposed."

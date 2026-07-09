@@ -3,6 +3,10 @@
 docs/**
 scripts/**
 node_modules/**
+tests/**
+playwright.config.js
+package.json
+package-lock.json
 README.md
 *.md
 .gitignore

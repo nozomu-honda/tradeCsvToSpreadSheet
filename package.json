@@ -1,0 +1,11 @@
+{
+  "name": "trade-csv-to-spreadsheet",
+  "private": true,
+  "scripts": {
+    "e2e:list": "playwright test --list",
+    "e2e": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.61.1"
+  }
+}
