@@ -23,6 +23,7 @@ function runFromWebApp(payload) {
   }
 
   assertCiE2eTokenForWebAppIfConfigured_(payload);
+  enableCiE2eRootDbFolderForPayload_(payload);
 
   const csvUrl = (payload.csvUrl || '').trim();
   const spreadsheetUrl = (payload.spreadsheetUrl || '').trim();

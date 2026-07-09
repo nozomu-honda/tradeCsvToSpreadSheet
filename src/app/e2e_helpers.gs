@@ -39,15 +39,22 @@ function shouldUseCiE2eRootDbFolder_(target) {
   return text_(PropertiesService.getScriptProperties().getProperty('CI_E2E_DISABLE_DB_FOLDER')) === '1';
 }
 
+function enableCiE2eRootDbFolderForPayload_(payload) {
+  if (!text_(payload && payload.ciE2eToken)) {
+    return;
+  }
+
+  PropertiesService.getScriptProperties().setProperty('CI_E2E_DISABLE_DB_FOLDER', '1');
+}
+
 function prepareE2EWebAppRun(payload) {
   assertConfiguredCiE2eTokenForPayload_(payload);
+  enableCiE2eRootDbFolderForPayload_(payload);
 
   const targetDbKey = text_(payload && payload.targetDbKey) || 'rakuten_test';
   if (!isTestDbTarget_(targetDbKey)) {
     throw new Error('E2E preparation is limited to test DB targets.');
   }
-
-  PropertiesService.getScriptProperties().setProperty('CI_E2E_DISABLE_DB_FOLDER', '1');
 
   return {
     ok: true,
