@@ -20,7 +20,7 @@ concurrency:
 
 jobs:
   gas-web-e2e:
-    name: Deploy test Web app and run minimal Playwright E2E
+    name: Deploy test Web app and run Rakuten Playwright E2E
     if: >-
       ${{
         github.event_name == 'workflow_dispatch' ||
