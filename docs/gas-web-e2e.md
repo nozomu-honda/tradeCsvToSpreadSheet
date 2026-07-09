@@ -1,6 +1,6 @@
 # GAS Web App E2E
 
-最小構成の GAS Web アプリ E2E は、テスト専用 Apps Script プロジェクトへ `clasp push --force` し、固定の Web アプリ deployment を更新してから Playwright で 1 ケースだけ確認する。
+最小構成の GAS Web アプリ E2E は、テスト専用 Apps Script プロジェクトへ `clasp push --force` し、可能なら固定の Web アプリ deployment を更新してから Playwright で 1 ケースだけ確認する。
 
 ## 方針
 
@@ -11,6 +11,7 @@
 - `pull_request_target` は使わない。
 - fork / external PR では Google Secrets を使う step へ進ませない。
 - 既存 required check の `Push test GAS project and run tests` とは別 workflow とし、通常の GAS CI fallback 方針を変えない。
+- `clasp deploy --deploymentId` が `Requested entity was not found` で失敗する環境では、ID や URL を出力せず警告にし、設定済み Web アプリ URL の疎通確認へ進む。固定 `/exec` URL を使う場合は、`GAS_TEST_WEBAPP_DEPLOYMENT_ID` が同じテスト Apps Script プロジェクトに属していることを確認する。
 
 ## 対象ケース
 

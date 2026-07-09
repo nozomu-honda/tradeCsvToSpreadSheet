@@ -6,6 +6,7 @@ readonly CLASP_RC_PATH="${HOME}/.clasprc.json"
 readonly CLASP_PROJECT_PATH=".clasp.json"
 readonly DEPLOYMENT_DESCRIPTION="GAS Web E2E ${GITHUB_SHA:-local} ${GITHUB_RUN_ID:-manual}"
 readonly WEBAPP_PROBE_PATH="${RUNNER_TEMP:-/tmp}/gas-webapp-probe.html"
+readonly CLASP_DEPLOY_LOG="${RUNNER_TEMP:-/tmp}/clasp-deploy.log"
 
 clasp_command=(clasp)
 clasp_user_status="not configured"
@@ -34,6 +35,7 @@ cleanup() {
   rm -f "${CLASP_RC_PATH}"
   rm -f "${CLASP_PROJECT_PATH}"
   rm -f "${WEBAPP_PROBE_PATH}"
+  rm -f "${CLASP_DEPLOY_LOG}"
 }
 trap cleanup EXIT
 
@@ -131,9 +133,29 @@ echo "::group::clasp push"
 echo "::endgroup::"
 
 echo "::group::clasp deploy"
+set +e
 "${clasp_command[@]}" deploy \
   --deploymentId "${GAS_TEST_WEBAPP_DEPLOYMENT_ID}" \
-  --description "${DEPLOYMENT_DESCRIPTION}"
+  --description "${DEPLOYMENT_DESCRIPTION}" > "${CLASP_DEPLOY_LOG}" 2>&1
+deploy_exit=$?
+set -e
+
+if [[ "${deploy_exit}" -eq 0 ]]; then
+  echo "Fixed Web app deployment was updated."
+  append_summary "### Fixed Web app deployment" "- Result: updated" ""
+elif grep -qi 'Requested entity was not found' "${CLASP_DEPLOY_LOG}"; then
+  echo "::warning title=Fixed Web app deployment unavailable::clasp deploy could not find the configured deployment. Continuing to probe the configured Web app URL without printing IDs or URLs."
+  append_summary "### Fixed Web app deployment" "- Result: SKIP (configured deployment was not found)" "- Follow-up: confirm \`GAS_TEST_WEBAPP_DEPLOYMENT_ID\` belongs to the test Apps Script project when using a fixed \`/exec\` Web app URL." ""
+else
+  sed -E \
+    -e 's#https://[^[:space:]]+#<redacted-url>#g' \
+    -e "s#${GAS_TEST_SCRIPT_ID}#<redacted-script-id>#g" \
+    -e "s#${GAS_TEST_WEBAPP_DEPLOYMENT_ID}#<redacted-deployment-id>#g" \
+    -e "s#${GAS_TEST_WEBAPP_URL}#<redacted-webapp-url>#g" \
+    "${CLASP_DEPLOY_LOG}"
+  echo "::endgroup::"
+  exit "${deploy_exit}"
+fi
 echo "::endgroup::"
 
 echo "::group::wait for Web app"
