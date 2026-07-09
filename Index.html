@@ -30,19 +30,19 @@
 
       <div class="row">
         <label for="targetDbKey">追加先DB</label>
-        <select id="targetDbKey" onchange="onTargetDbChanged()"></select>
+        <select id="targetDbKey" data-testid="target-db-select" onchange="onTargetDbChanged()"></select>
       </div>
 
       <div class="row">
         <label for="csvUrl">CSVリンク</label>
-        <input id="csvUrl" type="text" value="<?= initialCsvUrl ?>" placeholder="https://..." />
+        <input id="csvUrl" data-testid="csv-url-input" type="text" value="<?= initialCsvUrl ?>" placeholder="https://..." />
       </div>
 
       <div class="sep">または</div>
 
       <div class="row">
         <label for="spreadsheetUrl">スプレッドシートURLまたはID</label>
-        <input id="spreadsheetUrl" type="text" value="<?= initialSpreadsheetUrl ?>" placeholder="https://docs.google.com/spreadsheets/... または スプレッドシートID" />
+        <input id="spreadsheetUrl" data-testid="source-spreadsheet-url" type="text" value="<?= initialSpreadsheetUrl ?>" placeholder="https://docs.google.com/spreadsheets/... または スプレッドシートID" />
         <div class="muted">シート名入力は不要です。ヘッダーを持つシートを自動判定します。</div>
       </div>
 
@@ -50,11 +50,11 @@
 
       <div class="row">
         <label for="csvFile">ローカルCSVファイル</label>
-        <input id="csvFile" type="file" accept=".csv,text/csv" />
+        <input id="csvFile" data-testid="csv-file-input" type="file" accept=".csv,text/csv" />
       </div>
 
       <div class="row button-row">
-        <button id="runButton" onclick="run()">6シート生成</button>
+        <button id="runButton" data-testid="run-button" onclick="run()">6シート生成</button>
         <button id="stagingButton" class="secondary" onclick="createStaging()">一次受け枠を作成</button>
       </div>
 
@@ -81,13 +81,13 @@
 
       <div class="row">
         <label for="rollbackDbKey">ロールバック対象DB</label>
-        <select id="rollbackDbKey" onchange="loadRecentImports()"></select>
+        <select id="rollbackDbKey" data-testid="rollback-db-select" onchange="loadRecentImports()"></select>
         <div id="rollbackDbSummary" class="db-summary"></div>
       </div>
 
       <div class="row">
         <label for="rollbackImportId">ロールバック対象の取込ID</label>
-        <select id="rollbackImportId"></select>
+        <select id="rollbackImportId" data-testid="rollback-import-select"></select>
       </div>
 
       <div class="row button-row">
@@ -97,8 +97,8 @@
       </div>
 
       <div id="status" class="row muted"></div>
-      <pre id="result" class="row"></pre>
-      <div id="linkArea" class="row"></div>
+      <pre id="result" data-testid="result" class="row"></pre>
+      <div id="linkArea" data-testid="link-area" class="row"></div>
     </div>
 
     <script>
