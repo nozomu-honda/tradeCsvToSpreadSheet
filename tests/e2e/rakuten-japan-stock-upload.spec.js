@@ -55,12 +55,15 @@ function buildRakutenFundFixture() {
 
 function buildRakutenCashFixture() {
   const runId = buildUniqueRunId();
+  const amountOffset = Number(runId.slice(-5));
 
   return buildCsvFixtureFromTemplate({
     fixtureName: 'rakuten-cash-upload.csv',
     slug: 'rakuten-cash',
     replacements: {
       __E2E_RUN_ID__: runId,
+      __E2E_DEPOSIT_AMOUNT__: String(50000 + amountOffset),
+      __E2E_WITHDRAWAL_AMOUNT__: String(12000 + (amountOffset % 7000)),
       __E2E_DEPOSIT_DESCRIPTION__: `E2E通常振込入金${runId}`,
       __E2E_WITHDRAWAL_DESCRIPTION__: `E2E通常出金${runId}`,
     },

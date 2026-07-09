@@ -221,8 +221,13 @@ async function cleanupUploadedImport({ page, cleanupPayload, testInfo }) {
 
   expect(cleanupResult.ok, cleanupResult.error || JSON.stringify(cleanupResult.value)).toBe(true);
   expect(cleanupResult.value.ok, JSON.stringify(cleanupResult.value.errors || [])).toBe(true);
-  expect(cleanupResult.value.rollback.rolledBackCount).toBeGreaterThan(0);
-  expect(cleanupResult.value.rollback.dbTargetKey).toBe('rakuten_test');
+
+  if (cleanupPayload.insertedCount > 0) {
+    expect(cleanupResult.value.rollback.rolledBackCount).toBeGreaterThan(0);
+    expect(cleanupResult.value.rollback.dbTargetKey).toBe('rakuten_test');
+  } else {
+    expect(cleanupResult.value.rollback.skipped).toBe(true);
+  }
 }
 
 module.exports = {
