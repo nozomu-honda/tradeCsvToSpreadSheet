@@ -17,6 +17,8 @@
 - `CI_E2E_TOKEN` Script Property が設定されているテストprojectでは、Web アプリの server function は token 付き payload を必須にする。Script Property が未設定の初回は、token 保護された `prepareE2EWebAppRun` が GitHub Secret 由来の payload から初期化する。Playwright は token を URL や DOM には出さず、`google.script.run` の payload にだけ含める。
 - E2E 開始時に token 保護された `prepareE2EWebAppRun` を呼び、`nomura_test` / `rakuten_test` などの test DB だけ root storage mode を有効化する。
 - 出力リンクが作成された後は、token 保護された `inspectE2EOutputSpreadsheetFromWebApp` で出力 Spreadsheet の主要シート名と主要セル値を確認する。全セル完全一致ではなく、楽天CSV fixture の一意な銘柄名・ティッカー・ファンド名・入出金摘要が期待シートに出ていることを最小限確認する。
+- PR #63 時点では、検査helperがデフォルト25行 / 40列、最大100行 / 80列の `getDisplayValues()` 結果をクライアントへ返し、Playwright側で列検索していた。この方式は、test DBに有効レコードが残る、fixture明細が増える、出力列が増える、といった場合に正しい出力でも期待値が取得範囲外になり得る。
+- 現在は条件検索方式とし、Playwrightは `requiredSheets` / `absentSheets` / `checks` だけをpayloadに渡す。GAS側は許可済みシートの1行目から `headerName` を完全一致で探し、見つけた列の実最終行まで `expectedValue` を完全一致検索する。クライアントへは存在判定、検出可否、列番号、行番号など最小限の結果だけを返し、セル全体の二次元配列は返さない。
 - Playwright 実行後は、一時 Web アプリ deployment を削除する。削除に失敗した場合は、公開URLが残る可能性があるため workflow を失敗させる。
 - 固定 `/exec` URL を使う `fixed-url` モードを使う場合は、`GAS_TEST_WEBAPP_DEPLOYMENT_ID` が同じテスト Apps Script プロジェクトに属していること、かつその Web アプリ URL が GitHub Actions から対話的な Google ログインなしで開けることを確認する。
 - Web アプリ URL が GitHub Actions から HTTP 403 を返す場合、ソース push と deployment 試行までは確認し、Playwright E2E は明示的に skip する。`dynamic-public` モードでも 403 が続く場合は、Google Workspace / OAuth / アカウント側の公開制限を確認する。
@@ -32,7 +34,7 @@
 5. 楽天入力として検出され、内部ルーティングで `rakuten_test` に保存されることを確認する。
 6. 結果表示で、検出形式、選択 DB キー、実際の追加先 DB キー、実際の追加先 DB 種別、取込 ID、読込件数、追加件数、出力リンクを確認する。
 7. 出力件数表示から対象シート系統の件数が増えていることを確認する。
-8. 出力リンクの Spreadsheet ID を使い、E2E helper 経由で主要シート名と主要セル値を確認する。
+8. 出力リンクの Spreadsheet ID を使い、E2E helper 経由で主要シート名と主要セル値を条件検索する。
 9. E2E cleanup helper から対象 `importId` を `rakuten_test` 内で論理ロールバックする。
 10. cleanup 結果は Playwright attachment と workflow summary に保存する。
 
@@ -81,7 +83,15 @@ PR #60 時点のログでは、`clasp push --force` は成功していたが、`
 
 cleanup helper は `nomura_test` / `rakuten_test` だけを対象にし、既存の `rollbackImport_()` を使って `rolledBackAt` を記録する。取込レコードの物理削除はしない。
 
-出力 Spreadsheet 検査 helper は `CI_E2E_TOKEN` を必須にし、test DB target だけを許可する。読み取り対象は E2E root storage mode の出力名 `株管理ツール_E2E_TEST_OUTPUT` に限定し、シート名も楽天E2Eで必要な出力シートだけを allowlist 化する。取得範囲は最大 100 行 / 80 列に制限し、本番 Spreadsheet や任意シートを読む用途には使わない。
+出力 Spreadsheet 検査 helper は `CI_E2E_TOKEN` を必須にし、test DB target だけを許可する。読み取り対象は E2E root storage mode の出力名 `株管理ツール_E2E_TEST_OUTPUT` に限定し、シート名も楽天E2Eで必要な出力シートだけを allowlist 化する。本番 Spreadsheet や任意シートを読む用途には使わない。
+
+検査payloadは次の制限を持つ。
+
+- `requiredSheets` / `absentSheets` は配列のみ、各10件まで。
+- `checks` は配列のみ、20件まで。
+- `sheetName` / `headerName` / `expectedValue` は文字列のみで、長さ上限を持つ。
+- 任意のA1範囲、数式、取得行数、取得列数はpayloadから受け取らない。
+- helperはシート全体のセル値やattachment用のraw配列を返さない。
 
 `dynamic-public` モードの Web アプリ画面自体は、GitHub Actions が開けるよう一時的に匿名アクセス可能になる。そのため、この workflow の対象は必ずテスト専用 Apps Script プロジェクトに限定し、本番 DB / 本番 Drive フォルダ / 本番 Spreadsheet へ権限を持たせない。`CI_E2E_TOKEN` Script Property がある場合は、通常の upload / staging / reset / rollback / DB参照 server function も token 付き payload を必須にする。
 
@@ -94,7 +104,7 @@ workflow summary には次を残す。
 - 一時 Web アプリ deployment の作成結果
 - Web app probe の結果
 - Playwright 実行または skip 理由
-- 出力 Spreadsheet の主要シート名・主要セル値検査
+- 出力 Spreadsheet の主要シート名・主要セル値の条件検索結果
 - cleanup / rollback 結果
 - CI ローカルの test storage 設定
 - 一時 Web アプリ deployment の削除結果
