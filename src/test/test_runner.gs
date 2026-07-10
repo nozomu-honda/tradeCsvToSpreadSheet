@@ -77,6 +77,7 @@ const CORE_TESTS_ = [
   test_rakutenOutputCellComparison_fromRealLikeInputsThroughDb_20260709_,
   test_inspectE2EOutputSpreadsheet_rejectsInvalidPayload_20260710_,
   test_inspectE2EOutputSpreadsheet_rejectsUnsafeTargetsAndSheets_20260710_,
+  test_inspectE2EOutputSpreadsheet_rowChecksRequireSameRow_20260710_,
   test_inspectE2EOutputSpreadsheet_findsValuesBeyondDefaultRange_20260710_,
   test_inspectE2EOutputSpreadsheet_returnsMinimalResults_20260710_,
   test_groupRakutenOutputRecords_splitsWithoutSpreadsheet_20260618_,
@@ -124,6 +125,7 @@ const GAS_TEST_BATCH_ENTRY_POINTS_ = [
   'runGasTestBatch06',
   'runGasTestBatch07',
   'runGasTestBatch08',
+  'runGasTestBatch09',
 ];
 const GAS_TEST_BATCHES_ = buildGasTestBatches_(ALL_GAS_TESTS_, GAS_TEST_BATCH_SIZE_);
 
@@ -165,6 +167,10 @@ function runGasTestBatch07() {
 
 function runGasTestBatch08() {
   return runGasTestBatch_(7);
+}
+
+function runGasTestBatch09() {
+  return runGasTestBatch_(8);
 }
 
 function runGasTestBatch_(batchIndex) {

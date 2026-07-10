@@ -18,7 +18,8 @@
 - E2E 開始時に token 保護された `prepareE2EWebAppRun` を呼び、`nomura_test` / `rakuten_test` などの test DB だけ root storage mode を有効化する。
 - 出力リンクが作成された後は、token 保護された `inspectE2EOutputSpreadsheetFromWebApp` で出力 Spreadsheet の主要シート名と主要セル値を確認する。全セル完全一致ではなく、楽天CSV fixture の一意な銘柄名・ティッカー・ファンド名・入出金摘要が期待シートに出ていることを最小限確認する。
 - PR #63 時点では、検査helperがデフォルト25行 / 40列、最大100行 / 80列の `getDisplayValues()` 結果をクライアントへ返し、Playwright側で列検索していた。この方式は、test DBに有効レコードが残る、fixture明細が増える、出力列が増える、といった場合に正しい出力でも期待値が取得範囲外になり得る。
-- 現在は条件検索方式とし、Playwrightは `requiredSheets` / `absentSheets` / `checks` だけをpayloadに渡す。GAS側は許可済みシートの1行目から `headerName` を完全一致で探し、見つけた列の実最終行まで `expectedValue` を完全一致検索する。クライアントへは存在判定、検出可否、列番号、行番号など最小限の結果だけを返し、セル全体の二次元配列は返さない。
+- 現在は条件検索方式とし、Playwrightは `requiredSheets` / `absentSheets` / `checks` / `rowChecks` だけをpayloadに渡す。GAS側は許可済みシートの1行目から `headerName` を完全一致で探し、`checks` では見つけた列の実最終行まで `expectedValue` を完全一致検索する。`rowChecks` ではアンカー列・値で候補行を探し、その同じ行にある複数列を完全一致で検査する。クライアントへは存在判定、検出可否、列番号、行番号など最小限の結果だけを返し、セル全体の二次元配列は返さない。
+- `checks` は後方互換用の単独列検索であり、複数列が同じ明細行にあることまでは保証しない。行の整合性が必要な検査、特に元本払戻金のように買付行と払戻行が同じファンド名で並ぶケースでは `rowChecks` を使う。
 - Playwright 実行後は、一時 Web アプリ deployment を削除する。削除に失敗した場合は、公開URLが残る可能性があるため workflow を失敗させる。
 - 固定 `/exec` URL を使う `fixed-url` モードを使う場合は、`GAS_TEST_WEBAPP_DEPLOYMENT_ID` が同じテスト Apps Script プロジェクトに属していること、かつその Web アプリ URL が GitHub Actions から対話的な Google ログインなしで開けることを確認する。
 - Web アプリ URL が GitHub Actions から HTTP 403 を返す場合、ソース push と deployment 試行までは確認し、Playwright E2E は明示的に skip する。`dynamic-public` モードでも 403 が続く場合は、Google Workspace / OAuth / アカウント側の公開制限を確認する。
@@ -46,7 +47,7 @@
 - 楽天入出金履歴 CSV: `rakuten_cash` として検出し、金銭残高（円）の出力件数が2件以上であること、出力 Spreadsheet に `金銭残高（円）` があり、fixture の入金・出金摘要が出ていることを確認する。
 - 楽天米国株配当 CSV: `rakuten_dividend` として検出し、米国株と金銭残高（ドル）の出力件数が1件以上であること、`楽天米国株` で税金、受渡金額USドル/円、為替レート、現地源泉税、国内源泉所得税を条件検索で確認する。
 - 楽天投信分配金 CSV: `rakuten_dividend` として検出し、投信と金銭残高（ドル）の出力件数が1件以上であること、`楽天投資信託` で分配金、受付金額、受渡金額を確認し、`金銭残高（ドル）` に分配金受取・税額が反映されることを確認する。
-- 楽天元本払戻金 CSV: 先に同一ファンドの楽天投信買付 CSV を取り込み、その後 `rakuten_dividend` の元本払戻金行を取り込む。`楽天投資信託` で `元金払戻金`、平均取得単価、簿価、銘柄ごとの残高を確認し、`金銭残高（円）` への反映と2件分の rollback を確認する。
+- 楽天元本払戻金 CSV: 先に同一ファンドの楽天投信買付 CSV を取り込み、その後 `rakuten_dividend` の元本払戻金行を取り込む。`楽天投資信託` では `rowChecks` でファンド名をアンカーにし、同じ払戻行の `元金払戻金`、受付金額、受渡金額、空欄の平均取得単価、空欄の簿価、銘柄ごとの残高を確認する。`入金（分配金）` は簿価・平均取得単価を更新せず、銘柄ごとの残高を維持する。`金銭残高（円）` への反映と2件分の rollback も確認する。
 
 ## GitHub Actions から HTTP 403 になる主な原因
 
@@ -92,6 +93,7 @@ cleanup helper は `nomura_test` / `rakuten_test` だけを対象にし、既存
 
 - `requiredSheets` / `absentSheets` は配列のみ、各10件まで。
 - `checks` は配列のみ、20件まで。
+- `rowChecks` は配列のみ、10件まで。各 `rowChecks[].checks` は1件以上10件まで。
 - `sheetName` / `headerName` / `expectedValue` は文字列のみで、長さ上限を持つ。
 - 任意のA1範囲、数式、取得行数、取得列数はpayloadから受け取らない。
 - helperはシート全体のセル値やattachment用のraw配列を返さない。

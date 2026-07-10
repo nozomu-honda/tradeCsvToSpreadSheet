@@ -74,7 +74,7 @@ src/
 主な責務:
 - `runSmokeTests()`
 - `runAllTests()`
-- `runGasTestBatch01()` 〜 `runGasTestBatch08()`
+- `runGasTestBatch01()` 〜 `runGasTestBatch09()`
 - `runSelectedTests_()`
 
 ### `test_temp_spreadsheet_helpers.gs`
@@ -186,9 +186,9 @@ DB保存 / ロールバック / リセットのテストです。
 フル実行用です。  
 仕様変更後、まとめて確認するときに使います。
 
-### `runGasTestBatch01()` 〜 `runGasTestBatch08()`
+### `runGasTestBatch01()` 〜 `runGasTestBatch09()`
 GitHub Actions の GAS CI 用です。
-`runAllTests()` 相当のテスト一覧を13件ずつに分け、Apps Script の実行時間上限を避けながら全件を順番に確認します。
+`runAllTests()` 相当のテスト一覧を最大13件ずつに分け、Apps Script の実行時間上限を避けながら全件を順番に確認します。
 
 ### 目安
 - `runSmokeTests()` は **ロジック破壊を早く検知する** ためのもの
@@ -467,7 +467,7 @@ Apps Script の日次クォータに当たりやすくなります。
 - `runSmokeTests()`
 - `runAllTests()`
 
-CI用バッチ関数は `runAllTests()` 相当のテスト一覧から自動生成されます。新しいテストを `CORE_TESTS_` または `FULL_ONLY_TESTS_` へ追加すると、バッチ側にも含まれます。8バッチに収まらない数まで増えた場合は、公開バッチ関数とCIの実行リストも増やします。未対応のままだと、バッチ定義検証で失敗します。
+CI用バッチ関数は `runAllTests()` 相当のテスト一覧から自動生成されます。新しいテストを `CORE_TESTS_` または `FULL_ONLY_TESTS_` へ追加すると、バッチ側にも含まれます。9バッチに収まらない数まで増えた場合は、公開バッチ関数とCIの実行リストも増やします。未対応のままだと、バッチ定義検証で失敗します。
 
 ### 3. テスト名は期待結果まで分かるようにする
 悪い例:

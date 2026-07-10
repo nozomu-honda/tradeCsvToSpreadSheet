@@ -139,6 +139,28 @@ function assertOutputInspection(inspection, expected) {
     expect(result.found, `${sheetName}.${headerName} should contain ${expectedValue}`).toBe(true);
     expect(result.rowNumber, `${sheetName}.${headerName} row number`).toBeGreaterThan(1);
   });
+
+  (expected.rowChecks || []).forEach(({ sheetName, anchor, checks }, index) => {
+    const result = (inspection.rowCheckResults || [])[index];
+    expect(result, `${sheetName} row check should have a result`).toBeTruthy();
+    expect(result.sheetName).toBe(sheetName);
+    expect(result.sheetExists, `${sheetName} should exist`).toBe(true);
+    expect(result.anchor.headerName).toBe(anchor.headerName);
+    expect(result.anchor.headerFound, `${sheetName}.${anchor.headerName} anchor header should exist`).toBe(true);
+    expect(result.anchor.headerColumn, `${sheetName}.${anchor.headerName} anchor header column`).toBeGreaterThan(0);
+    expect(result.anchor.found, `${sheetName}.${anchor.headerName} should contain ${anchor.expectedValue}`).toBe(true);
+    expect(result.found, `${sheetName} row check should match one row`).toBe(true);
+    expect(result.rowNumber, `${sheetName} row check row number`).toBeGreaterThan(1);
+
+    checks.forEach(({ headerName, expectedValue }, checkIndex) => {
+      const checkResult = (result.checks || [])[checkIndex];
+      expect(checkResult, `${sheetName}.${headerName} should have a row check result`).toBeTruthy();
+      expect(checkResult.headerName).toBe(headerName);
+      expect(checkResult.headerFound, `${sheetName}.${headerName} row header should exist`).toBe(true);
+      expect(checkResult.headerColumn, `${sheetName}.${headerName} row header column`).toBeGreaterThan(0);
+      expect(checkResult.matched, `${sheetName}.${headerName} should equal ${expectedValue} on row ${result.rowNumber}`).toBe(true);
+    });
+  });
 }
 
 async function openPreparedWebApp(page) {
@@ -233,6 +255,7 @@ async function runCsvUploadCase({ page, fixture, expected, registerCleanup }) {
       requiredSheets: expected.outputSpreadsheet.requiredSheets || [],
       absentSheets: expected.outputSpreadsheet.absentSheets || [],
       checks: expected.outputSpreadsheet.checks || [],
+      rowChecks: expected.outputSpreadsheet.rowChecks || [],
     }, token);
 
     expect(inspectionResult.ok, inspectionResult.error || JSON.stringify(inspectionResult.value)).toBe(true);
