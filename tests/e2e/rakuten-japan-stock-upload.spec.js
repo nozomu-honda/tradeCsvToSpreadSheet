@@ -110,7 +110,7 @@ test.describe('GAS Web app Rakuten CSV upload E2E', () => {
         outputSpreadsheet: {
           requiredSheets: ['楽天日本株'],
           absentSheets: ['日本株'],
-          valueChecks: [
+          checks: [
             { sheetName: '楽天日本株', headerName: '銘柄コード', expectedValue: fixture.symbolCode },
             { sheetName: '楽天日本株', headerName: '銘柄名', expectedValue: fixture.symbolName },
           ],
@@ -139,7 +139,7 @@ test.describe('GAS Web app Rakuten CSV upload E2E', () => {
         outputSpreadsheet: {
           requiredSheets: ['楽天米国株', '金銭残高（ドル）'],
           absentSheets: ['米国株'],
-          valueChecks: [
+          checks: [
             { sheetName: '楽天米国株', headerName: 'ティッカー', expectedValue: fixture.ticker },
             { sheetName: '楽天米国株', headerName: '銘柄名', expectedValue: fixture.symbolName },
             { sheetName: '金銭残高（ドル）', headerName: '銘柄コード', expectedValue: fixture.ticker },
@@ -169,7 +169,7 @@ test.describe('GAS Web app Rakuten CSV upload E2E', () => {
         outputSpreadsheet: {
           requiredSheets: ['楽天投資信託', '金銭残高（円）'],
           absentSheets: ['投信'],
-          valueChecks: [
+          checks: [
             { sheetName: '楽天投資信託', headerName: 'ファンド名', expectedValue: fixture.fundName },
             { sheetName: '金銭残高（円）', headerName: '銘柄名', expectedValue: fixture.fundName },
           ],
@@ -196,7 +196,7 @@ test.describe('GAS Web app Rakuten CSV upload E2E', () => {
         ],
         outputSpreadsheet: {
           requiredSheets: ['金銭残高（円）'],
-          valueChecks: [
+          checks: [
             { sheetName: '金銭残高（円）', headerName: '内容', expectedValue: fixture.depositDescription },
             { sheetName: '金銭残高（円）', headerName: '内容', expectedValue: fixture.withdrawalDescription },
           ],

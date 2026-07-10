@@ -109,46 +109,35 @@ async function callGoogleScript(frame, functionName, payload, token) {
   }), { fn: functionName, data: payload, ciToken: token });
 }
 
-function sheetValuesFor(inspection, sheetName) {
-  return inspection && inspection.sheets && inspection.sheets[sheetName]
-    ? inspection.sheets[sheetName].values || []
-    : [];
-}
-
-function findValueInColumn(values, headerName, expectedValue) {
-  if (!values || values.length === 0) {
-    return false;
-  }
-
-  const headers = values[0] || [];
-  const columnIndex = headers.indexOf(headerName);
-  if (columnIndex < 0) {
-    return false;
-  }
-
-  return values.slice(1).some((row) => String(row[columnIndex] || '') === String(expectedValue));
-}
-
 function assertOutputInspection(inspection, expected) {
   if (!expected) {
     return;
   }
 
+  expect(inspection.sheets, 'inspection should not return raw sheet cell arrays').toBeUndefined();
+
   (expected.requiredSheets || []).forEach((sheetName) => {
-    expect(inspection.sheetNames, `${sheetName} should exist`).toContain(sheetName);
-    expect(inspection.sheets[sheetName] && inspection.sheets[sheetName].exists, `${sheetName} should be readable`).toBe(true);
+    const result = (inspection.requiredSheetResults || []).find((item) => item.sheetName === sheetName);
+    expect(result, `${sheetName} should have a required sheet result`).toBeTruthy();
+    expect(result.exists, `${sheetName} should exist`).toBe(true);
   });
 
   (expected.absentSheets || []).forEach((sheetName) => {
-    expect(inspection.sheetNames, `${sheetName} should not remain`).not.toContain(sheetName);
+    const result = (inspection.absentSheetResults || []).find((item) => item.sheetName === sheetName);
+    expect(result, `${sheetName} should have an absent sheet result`).toBeTruthy();
+    expect(result.absent, `${sheetName} should not remain`).toBe(true);
   });
 
-  (expected.valueChecks || []).forEach(({ sheetName, headerName, expectedValue }) => {
-    const values = sheetValuesFor(inspection, sheetName);
-    expect(
-      findValueInColumn(values, headerName, expectedValue),
-      `${sheetName}.${headerName} should contain ${expectedValue}`
-    ).toBe(true);
+  (expected.checks || []).forEach(({ sheetName, headerName, expectedValue }, index) => {
+    const result = (inspection.checkResults || [])[index];
+    expect(result, `${sheetName}.${headerName} should have a check result`).toBeTruthy();
+    expect(result.sheetName).toBe(sheetName);
+    expect(result.headerName).toBe(headerName);
+    expect(result.sheetExists, `${sheetName} should exist`).toBe(true);
+    expect(result.headerFound, `${sheetName}.${headerName} header should exist`).toBe(true);
+    expect(result.headerColumn, `${sheetName}.${headerName} header column`).toBeGreaterThan(0);
+    expect(result.found, `${sheetName}.${headerName} should contain ${expectedValue}`).toBe(true);
+    expect(result.rowNumber, `${sheetName}.${headerName} row number`).toBeGreaterThan(1);
   });
 }
 
@@ -237,16 +226,13 @@ async function runCsvUploadCase({ page, fixture, expected, registerCleanup }) {
   let outputInspection = null;
 
   if (expected.outputSpreadsheet) {
-    const sheetNames = Array.from(new Set([
-      ...(expected.outputSpreadsheet.requiredSheets || []),
-      ...(expected.outputSpreadsheet.absentSheets || []),
-      ...(expected.outputSpreadsheet.valueChecks || []).map((item) => item.sheetName),
-    ]));
     const token = readRequiredEnv('CI_E2E_TOKEN');
     const inspectionResult = await callGoogleScript(app, 'inspectE2EOutputSpreadsheetFromWebApp', {
       targetDbKey: 'rakuten_test',
       spreadsheetId: outputSpreadsheetId,
-      sheetNames,
+      requiredSheets: expected.outputSpreadsheet.requiredSheets || [],
+      absentSheets: expected.outputSpreadsheet.absentSheets || [],
+      checks: expected.outputSpreadsheet.checks || [],
     }, token);
 
     expect(inspectionResult.ok, inspectionResult.error || JSON.stringify(inspectionResult.value)).toBe(true);
