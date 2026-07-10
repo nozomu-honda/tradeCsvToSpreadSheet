@@ -148,6 +148,9 @@ function inspectE2EOutputSpreadsheetFromWebApp(payload) {
   const checkResults = request.checks.map(function(check, index) {
     return inspectE2EOutputSpreadsheetCheck_(ss, check, index);
   });
+  const rowCheckResults = request.rowChecks.map(function(rowCheck, index) {
+    return inspectE2EOutputSpreadsheetRowCheck_(ss, rowCheck, index);
+  });
 
   return {
     ok: true,
@@ -155,7 +158,8 @@ function inspectE2EOutputSpreadsheetFromWebApp(payload) {
     sheetNames: allSheetNames,
     requiredSheetResults: requiredSheetResults,
     absentSheetResults: absentSheetResults,
-    checkResults: checkResults
+    checkResults: checkResults,
+    rowCheckResults: rowCheckResults
   };
 }
 
@@ -169,7 +173,8 @@ function normalizeE2EOutputInspectionPayload_(payload) {
     spreadsheetId: requireE2EStringField_(payload.spreadsheetId, 'spreadsheetId', 128, true),
     requiredSheets: normalizeE2EStringList_(payload.requiredSheets, 'requiredSheets', 10, 80),
     absentSheets: normalizeE2EStringList_(payload.absentSheets, 'absentSheets', 10, 80),
-    checks: normalizeE2EOutputInspectionChecks_(payload.checks)
+    checks: normalizeE2EOutputInspectionChecks_(payload.checks),
+    rowChecks: normalizeE2EOutputInspectionRowChecks_(payload.rowChecks)
   };
 
   const allowedSheetNames = getAllowedE2EOutputInspectionSheetNames_();
@@ -178,6 +183,9 @@ function normalizeE2EOutputInspectionPayload_(payload) {
   });
   request.checks.forEach(function(check) {
     assertAllowedE2EOutputInspectionSheetName_(check.sheetName, allowedSheetNames);
+  });
+  request.rowChecks.forEach(function(rowCheck) {
+    assertAllowedE2EOutputInspectionSheetName_(rowCheck.sheetName, allowedSheetNames);
   });
 
   return request;
@@ -263,13 +271,83 @@ function normalizeE2EOutputInspectionChecks_(value) {
   return result;
 }
 
-function requireE2EStringField_(value, fieldName, maxLength, trimValue) {
+function normalizeE2EOutputInspectionRowChecks_(value) {
+  if (value === undefined || value === null) {
+    return [];
+  }
+
+  if (!Array.isArray(value)) {
+    throw new Error('rowChecks must be an array.');
+  }
+
+  if (value.length > 10) {
+    throw new Error('rowChecks must contain at most 10 items.');
+  }
+
+  const result = [];
+  const seen = {};
+  value.forEach(function(rowCheck, index) {
+    if (!rowCheck || typeof rowCheck !== 'object' || Array.isArray(rowCheck)) {
+      throw new Error('rowChecks[' + index + '] must be an object.');
+    }
+
+    const anchor = rowCheck.anchor;
+    if (!anchor || typeof anchor !== 'object' || Array.isArray(anchor)) {
+      throw new Error('rowChecks[' + index + '].anchor must be an object.');
+    }
+
+    if (!Array.isArray(rowCheck.checks)) {
+      throw new Error('rowChecks[' + index + '].checks must be an array.');
+    }
+
+    if (rowCheck.checks.length === 0) {
+      throw new Error('rowChecks[' + index + '].checks must contain at least 1 item.');
+    }
+
+    if (rowCheck.checks.length > 10) {
+      throw new Error('rowChecks[' + index + '].checks must contain at most 10 items.');
+    }
+
+    const normalizedChecks = [];
+    rowCheck.checks.forEach(function(check, checkIndex) {
+      if (!check || typeof check !== 'object' || Array.isArray(check)) {
+        throw new Error('rowChecks[' + index + '].checks[' + checkIndex + '] must be an object.');
+      }
+
+      normalizedChecks.push({
+        headerName: requireE2EStringField_(check.headerName, 'rowChecks[' + index + '].checks[' + checkIndex + '].headerName', 120, true),
+        expectedValue: requireE2EStringField_(check.expectedValue, 'rowChecks[' + index + '].checks[' + checkIndex + '].expectedValue', 500, false, true)
+      });
+    });
+
+    const normalized = {
+      sheetName: requireE2EStringField_(rowCheck.sheetName, 'rowChecks[' + index + '].sheetName', 80, true),
+      anchor: {
+        headerName: requireE2EStringField_(anchor.headerName, 'rowChecks[' + index + '].anchor.headerName', 120, true),
+        expectedValue: requireE2EStringField_(anchor.expectedValue, 'rowChecks[' + index + '].anchor.expectedValue', 500, false)
+      },
+      checks: normalizedChecks
+    };
+    const key = normalized.sheetName + '\n' + normalized.anchor.headerName + '\n' + normalized.anchor.expectedValue + '\n' +
+      normalized.checks.map(function(check) {
+        return check.headerName + '\n' + check.expectedValue;
+      }).join('\n');
+    if (!seen[key]) {
+      seen[key] = true;
+      result.push(normalized);
+    }
+  });
+
+  return result;
+}
+
+function requireE2EStringField_(value, fieldName, maxLength, trimValue, allowEmpty) {
   if (typeof value !== 'string') {
     throw new Error(fieldName + ' must be a string.');
   }
 
   const result = trimValue ? text_(value) : value;
-  if (result === '') {
+  if (result === '' && !allowEmpty) {
     throw new Error(fieldName + ' is required.');
   }
 
@@ -331,4 +409,109 @@ function inspectE2EOutputSpreadsheetCheck_(ss, check, checkIndex) {
   }
 
   return result;
+}
+
+function inspectE2EOutputSpreadsheetRowCheck_(ss, rowCheck, rowCheckIndex) {
+  const result = {
+    rowCheckIndex: rowCheckIndex,
+    sheetName: rowCheck.sheetName,
+    sheetExists: false,
+    anchor: {
+      headerName: rowCheck.anchor.headerName,
+      headerFound: false,
+      headerColumn: null,
+      found: false,
+      candidateCount: 0
+    },
+    found: false,
+    rowNumber: null,
+    checks: []
+  };
+
+  const sheet = ss.getSheetByName(rowCheck.sheetName);
+  if (!sheet) {
+    return result;
+  }
+  result.sheetExists = true;
+
+  const lastColumn = sheet.getLastColumn();
+  const lastRow = sheet.getLastRow();
+  if (lastColumn <= 0 || lastRow <= 0) {
+    return result;
+  }
+
+  const headerRow = sheet.getRange(1, 1, 1, lastColumn).getDisplayValues()[0];
+  const anchorIndex = headerRow.indexOf(rowCheck.anchor.headerName);
+  if (anchorIndex < 0) {
+    return result;
+  }
+
+  result.anchor.headerFound = true;
+  result.anchor.headerColumn = anchorIndex + 1;
+  result.checks = buildE2EOutputSpreadsheetRowCheckResults_(headerRow, rowCheck.checks, null);
+
+  if (lastRow <= 1) {
+    return result;
+  }
+
+  const anchorRanges = sheet
+    .getRange(2, result.anchor.headerColumn, lastRow - 1, 1)
+    .createTextFinder(rowCheck.anchor.expectedValue)
+    .useRegularExpression(false)
+    .matchCase(true)
+    .matchEntireCell(true)
+    .findAll();
+  const candidateRows = anchorRanges.map(function(range) {
+    return range.getRow();
+  });
+  result.anchor.found = candidateRows.length > 0;
+  result.anchor.candidateCount = candidateRows.length;
+
+  let firstCandidateCheckResults = null;
+  for (let i = 0; i < candidateRows.length; i += 1) {
+    const rowNumber = candidateRows[i];
+    const checkResults = buildE2EOutputSpreadsheetRowCheckResults_(headerRow, rowCheck.checks, function(headerColumn) {
+      return sheet.getRange(rowNumber, headerColumn).getDisplayValue();
+    });
+    const allMatched = checkResults.every(function(checkResult) {
+      return checkResult.matched;
+    });
+
+    if (!firstCandidateCheckResults) {
+      firstCandidateCheckResults = checkResults;
+    }
+
+    if (allMatched) {
+      result.found = true;
+      result.rowNumber = rowNumber;
+      result.checks = checkResults;
+      return result;
+    }
+  }
+
+  if (firstCandidateCheckResults) {
+    result.checks = firstCandidateCheckResults;
+  }
+
+  return result;
+}
+
+function buildE2EOutputSpreadsheetRowCheckResults_(headerRow, checks, valueGetter) {
+  return checks.map(function(check, index) {
+    const headerIndex = headerRow.indexOf(check.headerName);
+    const checkResult = {
+      checkIndex: index,
+      headerName: check.headerName,
+      headerFound: headerIndex >= 0,
+      headerColumn: headerIndex >= 0 ? headerIndex + 1 : null,
+      matched: false
+    };
+
+    if (headerIndex < 0 || !valueGetter) {
+      return checkResult;
+    }
+
+    checkResult.matched = valueGetter(headerIndex + 1) === check.expectedValue;
+    return checkResult;
+  });
 }
