@@ -16,6 +16,7 @@
 - 既定の `dynamic-public` モードでは、CI run ごとに一時 Web アプリ deployment を作成し、その `/exec` URL を Playwright にだけ渡す。実 URL はログに出さず、GitHub Actions の mask 対象にする。
 - `CI_E2E_TOKEN` Script Property が設定されているテストprojectでは、Web アプリの server function は token 付き payload を必須にする。Script Property が未設定の初回は、token 保護された `prepareE2EWebAppRun` が GitHub Secret 由来の payload から初期化する。Playwright は token を URL や DOM には出さず、`google.script.run` の payload にだけ含める。
 - E2E 開始時に token 保護された `prepareE2EWebAppRun` を呼び、`nomura_test` / `rakuten_test` などの test DB だけ root storage mode を有効化する。
+- 出力リンクが作成された後は、token 保護された `inspectE2EOutputSpreadsheetFromWebApp` で出力 Spreadsheet の主要シート名と主要セル値を確認する。全セル完全一致ではなく、楽天CSV fixture の一意な銘柄名・ティッカー・ファンド名・入出金摘要が期待シートに出ていることを最小限確認する。
 - Playwright 実行後は、一時 Web アプリ deployment を削除する。削除に失敗した場合は、公開URLが残る可能性があるため workflow を失敗させる。
 - 固定 `/exec` URL を使う `fixed-url` モードを使う場合は、`GAS_TEST_WEBAPP_DEPLOYMENT_ID` が同じテスト Apps Script プロジェクトに属していること、かつその Web アプリ URL が GitHub Actions から対話的な Google ログインなしで開けることを確認する。
 - Web アプリ URL が GitHub Actions から HTTP 403 を返す場合、ソース push と deployment 試行までは確認し、Playwright E2E は明示的に skip する。`dynamic-public` モードでも 403 が続く場合は、Google Workspace / OAuth / アカウント側の公開制限を確認する。
@@ -31,15 +32,16 @@
 5. 楽天入力として検出され、内部ルーティングで `rakuten_test` に保存されることを確認する。
 6. 結果表示で、検出形式、選択 DB キー、実際の追加先 DB キー、実際の追加先 DB 種別、取込 ID、読込件数、追加件数、出力リンクを確認する。
 7. 出力件数表示から対象シート系統の件数が増えていることを確認する。
-8. E2E cleanup helper から対象 `importId` を `rakuten_test` 内で論理ロールバックする。
-9. cleanup 結果は Playwright attachment と workflow summary に保存する。
+8. 出力リンクの Spreadsheet ID を使い、E2E helper 経由で主要シート名と主要セル値を確認する。
+9. E2E cleanup helper から対象 `importId` を `rakuten_test` 内で論理ロールバックする。
+10. cleanup 結果は Playwright attachment と workflow summary に保存する。
 
 現在の代表ケースは次の4つ。
 
-- 楽天日本株 CSV: `rakuten_jp_stock` として検出し、日本株出力件数が1件以上であることを確認する。
-- 楽天米国株 CSV: `rakuten_us_stock` として検出し、米国株と金銭残高（ドル）の出力件数が1件以上であることを確認する。
-- 楽天投資信託 CSV: `rakuten_fund` として検出し、投信と金銭残高（円）の出力件数が1件以上であることを確認する。
-- 楽天入出金履歴 CSV: `rakuten_cash` として検出し、金銭残高（円）の出力件数が2件以上であることを確認する。
+- 楽天日本株 CSV: `rakuten_jp_stock` として検出し、日本株出力件数が1件以上であること、出力 Spreadsheet に `楽天日本株` があり共通 `日本株` が残っていないこと、fixture の銘柄コード・銘柄名が `楽天日本株` に出ていることを確認する。
+- 楽天米国株 CSV: `rakuten_us_stock` として検出し、米国株と金銭残高（ドル）の出力件数が1件以上であること、出力 Spreadsheet に `楽天米国株` / `金銭残高（ドル）` があり共通 `米国株` が残っていないこと、fixture のティッカー・銘柄名が出ていることを確認する。
+- 楽天投資信託 CSV: `rakuten_fund` として検出し、投信と金銭残高（円）の出力件数が1件以上であること、出力 Spreadsheet に `楽天投資信託` / `金銭残高（円）` があり共通 `投信` が残っていないこと、fixture のファンド名が出ていることを確認する。
+- 楽天入出金履歴 CSV: `rakuten_cash` として検出し、金銭残高（円）の出力件数が2件以上であること、出力 Spreadsheet に `金銭残高（円）` があり、fixture の入金・出金摘要が出ていることを確認する。
 
 ## GitHub Actions から HTTP 403 になる主な原因
 
@@ -79,6 +81,8 @@ PR #60 時点のログでは、`clasp push --force` は成功していたが、`
 
 cleanup helper は `nomura_test` / `rakuten_test` だけを対象にし、既存の `rollbackImport_()` を使って `rolledBackAt` を記録する。取込レコードの物理削除はしない。
 
+出力 Spreadsheet 検査 helper は `CI_E2E_TOKEN` を必須にし、test DB target だけを許可する。読み取り対象は E2E root storage mode の出力名 `株管理ツール_E2E_TEST_OUTPUT` に限定し、シート名も楽天E2Eで必要な出力シートだけを allowlist 化する。取得範囲は最大 100 行 / 80 列に制限し、本番 Spreadsheet や任意シートを読む用途には使わない。
+
 `dynamic-public` モードの Web アプリ画面自体は、GitHub Actions が開けるよう一時的に匿名アクセス可能になる。そのため、この workflow の対象は必ずテスト専用 Apps Script プロジェクトに限定し、本番 DB / 本番 Drive フォルダ / 本番 Spreadsheet へ権限を持たせない。`CI_E2E_TOKEN` Script Property がある場合は、通常の upload / staging / reset / rollback / DB参照 server function も token 付き payload を必須にする。
 
 ## Workflow Summary
@@ -90,6 +94,7 @@ workflow summary には次を残す。
 - 一時 Web アプリ deployment の作成結果
 - Web app probe の結果
 - Playwright 実行または skip 理由
+- 出力 Spreadsheet の主要シート名・主要セル値検査
 - cleanup / rollback 結果
 - CI ローカルの test storage 設定
 - 一時 Web アプリ deployment の削除結果

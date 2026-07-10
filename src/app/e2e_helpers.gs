@@ -109,3 +109,90 @@ function cleanupE2EImportFromWebApp(payload) {
 
   return result;
 }
+
+function inspectE2EOutputSpreadsheetFromWebApp(payload) {
+  assertConfiguredCiE2eTokenForPayload_(payload);
+  enableCiE2eRootDbFolderForPayload_(payload);
+
+  const targetDbKey = text_(payload && payload.targetDbKey);
+  const spreadsheetId = text_(payload && payload.spreadsheetId);
+  const requestedSheetNames = Array.isArray(payload && payload.sheetNames)
+    ? payload.sheetNames.map(text_).filter(function(name) { return !!name; })
+    : [];
+  const maxRows = Math.min(Math.max(toNumber_(payload && payload.maxRows) || 25, 1), 100);
+  const maxColumns = Math.min(Math.max(toNumber_(payload && payload.maxColumns) || 40, 1), 80);
+
+  if (!isTestDbTarget_(targetDbKey)) {
+    throw new Error('E2E output inspection is limited to test DB targets.');
+  }
+
+  if (!spreadsheetId) {
+    throw new Error('E2E output inspection requires spreadsheetId.');
+  }
+
+  const allowedSheetNames = [
+    CONFIG.SOURCE_SHEET_NAME,
+    CONFIG.RAKUTEN_OUTPUT_JAPAN_STOCK,
+    CONFIG.RAKUTEN_OUTPUT_US_STOCK,
+    CONFIG.RAKUTEN_OUTPUT_FUND,
+    CONFIG.OUTPUT_CASH_JPY,
+    CONFIG.OUTPUT_CASH_USD,
+    CONFIG.OUTPUT_JAPAN_STOCK,
+    CONFIG.OUTPUT_US_STOCK,
+    CONFIG.OUTPUT_FUND
+  ];
+
+  requestedSheetNames.forEach(function(sheetName) {
+    if (allowedSheetNames.indexOf(sheetName) < 0) {
+      throw new Error('E2E output inspection cannot read sheet: ' + sheetName);
+    }
+  });
+
+  const ss = SpreadsheetApp.openById(spreadsheetId);
+  if (ss.getName() !== '株管理ツール_E2E_TEST_OUTPUT') {
+    throw new Error('E2E output inspection is limited to the E2E test output spreadsheet.');
+  }
+
+  const allSheetNames = ss.getSheets().map(function(sheet) {
+    return sheet.getName();
+  });
+  const sheetNamesToRead = requestedSheetNames.length > 0 ? requestedSheetNames : allSheetNames.filter(function(name) {
+    return allowedSheetNames.indexOf(name) >= 0;
+  });
+  const sheets = {};
+
+  sheetNamesToRead.forEach(function(sheetName) {
+    const sheet = ss.getSheetByName(sheetName);
+    if (!sheet) {
+      sheets[sheetName] = {
+        exists: false,
+        rowCount: 0,
+        columnCount: 0,
+        values: []
+      };
+      return;
+    }
+
+    const rowCount = sheet.getLastRow();
+    const columnCount = sheet.getLastColumn();
+    const readRows = Math.min(rowCount, maxRows);
+    const readColumns = Math.min(columnCount, maxColumns);
+    const values = readRows > 0 && readColumns > 0
+      ? sheet.getRange(1, 1, readRows, readColumns).getDisplayValues()
+      : [];
+
+    sheets[sheetName] = {
+      exists: true,
+      rowCount: rowCount,
+      columnCount: columnCount,
+      values: values
+    };
+  });
+
+  return {
+    ok: true,
+    spreadsheetName: ss.getName(),
+    sheetNames: allSheetNames,
+    sheets: sheets
+  };
+}
