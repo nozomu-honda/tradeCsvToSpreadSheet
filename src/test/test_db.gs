@@ -159,6 +159,27 @@ function test_normalizeRakutenRecordForDb_preservesDividendSourceColumns_2026070
   assertEquals_(2.78, baseRecord.__rakutenDb.tax, '楽天専用出力用metadataに税額を残す');
 }
 
+function test_normalizeRakutenRecordForDb_preservesDividendPrincipalReturnViaDescription_20260710_() {
+  const now = new Date('2026-07-10T00:00:00Z');
+  const rows = [
+    ['入金日', '商品', '口座', '銘柄コード', '銘柄', '受取通貨', '単価[円/現地通貨]', '数量[株/口]', '配当・分配金合計（税引前）[円/現地通貨]', '税額合計[円/現地通貨]', '受取金額[円/現地通貨]', '為替レート', '現地源泉税（円）', '国内源泉所得税（円）', '備考'],
+    ['2026/04/04', '投資信託', '一般', '', '楽天元本払戻テスト投信', '円', 0, 0, 500, 0, 500, 1, 0, 0, '元本払戻金']
+  ];
+  const record = normalizeRakutenDividendRowsToRecords_(rows, 0)[0];
+
+  const dbRecord = normalizeRakutenRecordForDb_(record, {
+    importId: 'import_rakuten_principal_return',
+    sourceName: 'rakuten_dividend.csv',
+    sourceRowNo: 2,
+    sourceType: 'rakuten_dividend',
+    now: now,
+  });
+  const baseRecord = rakutenDbRecordToBaseRecord_(dbRecord);
+
+  assertEquals_('元本払戻金', dbRecord.description, '既存description列に元本払戻金マーカーを保持');
+  assertEquals_(true, baseRecord['元本払戻金'], '楽天DBから共通レコードへ元本払戻金を復元');
+}
+
 function test_getDbSpreadsheetPropertyKey_skipsFixedSpreadsheetId_20260618_() {
   assertEquals_(
     'DB_SPREADSHEET_ID_RAKUTEN_CORP_A',
