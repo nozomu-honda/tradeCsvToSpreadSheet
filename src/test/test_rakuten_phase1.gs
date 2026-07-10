@@ -145,6 +145,20 @@ function test_normalizeRowsForImport_rakutenDividend_preservesSourceColumns_2026
   assertEquals_('配当メモ', source.description, '備考を保持');
 }
 
+function test_normalizeRowsForImport_rakutenDividend_principalReturnFromMemo_20260710_() {
+  const rows = [
+    ['入金日', '商品', '口座', '銘柄コード', '銘柄', '受取通貨', '単価[円/現地通貨]', '数量[株/口]', '配当・分配金合計（税引前）[円/現地通貨]', '税額合計[円/現地通貨]', '受取金額[円/現地通貨]', '為替レート', '現地源泉税（円）', '国内源泉所得税（円）', '備考'],
+    ['2026/04/04', '投資信託', '一般', '', '楽天元本払戻テスト投信', '円', 0, 0, 500, 0, 500, 1, 0, 0, '元本払戻金']
+  ];
+
+  const normalized = normalizeRowsForImport_(rows);
+  const record = normalized.sourceRecords[0];
+
+  assertEquals_('rakuten_dividend', normalized.sourceType, '楽天配当金として検出');
+  assertEquals_('入金（分配金）', record['取引区分'], '投信は分配金に正規化');
+  assertEquals_(true, record['元本払戻金'], '備考の元本払戻金をフラグ化');
+}
+
 function test_normalizeRakutenDividendRowsToRecords_requiresManualHeaders_20260618_() {
   const rows = [
     ['入金日', '商品', '口座', '銘柄コード', '銘柄', '受取通貨', '単価[円/現地通貨]', '数量[株/口]', '配当・分配金合計（税引前）[円/現地通貨]', '税額合計[円/現地通貨]', '受取金額[円/現地通貨]'],

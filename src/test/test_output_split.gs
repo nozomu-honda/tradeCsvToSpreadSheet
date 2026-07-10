@@ -559,6 +559,36 @@ function test_buildRakutenOutputSheetsFromRecordsForTarget_reflectsDividendSourc
   });
 }
 
+function test_buildRakutenOutputSheetsFromRecordsForTarget_reflectsFundDistributionSourceColumns_20260710_() {
+  withTempSpreadsheet_(function(ss) {
+    const now = new Date('2026-07-10T00:00:00Z');
+    const rows = [
+      ['入金日', '商品', '口座', '銘柄コード', '銘柄', '受取通貨', '単価[円/現地通貨]', '数量[株/口]', '配当・分配金合計（税引前）[円/現地通貨]', '税額合計[円/現地通貨]', '受取金額[円/現地通貨]', '為替レート', '現地源泉税（円）', '国内源泉所得税（円）', '備考'],
+      ['2026/05/10', '投資信託', '一般', '', '楽天分配金テスト投信', 'USドル', 0.05, 10000, 6, 1, 5, 100, 50, 10, '投信分配金']
+    ];
+    const dbRecords = normalizeRakutenDividendRowsToRecords_(rows, 0).map(function(record, index) {
+      return normalizeRakutenRecordForDb_(record, {
+        importId: 'import_rakuten_fund_distribution',
+        sourceName: 'rakuten_dividend.csv',
+        sourceRowNo: index + 2,
+        sourceType: 'rakuten_dividend',
+        now: now,
+      });
+    });
+
+    const result = buildOutputSheetsFromRecordsForTarget_(ss, 'rakuten_corp_a', dbRecords);
+    const fundSheet = ss.getSheetByName(CONFIG.RAKUTEN_OUTPUT_FUND);
+    const usdCashSheet = ss.getSheetByName(CONFIG.OUTPUT_CASH_USD);
+
+    assertEquals_(1, result.counts.funds, '分配金由来の投信件数');
+    assertEquals_(1, result.counts.cashUsd, '分配金由来のUSD残高件数');
+    assertEquals_('分配金', getSheetValueByHeader_(fundSheet, RAKUTEN_FUND_HEADERS, 2, '分配金'), '投信分配金CSV由来の分配金種別');
+    assertEquals_(6, getSheetValueByHeader_(fundSheet, RAKUTEN_FUND_HEADERS, 2, '受付金額'), '投信分配金CSVの税引前合計を受付金額に反映');
+    assertEquals_(5, getSheetValueByHeader_(fundSheet, RAKUTEN_FUND_HEADERS, 2, '受渡金額'), '投信分配金CSVの受取金額を反映');
+    assertEquals_(5, getSheetValueByHeader_(usdCashSheet, RAKUTEN_CASH_USD_HEADERS, 2, '配当金・分配金受取金額［USドル］'), 'USD残高に投信分配金受取を反映');
+  });
+}
+
 function test_buildRakutenOutputSheetsFromRecordsForTarget_reflectsUsStockTaxSourceColumn_20260709_() {
   withTempSpreadsheet_(function(ss) {
     const now = new Date('2026-07-09T00:00:00Z');

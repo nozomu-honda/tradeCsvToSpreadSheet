@@ -436,8 +436,13 @@ function buildRakutenFundRows_(records, alerts) {
 
     const tx = text_(get('取引区分'));
     const sourceType = text_(sourceDb.sourceType);
-    const distributionType = sourceType === 'rakuten_fund' ? text_(sourceDb.rawProduct) : '';
-    const receiptAmount = sourceType === 'rakuten_fund' ? getRakutenSourceNumber_(sourceDb, 'grossAmount') : '';
+    const isDividendDistribution = sourceType === 'rakuten_dividend' && tx === '入金（分配金）';
+    const distributionType = sourceType === 'rakuten_fund'
+      ? text_(sourceDb.rawProduct)
+      : (isDividendDistribution ? '分配金' : '');
+    const receiptAmount = sourceType === 'rakuten_fund' || isDividendDistribution
+      ? getRakutenSourceNumber_(sourceDb, 'grossAmount')
+      : '';
     const row = [
       get('約定日'),
       get('受渡日'),

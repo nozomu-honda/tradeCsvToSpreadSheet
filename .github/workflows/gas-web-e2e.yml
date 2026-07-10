@@ -99,7 +99,7 @@ jobs:
           {
             echo "### Playwright E2E"
             echo "- Result: PASS"
-            echo "- Cases: Rakuten Japan stock, US stock, fund, and cash CSV upload with cleanup"
+            echo "- Cases: Rakuten Japan stock, US stock, fund, cash, dividend, distribution, and principal return CSV upload with cleanup"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload Playwright artifacts

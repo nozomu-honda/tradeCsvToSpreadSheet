@@ -1,6 +1,6 @@
 # Current Status
 
-最終更新: 2026-07-09
+最終更新: 2026-07-10
 
 ## 完了
 
@@ -87,6 +87,11 @@
   - 最新コミットがdocs/Markdownだけで、直前headのrequired checkが成功済みなら、重いGAS実行をスキップする。
   - `GAS_TEST_DEPLOYMENT_ID` が未設定の場合、CIで新しいversioned deploymentを作成しない。
   - テスト専用Apps Scriptプロジェクト側でAPI executable accessを有効にし、`clasp run` できる状態を前提にする。
+- PR #53「Handle unavailable clasp run in GAS CI」は develop にマージ済み。
+  - `clasp push --force` とソース検証は必須のまま維持。
+  - `clasp run runAllTests` が実行権限系エラーで使えない環境では、CI全体を失敗させず `clasp run unavailable` として扱うfallbackを追加。
+  - `clasp push` 失敗、Secret不足、`runAllTests` 未定義、ソース構文破壊は従来どおり失敗扱い。
+  - コード変更PRでは、必要に応じてApps Scriptエディタから手動 `runAllTests` を実行し、PR本文に結果を残す運用。
 - PR #41「Add Rakuten output body」は develop にマージ済み。
   - 楽天専用出力処理本体の最初の入口として `buildRakutenOutputSheetsFromBaseRecords_()` を追加。
   - 楽天専用分類入口として `groupRakutenOutputRecords_()` を追加。
@@ -98,27 +103,58 @@
   - 楽天出力時は共通 `日本株` ではなく `楽天日本株` シートを作成。
   - Drive最終見た目に近い楽天日本株ヘッダー、代表値、計算列、非表示列の回帰テストを追加。
   - 米国株、投信、配当金、金銭残高は後続PRに分ける。
-- 楽天米国株の専用出力初期対応を追加。
+- PR #54「楽天米国株シート対応」は develop にマージ済み。
   - 楽天出力時は共通 `米国株` ではなく `楽天米国株` シートを作成。
   - 共通計算モデルから取得できるティッカー、口座、決済通貨、数量、単価、為替レート、受渡金額、保有数、損益系計算列を楽天米国株ヘッダーへマップ。
   - 現状の共通モデルで保持していない `税金［USドル］` は空欄のままとし、税額換算の本対応は後続PRに分ける。
-- 楽天投資信託の専用出力初期対応を追加。
+- PR #55「楽天投資信託シート対応」は develop にマージ済み。
   - 楽天出力時は共通 `投信` ではなく `楽天投資信託` シートを作成。
   - 共通計算モデルから取得できるファンド名、口座、取引、買付方法、数量、単価、経費、為替レート、受渡金額、決済通貨、追加列、損益系計算列を楽天投資信託ヘッダーへマップ。
   - 現状の共通モデルで保持していない `分配金` / `受付金額` は空欄のままとし、元CSV列保持の本対応は後続PRに分ける。
-- 楽天金銭残高（円）/（ドル）の専用出力初期対応を追加。
+- PR #56「楽天金銭残高（円）/（ドル）対応」は develop にマージ済み。
   - 楽天出力時の `金銭残高（円）` / `金銭残高（ドル）` は、共通 `CASH_HEADERS` ではなく楽天cash専用ヘッダーで作成。
   - 残高 / 月次残高は既存の `buildCashRows_()` の増減ルールを維持し、日本株・米国株・投信・入出金・配当金/分配金由来の代表列へマップ。
   - 現状の共通モデルで個別保持していない `出金先` などは空欄のままとし、元CSV列保持の本対応は後続PRに分ける。
-- 楽天配当金・分配金CSV由来の元列保持初期対応を追加。
+- PR #57「楽天配当金・分配金CSV由来の元列保持」は develop にマージ済み。
   - 配当金・分配金CSVの税引前合計、税額合計、受取金額、為替レート、円換算の現地/国内源泉税、備考を、既存の楽天DB列と出力用metadataで保持する。
   - 楽天米国株、楽天投資信託、金銭残高（ドル）の一部空欄列へ、楽天DBから取得できる元CSV値を反映する。
   - USD税額は共通計算用の `国内消費税等（円）` へ戻さず、平均取得単価・簿価・売却損益の共通計算コアには混ぜない。
-- 楽天専用DB/楽天取込のロールバックUI分離初期対応を追加。
+- PR #58「楽天ロールバックUI分離」は develop にマージ済み。
   - リセット/ロールバック用DB選択肢に、野村DB / 楽天DB の種別とDBキーを表示する。
   - 楽天CSV取込後は、ロールバック対象DBを実際の追加先 `rakuten_*` に自動で合わせる。
   - ロールバック確認と結果表示に対象DB種別、DBキー、DBラベル、取込ID、無効化件数、ロールバック日時を表示する。
   - ロールバック処理自体は従来どおり選択DB内の `importId` 単位の論理削除で、物理削除はしない。
+- PR #59「Add Rakuten output cell comparison tests」は develop にマージ済み。
+  - 楽天日本株 / 楽天米国株 / 楽天投資信託 / 金銭残高（円）/ 金銭残高（ドル）の実データ相当fixtureから、主要セル値を比較する回帰テストを追加。
+  - 楽天DBへルーティングされること、楽天専用出力入口を通ること、共通 `日本株` / `米国株` / `投信` シートが楽天出力時に残らないことを確認。
+  - 配当金・分配金CSV由来のUSD受取、税額、為替レート、源泉税、金銭残高反映もユニット/結合テストで確認。
+- PR #60「Add minimal GAS web app E2E」は develop にマージ済み。
+  - PR #43の古い大きなE2Eは使わず、楽天日本株CSVアップロード1ケースの最小Web App E2Eを追加。
+  - `CI_E2E_TOKEN` で保護した `prepareE2EWebAppRun` / `cleanupE2EImportFromWebApp` を追加し、`rakuten_test` への内部ルーティング、出力リンク、論理rollbackを確認する基盤を作成。
+  - workflowは `workflow_dispatch` と `gas-web-e2e` ラベル起動に限定し、`pull_request_target` は使わない。
+- PR #61「Run GAS web E2E with dynamic deployment」は develop にマージ済み。
+  - GitHub Actions上で一時的なdynamic public Web app deploymentを作成し、Playwright本体がGAS Webアプリを開けるようにした。
+  - テスト用Apps Script projectのpush直前sourceだけにWeb app公開設定とE2E root storage設定を注入し、実URLやIDはログ/コードへ残さない。
+  - E2E後は一時deploymentを削除し、削除失敗はworkflow失敗扱い。
+- PR #62「Extend Rakuten GAS web E2E coverage」は develop にマージ済み。
+  - Web App E2Eを楽天日本株1ケースから、楽天米国株、楽天投資信託、楽天入出金履歴まで拡張。
+  - 各ケースでCSV upload、`nomura_test` 選択から `rakuten_test` への内部ルーティング、出力リンク、cleanup/rollbackを確認。
+  - E2E fixtureの銘柄名・ファンド名・摘要をrunごとに一意化し、重複skipを避ける構成にした。
+- PR #63「Verify Rakuten output spreadsheets in GAS web E2E」は develop にマージ済み。
+  - Web App E2Eで作成された出力Spreadsheetを、E2E helper経由で検査するようにした。
+  - 楽天日本株 / 楽天米国株 / 楽天投資信託 / 金銭残高（円）/ 金銭残高（ドル）の主要シート名と主要セル値を確認。
+  - 実Spreadsheet IDや実URLは使わず、出力リンクから取得したテスト出力Spreadsheetだけを対象にする。
+- PR #64「Harden GAS web E2E output inspection」は develop にマージ済み。
+  - 出力Spreadsheet検査helperを、25行/40列などのrawセル配列返却方式から条件検索方式へ変更。
+  - `requiredSheets` / `absentSheets` / `checks` payloadを受け、GAS側で許可済みシート・ヘッダー・期待値だけを検索して最小結果を返す。
+  - test DB限定、Spreadsheet名限定、シートallowlist、payload件数/文字数制限を追加し、任意A1範囲や全セル内容は返さない。
+  - 30行目以降の値検索、raw `sheets` 配列を返さないこと、allowlist外拒否などのテストを追加。
+- PR #65「Add Rakuten dividend distribution E2E coverage」は develop にマージ済み。
+  - 楽天米国株配当、楽天投信分配金、楽天投信元本払戻金のWeb App E2EとCSV fixtureを追加。
+  - 元本払戻金は楽天DBヘッダーを増やさず、既存 `description` マーカーからDB読込後に復元する初期対応。
+  - `rakuten_dividend` かつ `入金（分配金）` の場合に、楽天投資信託出力へ `分配金` / `受付金額` を反映する初期対応。
+  - cleanupは複数importIdを保持し、元本払戻金ケースでは買付importと払戻importの両方を論理rollbackする。
+  - GitHub Actionsで `Push test GAS project and run tests` と `Deploy test Web app and run Rakuten Playwright E2E` の成功を確認済み。
 
 ## 進行中 / 未マージ
 
@@ -127,16 +163,17 @@
 ## 未完了 / 確認待ち
 
 - 別ユーザーでのDrive OAuth承認とWebアプリ実行確認。
-- 楽天米国株・楽天投資信託・楽天金銭残高の実取込結果の最終確認。
-- 楽天専用の出力処理本体は `楽天日本株` / `楽天米国株` / `楽天投資信託` / `金銭残高（円）` / `金銭残高（ドル）` の初期専用シート対応まで完了。配当金・分配金の元列保持は一部進んだが、完全な専用出力は未実装。
+- 楽天米国株・楽天投資信託・楽天金銭残高・配当金/分配金/元本払戻金は代表fixtureの自動テストが進んだが、実運用データでの最終確認は未完了。
+- 楽天専用の出力処理本体は `楽天日本株` / `楽天米国株` / `楽天投資信託` / `金銭残高（円）` / `金銭残高（ドル）` の初期専用シート対応まで完了。配当金・分配金・元本払戻金は既存楽天タブと金銭残高への代表値反映を進めているが、完全な専用シート/全列再現は未実装。
 - 楽天専用ロールバックUI分離は初期対応済み。実運用でのWeb UI表示確認は未完了。
+- Web App E2Eはdynamic public deploymentで動くが、対象はテスト専用Apps Script projectとtest DBに限定する運用を継続する。
 
 ## 直近の優先順位
 
-1. 配当金・分配金の残りの専用出力を、`groupRakutenOutputRecords_()` / `buildRakutenOutputSheetsFromBaseRecords_()` 配下で段階的に実装する。
+1. 配当金・分配金・元本払戻金の残りの専用出力を、`groupRakutenOutputRecords_()` / `buildRakutenOutputSheetsFromBaseRecords_()` 配下で段階的に実装する。
 2. 楽天専用ロールバックUIの実運用表示確認を行う。
 3. 別ユーザーのDrive権限問題の結果を確認する。
-4. 楽天米国株・楽天投資信託・楽天金銭残高の出力確認を完了する。
+4. 楽天米国株・楽天投資信託・楽天金銭残高・配当金/分配金/元本払戻金の実運用データ確認を完了する。
 
 ## Codexへの伝え方
 
@@ -157,4 +194,4 @@ AutoHotkeyショートカットの説明は `docs/codex-shortcuts.md` を参照�
 - Webアプリを「アクセスしているユーザー」として実行する場合、利用者ごとにDrive権限承認とDBフォルダ編集権限が必要。
 - `spreadsheetId` 未設定DBは Script Properties の `DB_SPREADSHEET_ID_<DB_KEY>` に実ファイルIDを保存して再利用する。
 - CIのPR必須チェック `Push test GAS project and run tests` は、`run-gas-tests` ラベル付与時だけ作成される。GAS影響ファイルがある場合は `runAllTests` の存在確認、`.gs` 構文チェック、`clasp push --force` を必須確認とし、`clasp run` が権限上使えない場合は Step Summary に `clasp run unavailable` と記録して、Apps Script エディタからの手動 `runAllTests` 実行結果をPR本文へ残す。
-- PR #31 / PR #32 / PR #33 / PR #34 / PR #35 / PR #36 / PR #37 / PR #38 / PR #39 / PR #40 / PR #41 / PR #42 / PR #45 / PR #46 は develop にマージ済み。
+- PR #31 / PR #32 / PR #33 / PR #34 / PR #35 / PR #36 / PR #37 / PR #38 / PR #39 / PR #40 / PR #41 / PR #42 / PR #45 / PR #46 / PR #52 / PR #53 / PR #54 / PR #55 / PR #56 / PR #57 / PR #58 / PR #59 / PR #60 / PR #61 / PR #62 / PR #63 / PR #64 / PR #65 は develop にマージ済み。

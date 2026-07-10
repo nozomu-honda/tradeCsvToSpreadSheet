@@ -485,6 +485,13 @@ function normalizeRakutenDividendRowsToRecords_(rows, headerRowIndex) {
       '国内源泉税（円）',
       '国内源泉所得税（円）'
     ]);
+    const description = getByHeaderCandidates_(row, headerIndexMap, ['備考', '摘要']);
+    const principalReturn = getRakutenDividendPrincipalReturnFlag_(
+      row,
+      headerIndexMap,
+      productRaw,
+      description
+    );
     const record = buildEmptyBaseRecord_();
 
     record['約定日'] = paymentDate;
@@ -507,7 +514,7 @@ function normalizeRakutenDividendRowsToRecords_(rows, headerRowIndex) {
     record['現地源泉税（円）'] = foreignWithholdingTaxJpy;
     record['国内源泉所得税（円）'] = domesticWithholdingTaxJpy;
     record['国内源泉地方税（円）'] = getByHeaderCandidates_(row, headerIndexMap, ['国内源泉地方税[円]', '国内源泉地方税［円］', '国内源泉地方税（円）']);
-    record['元本払戻金'] = '';
+    record['元本払戻金'] = principalReturn;
     record['国内手数料（円）'] = '';
     record['現地手数料（円）'] = '';
 
@@ -522,7 +529,7 @@ function normalizeRakutenDividendRowsToRecords_(rows, headerRowIndex) {
       manualForeignWithholdingTaxJpy: foreignWithholdingTaxJpy,
       manualDomesticWithholdingTaxJpy: domesticWithholdingTaxJpy,
       manualDomesticLocalTaxJpy: record['国内源泉地方税（円）'],
-      description: getByHeaderCandidates_(row, headerIndexMap, ['備考', '摘要']),
+      description: description,
     });
 
     if (currency && currency !== 'JPY' && isBlankCell_(record['レート'])) {
@@ -533,6 +540,24 @@ function normalizeRakutenDividendRowsToRecords_(rows, headerRowIndex) {
   }
 
   return records;
+}
+
+function getRakutenDividendPrincipalReturnFlag_(row, headerIndexMap, productRaw, description) {
+  const explicit = getByHeaderCandidates_(row, headerIndexMap, ['元本払戻金', '元金払戻金']);
+  if (!isBlankCell_(explicit)) {
+    return toNullableBooleanFlag_(explicit, '元本払戻金');
+  }
+
+  return isRakutenPrincipalReturnText_([productRaw, description].join(' ')) ? true : '';
+}
+
+function isRakutenPrincipalReturnText_(value) {
+  const text = text_(value);
+  return (
+    text.indexOf('元本払戻金') >= 0 ||
+    text.indexOf('元金払戻金') >= 0 ||
+    text.indexOf('特別分配金') >= 0
+  );
 }
 
 function validateRakutenDividendManualHeaders_(headerIndexMap) {
