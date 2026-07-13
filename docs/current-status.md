@@ -1,6 +1,6 @@
 # Current Status
 
-最終更新: 2026-07-10
+最終更新: 2026-07-13
 
 ## 完了
 
@@ -158,7 +158,7 @@
 
 ## 進行中 / 未マージ
 
-- なし
+- Issue #69対応: GAS CIの `runAllTests()` 1回実行がApps Scriptの実行時間上限を超えるため、CI用バッチ関数に分割するDraft PRを準備中。`clasp push --force` とAPI executable deployment更新は1回だけ行い、全バッチの欠落・重複を検証してから逐次実行する方針。
 
 ## 未完了 / 確認待ち
 
@@ -193,5 +193,5 @@ AutoHotkeyショートカットの説明は `docs/codex-shortcuts.md` を参照�
 - `appsscript.json` のOAuth scope変更後は、Webアプリの新バージョン再デプロイが必要。
 - Webアプリを「アクセスしているユーザー」として実行する場合、利用者ごとにDrive権限承認とDBフォルダ編集権限が必要。
 - `spreadsheetId` 未設定DBは Script Properties の `DB_SPREADSHEET_ID_<DB_KEY>` に実ファイルIDを保存して再利用する。
-- CIのPR必須チェック `Push test GAS project and run tests` は、`run-gas-tests` ラベル付与時だけ作成される。GAS影響ファイルがある場合は `runAllTests` の存在確認、`.gs` 構文チェック、`clasp push --force` を必須確認とし、`clasp run` が権限上使えない場合は Step Summary に `clasp run unavailable` と記録して、Apps Script エディタからの手動 `runAllTests` 実行結果をPR本文へ残す。
+- CIのPR必須チェック `Push test GAS project and run tests` は、`run-gas-tests` ラベル付与時だけ作成される。GAS影響ファイルがある場合はCI用GASテストバッチ関数の存在確認、`.gs` 構文チェック、`clasp push --force`、可能な場合は全バッチの `clasp run` を必須確認とする。`clasp run` が権限上使えない場合は Step Summary に `clasp run unavailable` と記録し、Apps Script エディタからの手動バッチ実行結果をPR本文へ残す。
 - PR #31 / PR #32 / PR #33 / PR #34 / PR #35 / PR #36 / PR #37 / PR #38 / PR #39 / PR #40 / PR #41 / PR #42 / PR #45 / PR #46 / PR #52 / PR #53 / PR #54 / PR #55 / PR #56 / PR #57 / PR #58 / PR #59 / PR #60 / PR #61 / PR #62 / PR #63 / PR #64 / PR #65 は develop にマージ済み。
