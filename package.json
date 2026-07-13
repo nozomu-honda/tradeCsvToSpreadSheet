@@ -9,7 +9,9 @@
     "gas:production:push": "node scripts/gas-production.js push",
     "test:gas-production-wrapper": "node scripts/ci/check-gas-production-wrapper.js",
     "test:production-e2e-boundary": "node scripts/ci/check-production-e2e-helper-boundary.js",
-    "test:ci-clasp-project": "node scripts/ci/check-ci-clasp-project.js"
+    "test:ci-clasp-project": "node scripts/ci/check-ci-clasp-project.js",
+    "test:web-e2e-output-reset": "node scripts/ci/check-web-e2e-output-reset.js",
+    "test:web-e2e-source-transform": "node scripts/ci/check-web-e2e-source-transform.js"
   },
   "devDependencies": {
     "@google/clasp": "3.3.0",

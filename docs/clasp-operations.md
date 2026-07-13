@@ -43,7 +43,7 @@ GitHub Actionsが自動で反映します。人やCodexがローカルPCからCI
 ### Web E2Eを実行する
 
 1. 対象PRへ `gas-web-e2e` ラベルを付ける。
-2. GitHub Actionsの `Deploy test Web app and run Rakuten Playwright E2E` が完了するまで待つ。
+2. GitHub Actionsの `Deploy test Web app and run Playwright E2E` が完了するまで待つ。
 3. Playwright、cleanup、rollback、一時deployment削除が成功したことを確認する。
 
 Web E2Eでは一時Webアプリdeploymentを作成しますが、テスト終了後に自動削除されます。固定の本番Webアプリは更新しません。

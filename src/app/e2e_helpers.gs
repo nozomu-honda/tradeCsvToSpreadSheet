@@ -7,11 +7,90 @@ function prepareE2EWebAppRun(payload) {
     throw new Error('E2E preparation is limited to test DB targets.');
   }
 
+  const outputReset = resetE2EOutputSpreadsheetForTarget_(targetDbKey);
+
   return {
     ok: true,
     targetDbKey: targetDbKey,
     dbFolderMode: 'root',
+    outputReset: outputReset,
   };
+}
+
+function resetE2EOutputSpreadsheetForTarget_(targetDbKey) {
+  if (!isTestDbTarget_(targetDbKey)) {
+    throw new Error('E2E output reset is limited to test DB targets.');
+  }
+
+  const outputMeta = getManagedOutputSpreadsheet_(targetDbKey, 'e2e-output-reset', {
+    e2eUseRootStorage: true,
+  });
+  const resetResult = resetE2EOutputSpreadsheet_(outputMeta.ss);
+  resetResult.outputSpreadsheetReused = outputMeta.reused;
+  resetResult.outputSpreadsheetMode = outputMeta.mode;
+  return resetResult;
+}
+
+function resetE2EOutputSpreadsheet_(ss) {
+  const expectedName = getE2EOutputSpreadsheetName_();
+  if (!ss || ss.getName() !== expectedName) {
+    throw new Error('E2E output reset is limited to the E2E test output spreadsheet.');
+  }
+
+  const resetSheetNames = getE2EOutputSheetNamesToReset_();
+  const resetTargetsByName = {};
+  resetSheetNames.forEach(function(sheetName) {
+    resetTargetsByName[sheetName] = true;
+  });
+
+  const beforeSheets = ss.getSheets();
+  const sheetsToDelete = beforeSheets.filter(function(sheet) {
+    return resetTargetsByName[sheet.getName()] === true;
+  });
+  let placeholderCreated = false;
+
+  if (sheetsToDelete.length === beforeSheets.length) {
+    ss.insertSheet('__E2E_EMPTY__');
+    placeholderCreated = true;
+  }
+
+  const deletedSheetNames = [];
+  sheetsToDelete.forEach(function(sheet) {
+    const sheetName = sheet.getName();
+    ss.deleteSheet(sheet);
+    deletedSheetNames.push(sheetName);
+  });
+
+  SpreadsheetApp.flush();
+
+  return {
+    ok: true,
+    spreadsheetName: ss.getName(),
+    deletedSheetNames: deletedSheetNames,
+    remainingSheetNames: ss.getSheets().map(function(sheet) {
+      return sheet.getName();
+    }),
+    placeholderCreated: placeholderCreated,
+  };
+}
+
+function getE2EOutputSpreadsheetName_() {
+  return '株管理ツール_E2E_TEST_OUTPUT';
+}
+
+function getE2EOutputSheetNamesToReset_() {
+  return unique_([
+    CONFIG.SOURCE_SHEET_NAME,
+    CONFIG.OUTPUT_JAPAN_STOCK,
+    CONFIG.OUTPUT_US_STOCK,
+    CONFIG.OUTPUT_FOREIGN_BOND,
+    CONFIG.OUTPUT_FUND,
+    CONFIG.OUTPUT_CASH_JPY,
+    CONFIG.OUTPUT_CASH_USD,
+    CONFIG.RAKUTEN_OUTPUT_JAPAN_STOCK,
+    CONFIG.RAKUTEN_OUTPUT_US_STOCK,
+    CONFIG.RAKUTEN_OUTPUT_FUND
+  ]);
 }
 
 function cleanupE2EImportFromWebApp(payload) {
@@ -72,7 +151,7 @@ function inspectE2EOutputSpreadsheetFromWebApp(payload) {
   }
 
   const ss = SpreadsheetApp.openById(request.spreadsheetId);
-  if (ss.getName() !== '株管理ツール_E2E_TEST_OUTPUT') {
+  if (ss.getName() !== getE2EOutputSpreadsheetName_()) {
     throw new Error('E2E output inspection is limited to the E2E test output spreadsheet.');
   }
 

@@ -7,6 +7,17 @@ const {
   runCsvUploadCase,
 } = require('./helpers/gas-web-app');
 
+const RAKUTEN_ROUTING_EXPECTATIONS = {
+  prepareTargetDbKey: 'rakuten_test',
+  selectedTargetDbKey: 'nomura_test',
+  routedTargetDbKey: 'rakuten_test',
+  routedTargetDbKind: '楽天DB',
+  outputInspectionTargetDbKey: 'rakuten_test',
+  cleanupTargetDbKey: 'rakuten_test',
+  rollbackDbSelectValue: 'rakuten_test',
+  skippedCount: 0,
+};
+
 function buildRakutenJapanStockFixture() {
   const runId = buildUniqueRunId();
   const symbolCode = `E2${runId.slice(-4)}`;
@@ -171,6 +182,7 @@ test.describe('GAS Web app Rakuten CSV upload E2E', () => {
       fixture,
       registerCleanup: (payload) => { cleanupPayloads.push(payload); },
       expected: {
+        ...RAKUTEN_ROUTING_EXPECTATIONS,
         caseName: 'Rakuten Japan stock CSV',
         sourceType: 'rakuten_jp_stock',
         rowCount: 1,
@@ -199,6 +211,7 @@ test.describe('GAS Web app Rakuten CSV upload E2E', () => {
       fixture,
       registerCleanup: (payload) => { cleanupPayloads.push(payload); },
       expected: {
+        ...RAKUTEN_ROUTING_EXPECTATIONS,
         caseName: 'Rakuten US stock CSV',
         sourceType: 'rakuten_us_stock',
         rowCount: 1,
@@ -229,6 +242,7 @@ test.describe('GAS Web app Rakuten CSV upload E2E', () => {
       fixture,
       registerCleanup: (payload) => { cleanupPayloads.push(payload); },
       expected: {
+        ...RAKUTEN_ROUTING_EXPECTATIONS,
         caseName: 'Rakuten fund CSV',
         sourceType: 'rakuten_fund',
         rowCount: 1,
@@ -258,6 +272,7 @@ test.describe('GAS Web app Rakuten CSV upload E2E', () => {
       fixture,
       registerCleanup: (payload) => { cleanupPayloads.push(payload); },
       expected: {
+        ...RAKUTEN_ROUTING_EXPECTATIONS,
         caseName: 'Rakuten cash CSV',
         sourceType: 'rakuten_cash',
         rowCount: 2,
@@ -285,6 +300,7 @@ test.describe('GAS Web app Rakuten CSV upload E2E', () => {
       fixture,
       registerCleanup: (payload) => { cleanupPayloads.push(payload); },
       expected: {
+        ...RAKUTEN_ROUTING_EXPECTATIONS,
         caseName: 'Rakuten US stock dividend CSV',
         sourceType: 'rakuten_dividend',
         rowCount: 1,
@@ -323,6 +339,7 @@ test.describe('GAS Web app Rakuten CSV upload E2E', () => {
       fixture,
       registerCleanup: (payload) => { cleanupPayloads.push(payload); },
       expected: {
+        ...RAKUTEN_ROUTING_EXPECTATIONS,
         caseName: 'Rakuten fund distribution CSV',
         sourceType: 'rakuten_dividend',
         rowCount: 1,
@@ -361,6 +378,7 @@ test.describe('GAS Web app Rakuten CSV upload E2E', () => {
       fixture: fixtures.buyFixture,
       registerCleanup: (payload) => { cleanupPayloads.push(payload); },
       expected: {
+        ...RAKUTEN_ROUTING_EXPECTATIONS,
         caseName: 'Rakuten fund buy before principal return CSV',
         sourceType: 'rakuten_fund',
         rowCount: 1,
@@ -386,6 +404,7 @@ test.describe('GAS Web app Rakuten CSV upload E2E', () => {
       fixture: fixtures.principalReturnFixture,
       registerCleanup: (payload) => { cleanupPayloads.push(payload); },
       expected: {
+        ...RAKUTEN_ROUTING_EXPECTATIONS,
         caseName: 'Rakuten principal return CSV',
         sourceType: 'rakuten_dividend',
         rowCount: 1,

@@ -163,18 +163,47 @@ function assertOutputInspection(inspection, expected) {
   });
 }
 
-async function openPreparedWebApp(page) {
+function requireExpectedString(expected, fieldName) {
+  const value = expected && expected[fieldName];
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new Error(`expected.${fieldName} is required for GAS Web app E2E.`);
+  }
+  return value;
+}
+
+function normalizeUploadExpectations(expected) {
+  return {
+    ...expected,
+    caseName: requireExpectedString(expected, 'caseName'),
+    sourceType: requireExpectedString(expected, 'sourceType'),
+    prepareTargetDbKey: requireExpectedString(expected, 'prepareTargetDbKey'),
+    selectedTargetDbKey: requireExpectedString(expected, 'selectedTargetDbKey'),
+    routedTargetDbKey: requireExpectedString(expected, 'routedTargetDbKey'),
+    routedTargetDbKind: requireExpectedString(expected, 'routedTargetDbKind'),
+    outputInspectionTargetDbKey: requireExpectedString(expected, 'outputInspectionTargetDbKey'),
+    cleanupTargetDbKey: requireExpectedString(expected, 'cleanupTargetDbKey'),
+    rollbackDbSelectValue: requireExpectedString(expected, 'rollbackDbSelectValue'),
+    skippedCount: expected && typeof expected.skippedCount === 'number' ? expected.skippedCount : 0,
+    outputCounts: expected && Array.isArray(expected.outputCounts) ? expected.outputCounts : [],
+  };
+}
+
+async function openPreparedWebApp(page, { prepareTargetDbKey }) {
   const webAppUrl = readRequiredEnv('GAS_TEST_WEBAPP_URL');
   const token = readRequiredEnv('CI_E2E_TOKEN');
 
   await page.goto(webAppUrl, { waitUntil: 'domcontentloaded' });
   const app = await resolveAppFrame(page);
   const prepareResult = await callGoogleScript(app, 'prepareE2EWebAppRun', {
-    targetDbKey: 'rakuten_test',
+    targetDbKey: prepareTargetDbKey,
   }, token);
 
   expect(prepareResult.ok, prepareResult.error || JSON.stringify(prepareResult.value)).toBe(true);
   expect(prepareResult.value.ok, JSON.stringify(prepareResult.value || {})).toBe(true);
+  expect(prepareResult.value.targetDbKey).toBe(prepareTargetDbKey);
+  expect(prepareResult.value.outputReset && prepareResult.value.outputReset.ok).toBe(true);
+  expect(prepareResult.value.outputReset.spreadsheetName).toBe('株管理ツール_E2E_TEST_OUTPUT');
+  expect(Array.isArray(prepareResult.value.outputReset.deletedSheetNames)).toBe(true);
 
   await app.evaluate((ciToken) => {
     window.__CI_E2E_TOKEN__ = ciToken;
@@ -183,9 +212,10 @@ async function openPreparedWebApp(page) {
   return app;
 }
 
-async function uploadCsvAndReadResult(app, csvPath) {
+async function uploadCsvAndReadResult(app, csvPath, { selectedTargetDbKey }) {
   await expect(app.locator('[data-testid="csv-file-input"]')).toBeVisible();
-  await app.locator('[data-testid="target-db-select"]').selectOption('nomura_test');
+  await app.locator('[data-testid="target-db-select"]').selectOption(selectedTargetDbKey);
+  await expect(app.locator('[data-testid="target-db-select"]')).toHaveValue(selectedTargetDbKey);
   await app.locator('[data-testid="csv-url-input"]').fill('');
   await app.locator('[data-testid="source-spreadsheet-url"]').fill('');
   await app.locator('[data-testid="csv-file-input"]').setInputFiles(csvPath);
@@ -211,12 +241,18 @@ function parseUploadResult(resultText) {
 }
 
 async function runCsvUploadCase({ page, fixture, expected, registerCleanup }) {
-  const app = await openPreparedWebApp(page);
-  const resultText = await uploadCsvAndReadResult(app, fixture.csvPath);
+  const expectations = normalizeUploadExpectations(expected);
+  const app = await openPreparedWebApp(page, {
+    prepareTargetDbKey: expectations.prepareTargetDbKey,
+  });
+  const resultText = await uploadCsvAndReadResult(app, fixture.csvPath, {
+    selectedTargetDbKey: expectations.selectedTargetDbKey,
+  });
   const parsed = parseUploadResult(resultText);
   const cleanupPayload = {
-    caseName: expected.caseName,
+    caseName: expectations.caseName,
     targetDbKey: parsed.routedTargetDbKey,
+    expectedTargetDbKey: expectations.cleanupTargetDbKey,
     importId: parsed.importId,
     insertedCount: parsed.insertedCount,
   };
@@ -225,21 +261,21 @@ async function runCsvUploadCase({ page, fixture, expected, registerCleanup }) {
     registerCleanup(cleanupPayload);
   }
 
-  expect(parsed.detectedSourceType).toBe(expected.sourceType);
-  expect(parsed.requestedTargetDbKey).toBe('nomura_test');
-  expect(parsed.routedTargetDbKey).toBe('rakuten_test');
-  expect(parsed.routedTargetDbKind).toBe('楽天DB');
+  expect(parsed.detectedSourceType).toBe(expectations.sourceType);
+  expect(parsed.requestedTargetDbKey).toBe(expectations.selectedTargetDbKey);
+  expect(parsed.routedTargetDbKey).toBe(expectations.routedTargetDbKey);
+  expect(parsed.routedTargetDbKind).toBe(expectations.routedTargetDbKind);
   expect(parsed.importId).toMatch(/^import_/);
-  expect(parsed.rowCount).toBe(expected.rowCount);
-  expect(parsed.insertedCount).toBe(expected.insertedCount);
-  expect(parsed.skippedCount).toBe(0);
+  expect(parsed.rowCount).toBe(expectations.rowCount);
+  expect(parsed.insertedCount).toBe(expectations.insertedCount);
+  expect(parsed.skippedCount).toBe(expectations.skippedCount);
 
-  expected.outputCounts.forEach(({ label, min }) => {
+  expectations.outputCounts.forEach(({ label, min }) => {
     const value = Number(extractResultValue(resultText, label));
     expect(value, `${label} should be at least ${min}`).toBeGreaterThanOrEqual(min);
   });
 
-  await expect(app.locator('[data-testid="rollback-db-select"]')).toHaveValue('rakuten_test');
+  await expect(app.locator('[data-testid="rollback-db-select"]')).toHaveValue(expectations.rollbackDbSelectValue);
   const outputLink = app.locator('[data-testid="link-area"] a', { hasText: '作成したスプレッドシートを開く' });
   await expect(outputLink).toHaveAttribute('href', /^https:\/\/docs\.google\.com\/spreadsheets\//);
 
@@ -247,21 +283,21 @@ async function runCsvUploadCase({ page, fixture, expected, registerCleanup }) {
   const outputSpreadsheetId = extractSpreadsheetIdFromUrl(outputSpreadsheetUrl);
   let outputInspection = null;
 
-  if (expected.outputSpreadsheet) {
+  if (expectations.outputSpreadsheet) {
     const token = readRequiredEnv('CI_E2E_TOKEN');
     const inspectionResult = await callGoogleScript(app, 'inspectE2EOutputSpreadsheetFromWebApp', {
-      targetDbKey: 'rakuten_test',
+      targetDbKey: expectations.outputInspectionTargetDbKey,
       spreadsheetId: outputSpreadsheetId,
-      requiredSheets: expected.outputSpreadsheet.requiredSheets || [],
-      absentSheets: expected.outputSpreadsheet.absentSheets || [],
-      checks: expected.outputSpreadsheet.checks || [],
-      rowChecks: expected.outputSpreadsheet.rowChecks || [],
+      requiredSheets: expectations.outputSpreadsheet.requiredSheets || [],
+      absentSheets: expectations.outputSpreadsheet.absentSheets || [],
+      checks: expectations.outputSpreadsheet.checks || [],
+      rowChecks: expectations.outputSpreadsheet.rowChecks || [],
     }, token);
 
     expect(inspectionResult.ok, inspectionResult.error || JSON.stringify(inspectionResult.value)).toBe(true);
     expect(inspectionResult.value.ok, JSON.stringify(inspectionResult.value || {})).toBe(true);
     outputInspection = inspectionResult.value;
-    assertOutputInspection(outputInspection, expected.outputSpreadsheet);
+    assertOutputInspection(outputInspection, expectations.outputSpreadsheet);
   }
 
   return {
@@ -307,7 +343,9 @@ async function cleanupUploadedImport({ page, cleanupPayload, testInfo }) {
 
   if (cleanupPayload.insertedCount > 0) {
     expect(cleanupResult.value.rollback.rolledBackCount).toBeGreaterThan(0);
-    expect(cleanupResult.value.rollback.dbTargetKey).toBe('rakuten_test');
+    expect(cleanupResult.value.rollback.dbTargetKey).toBe(
+      cleanupPayload.expectedTargetDbKey || cleanupPayload.targetDbKey
+    );
   } else {
     expect(cleanupResult.value.rollback.skipped).toBe(true);
   }

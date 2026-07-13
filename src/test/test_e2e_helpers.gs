@@ -292,6 +292,88 @@ function test_inspectE2EOutputSpreadsheet_returnsMinimalResults_20260710_() {
   });
 }
 
+function test_resetE2EOutputSpreadsheet_removesKnownOutputSheets_20260713_() {
+  withCreatedSpreadsheetForE2EInspectionTest_('株管理ツール_E2E_TEST_OUTPUT', function(ss) {
+    ss.getSheets()[0].setName(CONFIG.RAKUTEN_OUTPUT_JAPAN_STOCK);
+    ss.insertSheet(CONFIG.OUTPUT_JAPAN_STOCK);
+    ss.insertSheet(CONFIG.OUTPUT_US_STOCK);
+    ss.insertSheet(CONFIG.OUTPUT_FOREIGN_BOND);
+    ss.insertSheet(CONFIG.OUTPUT_FUND);
+    ss.insertSheet(CONFIG.OUTPUT_CASH_JPY);
+    ss.insertSheet(CONFIG.OUTPUT_CASH_USD);
+    ss.insertSheet(CONFIG.RAKUTEN_OUTPUT_US_STOCK);
+    ss.insertSheet(CONFIG.RAKUTEN_OUTPUT_FUND);
+    ss.insertSheet('__E2E_CONTROL__');
+    SpreadsheetApp.flush();
+
+    const result = resetE2EOutputSpreadsheet_(ss);
+
+    assertEquals_(true, result.ok, 'E2E出力初期化成功');
+    assertEquals_(9, result.deletedSheetNames.length, '既知出力シートをまとめて削除');
+    assertEquals_(null, ss.getSheetByName(CONFIG.RAKUTEN_OUTPUT_JAPAN_STOCK), '楽天日本株を削除');
+    assertEquals_(null, ss.getSheetByName(CONFIG.OUTPUT_JAPAN_STOCK), '日本株を削除');
+    assertEquals_(null, ss.getSheetByName(CONFIG.OUTPUT_FOREIGN_BOND), '外債を削除');
+    assertTrue_(!!ss.getSheetByName('__E2E_CONTROL__'), '制御用シートは維持');
+    assertTrue_(ss.getSheets().length >= 1, 'Spreadsheet自体は空にしない');
+    assertFalse_(result.placeholderCreated, '制御用シートがある場合はplaceholder不要');
+  });
+}
+
+function test_resetE2EOutputSpreadsheet_keepsSpreadsheetNonEmpty_20260713_() {
+  withCreatedSpreadsheetForE2EInspectionTest_('株管理ツール_E2E_TEST_OUTPUT', function(ss) {
+    ss.getSheets()[0].setName(CONFIG.RAKUTEN_OUTPUT_JAPAN_STOCK);
+    ss.insertSheet(CONFIG.OUTPUT_JAPAN_STOCK);
+    SpreadsheetApp.flush();
+
+    const result = resetE2EOutputSpreadsheet_(ss);
+
+    assertEquals_(2, result.deletedSheetNames.length, '既知出力シートを削除');
+    assertEquals_(true, result.placeholderCreated, '全シート削除時はplaceholderを作成');
+    assertTrue_(!!ss.getSheetByName('__E2E_EMPTY__'), 'placeholderを維持');
+    assertEquals_(1, ss.getSheets().length, 'Spreadsheetを空にしない');
+  });
+}
+
+function test_resetE2EOutputSpreadsheet_rejectsUnsafeTargets_20260713_() {
+  withCiE2eTokenForTest_(function(token) {
+    assertThrowsContains_(function() {
+      prepareE2EWebAppRun({
+        targetDbKey: 'nomura_test'
+      });
+    }, 'E2E token is required.', 'tokenなしのprepareを拒否');
+
+    assertThrowsContains_(function() {
+      prepareE2EWebAppRun({
+        ciE2eToken: token,
+        targetDbKey: 'nomura_corp_a'
+      });
+    }, 'limited to test DB targets', '法人DBのprepareを拒否');
+
+    assertThrowsContains_(function() {
+      resetE2EOutputSpreadsheetForTarget_('rakuten_corp_a');
+    }, 'limited to test DB targets', '法人DBの出力初期化を拒否');
+
+    withCreatedSpreadsheetForE2EInspectionTest_('tmp_not_e2e_output', function(ss) {
+      assertThrowsContains_(function() {
+        resetE2EOutputSpreadsheet_(ss);
+      }, 'limited to the E2E test output spreadsheet', 'E2E出力名以外を拒否');
+    });
+  });
+}
+
+function test_getE2EOutputSheetNamesToReset_keepsInspectionAllowlist_20260713_() {
+  const resetSheetNames = getE2EOutputSheetNamesToReset_();
+  assertTrue_(resetSheetNames.indexOf(CONFIG.RAKUTEN_OUTPUT_JAPAN_STOCK) >= 0, '楽天日本株を初期化対象に含める');
+  assertTrue_(resetSheetNames.indexOf(CONFIG.OUTPUT_JAPAN_STOCK) >= 0, '日本株を初期化対象に含める');
+  assertTrue_(resetSheetNames.indexOf(CONFIG.OUTPUT_FOREIGN_BOND) >= 0, '外債を初期化対象に含める');
+  assertEquals_(resetSheetNames.length, unique_(resetSheetNames).length, '初期化対象シート名に重複なし');
+
+  const allowedInspectionNames = getAllowedE2EOutputInspectionSheetNames_();
+  assertTrue_(allowedInspectionNames.indexOf(CONFIG.RAKUTEN_OUTPUT_JAPAN_STOCK) >= 0, '既存allowlistは楽天日本株を維持');
+  assertTrue_(allowedInspectionNames.indexOf(CONFIG.OUTPUT_JAPAN_STOCK) >= 0, '既存allowlistは日本株を維持');
+  assertEquals_(-1, allowedInspectionNames.indexOf('秘密シート'), '任意シートはallowlist外');
+}
+
 function withCiE2eTokenForTest_(fn) {
   const props = PropertiesService.getScriptProperties();
   const previousToken = props.getProperty('CI_E2E_TOKEN');
