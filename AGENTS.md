@@ -16,6 +16,7 @@
 
 - `docs/current-status.md`
 - `docs/TODO.md`
+- claspでCI用・本番用Apps Scriptへ反映する場合は `docs/clasp-operations.md`
 - 必要に応じて `docs/spec.md` / `docs/trade-rules.md`
 - Codexへの依頼テンプレートは `docs/codex-prompts.md`
 - AutoHotkeyショートカットの説明は `docs/codex-shortcuts.md`
