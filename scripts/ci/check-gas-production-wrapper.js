@@ -9,66 +9,25 @@ const rootDir = path.resolve(__dirname, '..', '..');
 const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'gas-production-wrapper-'));
 
 try {
-  const tempScriptsDir = path.join(tempRoot, 'scripts');
-  const fakeBinDir = path.join(tempRoot, 'bin');
-  const fakeLogPath = path.join(tempRoot, 'fake-clasp-args.jsonl');
+  const validWorkspace = createWorkspace('valid', [
+    'src/test/**',
+    'src/app/e2e_helpers.gs',
+  ]);
 
-  fs.mkdirSync(tempScriptsDir, { recursive: true });
-  fs.mkdirSync(fakeBinDir, { recursive: true });
-  fs.copyFileSync(
-    path.join(rootDir, 'scripts', 'gas-production.js'),
-    path.join(tempScriptsDir, 'gas-production.js')
-  );
-  fs.copyFileSync(
-    path.join(rootDir, '.clasp.productionignore'),
-    path.join(tempRoot, '.clasp.productionignore')
-  );
-
-  fs.writeFileSync(
-    path.join(tempRoot, '.clasp.production.json'),
-    JSON.stringify({
-      scriptId: 'TEST_PRODUCTION_SCRIPT_ID_FOR_WRAPPER_CHECK',
-      rootDir: '.',
-      scriptExtensions: ['.js', '.gs'],
-      htmlExtensions: ['.html'],
-      jsonExtensions: ['.json'],
-      filePushOrder: [],
-      skipSubdirectories: false,
-    }, null, 2) + '\n'
-  );
-
-  writeFakeClasp(fakeBinDir);
-  const childEnv = withPrependedPath(process.env, fakeBinDir);
-
-  const result = spawnSync(
-    process.execPath,
-    [path.join(tempScriptsDir, 'gas-production.js'), 'status'],
-    {
-      cwd: tempRoot,
-      encoding: 'utf8',
-      env: {
-        ...childEnv,
-        FAKE_CLASP_LOG: fakeLogPath,
-      },
-    }
-  );
+  const result = runWrapper(validWorkspace, 'status');
 
   if (result.status !== 0) {
     process.stderr.write(result.stdout || '');
     process.stderr.write(result.stderr || '');
-    process.stderr.write(`fake bin: ${fakeBinDir}\n`);
-    process.stderr.write(`fake log exists: ${fs.existsSync(fakeLogPath)}\n`);
-    if (fs.existsSync(fakeLogPath)) {
-      process.stderr.write(fs.readFileSync(fakeLogPath, 'utf8'));
+    process.stderr.write(`fake bin: ${validWorkspace.fakeBinDir}\n`);
+    process.stderr.write(`fake log exists: ${fs.existsSync(validWorkspace.fakeLogPath)}\n`);
+    if (fs.existsSync(validWorkspace.fakeLogPath)) {
+      process.stderr.write(fs.readFileSync(validWorkspace.fakeLogPath, 'utf8'));
     }
     fail(`gas-production status wrapper exited with ${result.status}`);
   }
 
-  const calls = fs.readFileSync(fakeLogPath, 'utf8')
-    .trim()
-    .split(/\r?\n/)
-    .filter(Boolean)
-    .map((line) => JSON.parse(line));
+  const calls = readFakeClaspCalls(validWorkspace.fakeLogPath);
 
   assertDeepEqual(calls[0], ['--user', 'production', 'show-authorized-user'], 'authorization check args');
   assertDeepEqual(
@@ -89,9 +48,95 @@ try {
     fail(`expected exactly 2 fake clasp calls, got ${calls.length}`);
   }
 
+  for (const command of ['status', 'open', 'push']) {
+    assertMissingIgnorePatternFails(command, 'src/test/**');
+    assertMissingIgnorePatternFails(command, 'src/app/e2e_helpers.gs');
+  }
+
   console.log('gas-production wrapper args ok');
 } finally {
   fs.rmSync(tempRoot, { recursive: true, force: true });
+}
+
+function createWorkspace(name, productionIgnoreLines) {
+  const workspaceRoot = path.join(tempRoot, name);
+  const tempScriptsDir = path.join(workspaceRoot, 'scripts');
+  const fakeBinDir = path.join(workspaceRoot, 'bin');
+  const fakeLogPath = path.join(workspaceRoot, 'fake-clasp-args.jsonl');
+
+  fs.mkdirSync(tempScriptsDir, { recursive: true });
+  fs.mkdirSync(fakeBinDir, { recursive: true });
+  fs.copyFileSync(
+    path.join(rootDir, 'scripts', 'gas-production.js'),
+    path.join(tempScriptsDir, 'gas-production.js')
+  );
+  fs.writeFileSync(
+    path.join(workspaceRoot, '.clasp.productionignore'),
+    `${productionIgnoreLines.join('\n')}\n`
+  );
+  fs.writeFileSync(
+    path.join(workspaceRoot, '.clasp.production.json'),
+    JSON.stringify({
+      scriptId: 'TEST_PRODUCTION_SCRIPT_ID_FOR_WRAPPER_CHECK',
+      rootDir: '.',
+      scriptExtensions: ['.js', '.gs'],
+      htmlExtensions: ['.html'],
+      jsonExtensions: ['.json'],
+      filePushOrder: [],
+      skipSubdirectories: false,
+    }, null, 2) + '\n'
+  );
+  writeFakeClasp(fakeBinDir);
+
+  return {
+    workspaceRoot,
+    fakeBinDir,
+    fakeLogPath,
+  };
+}
+
+function runWrapper(workspace, command) {
+  const childEnv = withPrependedPath(process.env, workspace.fakeBinDir);
+  return spawnSync(
+    process.execPath,
+    [path.join(workspace.workspaceRoot, 'scripts', 'gas-production.js'), command],
+    {
+      cwd: workspace.workspaceRoot,
+      encoding: 'utf8',
+      env: {
+        ...childEnv,
+        FAKE_CLASP_LOG: workspace.fakeLogPath,
+      },
+    }
+  );
+}
+
+function readFakeClaspCalls(fakeLogPath) {
+  return fs.readFileSync(fakeLogPath, 'utf8')
+    .trim()
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map((line) => JSON.parse(line));
+}
+
+function assertMissingIgnorePatternFails(command, missingPattern) {
+  const ignoreLines = [
+    'src/test/**',
+    'src/app/e2e_helpers.gs',
+  ].filter((line) => line !== missingPattern);
+  const workspace = createWorkspace(`${command}-${missingPattern.replace(/[^A-Za-z0-9_-]/g, '-')}`, ignoreLines);
+  const result = runWrapper(workspace, command);
+  const output = `${result.stdout || ''}\n${result.stderr || ''}`;
+
+  if (result.status === 0) {
+    fail(`${command} must fail when ${missingPattern} is missing from .clasp.productionignore`);
+  }
+  if (!output.includes(missingPattern)) {
+    fail(`${command} failure did not mention missing ignore pattern ${missingPattern}`);
+  }
+  if (fs.existsSync(workspace.fakeLogPath) && fs.readFileSync(workspace.fakeLogPath, 'utf8').trim() !== '') {
+    fail(`${command} should stop before invoking clasp when ${missingPattern} is missing`);
+  }
 }
 
 function writeFakeClasp(fakeBinDir) {
@@ -109,6 +154,14 @@ if (command === 'show-authorized-user') {
 }
 if (command === 'show-file-status') {
   console.log('fake file status');
+  process.exit(0);
+}
+if (command === 'open-script') {
+  console.log('fake open script');
+  process.exit(0);
+}
+if (command === 'push') {
+  console.log('fake push');
   process.exit(0);
 }
 console.error('unexpected fake clasp command: ' + args.join(' '));

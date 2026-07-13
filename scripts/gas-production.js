@@ -10,6 +10,10 @@ const PRODUCTION_PROJECT = '.clasp.production.json';
 const PRODUCTION_IGNORE = '.clasp.productionignore';
 const PRODUCTION_USER = 'production';
 const CONFIRMATION_PHRASE = 'PRODUCTION PUSH';
+const REQUIRED_PRODUCTION_IGNORE_PATTERNS = [
+  'src/test/**',
+  'src/app/e2e_helpers.gs',
+];
 const CLASP_COMMANDS = {
   open: 'open-script',
   status: 'show-file-status',
@@ -26,6 +30,9 @@ main().catch((error) => {
 });
 
 async function main() {
+  validateProductionProject();
+  validateProductionIgnore();
+
   if (command === 'push') {
     ensureDevelopBranch();
     ensureCleanWorkingTree();
@@ -33,8 +40,6 @@ async function main() {
     ensureHeadMatchesOriginDevelop();
   }
 
-  validateProductionProject();
-  validateProductionIgnore();
   validateProductionAuth();
 
   if (command === 'push') {
@@ -76,9 +81,15 @@ function validateProductionIgnore() {
     fail(`本番専用ignoreがありません: ${PRODUCTION_IGNORE}`);
   }
 
-  const ignoreSource = fs.readFileSync(ignorePath, 'utf8');
-  if (!ignoreSource.split(/\r?\n/).some((line) => line.trim() === 'src/test/**')) {
-    fail(`${PRODUCTION_IGNORE} に src/test/** が含まれていません。`);
+  const ignoreLines = fs.readFileSync(ignorePath, 'utf8')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  for (const requiredPattern of REQUIRED_PRODUCTION_IGNORE_PATTERNS) {
+    if (!ignoreLines.includes(requiredPattern)) {
+      fail(`${PRODUCTION_IGNORE} に ${requiredPattern} が含まれていません。`);
+    }
   }
 }
 
