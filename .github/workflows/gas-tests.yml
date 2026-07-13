@@ -19,7 +19,7 @@ jobs:
   gas-tests:
     name: ${{ github.event.label.name == 'run-gas-tests' && 'Push test GAS project and run tests' || 'Ignore non-GAS label' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 60
     steps:
       - name: Check trigger label
         id: label

@@ -1,10 +1,10 @@
 # GAS CI
 
-このリポジトリは Google Apps Script / V8 のプロジェクトです。GAS CI は、GitHub Actions からテスト専用 Apps Script プロジェクトへ clasp でソースを反映し、ソース検証後に可能な場合だけ GAS 上の `runAllTests` を `clasp run` で実行します。
+このリポジトリは Google Apps Script / V8 のプロジェクトです。GAS CI は、GitHub Actions からテスト専用 Apps Script プロジェクトへ clasp でソースを反映し、ソース検証後に可能な場合だけ GAS 上のCI用バッチ関数を `clasp run` で順番に実行します。
 
-`runAllTests()` は `CORE_TESTS_` を含むため、`runSmokeTests()` 相当の軽い確認範囲も含めて実行されます。CIでは同一テスト用 Apps Script プロジェクトでの二重実行を避けるため、`runSmokeTests` を別途実行せず `runAllTests` の1回実行に整理します。
+CI用バッチ関数は `runGasTestBatch01` から `runGasTestBatch08` までです。各バッチは `CORE_TESTS_` と `FULL_ONLY_TESTS_` を結合した `runAllTests()` 相当のテスト一覧から13件ずつ生成します。8バッチに収まらない数までテストが増えた場合は、公開バッチ関数とCIの実行リストを増やさない限り、バッチ定義検証で失敗します。`runAllTests()` は既存の手動確認用入口として残しますが、CIではApps Scriptの実行時間上限を避けるため、`runAllTests` の1回実行ではなく全バッチの逐次実行にします。
 
-標準GCPプロジェクトの制約やOAuth権限により `clasp run` が実行できない環境では、`clasp push --force` とソース検証をCIの必須確認とし、GAS実行本体は Apps Script エディタから手動実行します。
+標準GCPプロジェクトの制約やOAuth権限により `clasp run` が実行できない環境では、`clasp push --force` とソース検証をCIの必須確認とし、GAS実行本体は Apps Script エディタから手動でバッチ関数を実行します。
 
 ## 目的
 
@@ -18,7 +18,8 @@
 - docs-only / Markdown-only / GASに影響しない変更では、workflow jobは成功させつつ重いGAS実行をスキップする。
 - GAS影響ファイルを含むPRでも、最新コミットがdocs/Markdownだけで、直前headのrequired checkが成功済みなら重いGAS実行をスキップする。
 - `clasp run` が実行権限エラーで使えない場合は、CI上では `clasp run unavailable` として記録し、`clasp push` とソース検証が通っていればrequired checkは成功させる。
-- コード変更PRでは、必要に応じて Apps Script エディタで `runAllTests` を手動実行し、結果をPR本文へ残す。
+- テスト失敗、例外、実行時間超過は認証不能fallbackと混同せず、required checkを失敗させる。
+- コード変更PRでは、必要に応じて Apps Script エディタでCI用バッチ関数を手動実行し、結果をPR本文へ残す。
 - テスト成功後に追加コミットした場合は、`run-gas-tests` ラベルを外して再度付けることで新しいheadに対して再実行する。
 - `pull_request_target` は使わない。
 - forkや外部PRにはGoogle Secretsを渡さない。
@@ -75,7 +76,7 @@ required check 名は次のまま維持します。
 
 ## GAS実行対象の判定
 
-`run-gas-tests` ラベルが付いた場合でも、すべての変更でGASを実行するわけではありません。workflow内で `develop` との差分を確認し、次のようなGAS影響ファイルがある場合だけソース検証、`clasp push --force`、可能な場合は `clasp run runAllTests` を実行します。
+`run-gas-tests` ラベルが付いた場合でも、すべての変更でGASを実行するわけではありません。workflow内で `develop` との差分を確認し、次のようなGAS影響ファイルがある場合だけソース検証、`clasp push --force`、可能な場合は `clasp run` によるCI用バッチ関数の逐次実行を行います。
 
 - `src/**`
 - `scripts/**`
@@ -123,7 +124,7 @@ required check 名は次のまま維持します。
 
 OAuth token、Script ID、deployment ID、Spreadsheet ID、Drive folder ID、本番DB IDなどの実値はコミットしないでください。
 
-テスト専用 Apps Script プロジェクトでAPI executable accessを有効にできる場合は、`clasp run` で `runAllTests` まで自動実行します。標準GCPプロジェクトの制約などでAPI実行可能ファイルを作成できない場合や、`clasp run` の実行権限が取れない場合は、CIでは `clasp push --force` とソース検証までを確認し、GAS実行本体は Apps Script エディタから手動実行します。
+テスト専用 Apps Script プロジェクトでAPI executable accessを有効にできる場合は、`clasp run` でCI用バッチ関数をすべて自動実行します。標準GCPプロジェクトの制約などでAPI実行可能ファイルを作成できない場合や、`clasp run` の実行権限が取れない場合は、CIでは `clasp push --force` とソース検証までを確認し、GAS実行本体は Apps Script エディタから手動実行します。
 
 ## 実行内容
 
@@ -132,12 +133,13 @@ GAS実行対象と判定された場合、workflowは次を行います。
 1. `CLASPRC_JSON` から `~/.clasprc.json` を生成する。
 2. `GAS_TEST_SCRIPT_ID` から `.clasp.json` を生成する。`CLASP_PROJECT_JSON` がある場合はそちらを使う。
 3. `CLASP_USER` がある場合は `clasp --user "$CLASP_USER" ...` として実行する。
-4. ソース管理された `.gs` / `.js` ファイル内に `runAllTests()` が存在することを確認する。
+4. ソース管理された `.gs` / `.js` ファイル内にCI用バッチ関数がすべて存在することを確認する。
 5. `.gs` ファイルを Node VM parser で構文チェックする。GAS固有APIの実行はしない。
 6. CI runner上の `appsscript.json` に `executionApi: { access: 'ANYONE' }` を注入する。
 7. テスト専用 Apps Script プロジェクトへ `clasp push --force` する。
 8. `GAS_TEST_DEPLOYMENT_ID` が設定されている場合だけ、API executable deployment を更新する。未設定の場合は、新しいversioned deploymentを作成せずスキップする。
-9. 最新のpush済みコードに対して `clasp run runAllTests` を試行する。実行権限エラーで使えない場合は `clasp run unavailable` として記録し、手動実行へ切り替える。
+9. 最新のpush済みコードに対して `clasp run runGasTestBatch01` から `runGasTestBatch08` までを順番に試行する。`clasp push` とdeployment更新は1回だけ行う。
+10. 各バッチの開始時に、Apps Script側でバッチ定義の欠落・重複・公開入口数の不一致を検証する。実行権限エラーで使えない場合だけ `clasp run unavailable` として記録し、手動実行へ切り替える。
 
 ## ログと失敗判定
 
@@ -146,19 +148,20 @@ GAS実行対象と判定された場合、workflowは次を行います。
 workflowは次の場合に明示的に失敗します。
 
 - forkまたは外部PRで `run-gas-tests` ラベルが付いた。
-- ソース管理された `.gs` / `.js` ファイル内に `runAllTests()` がない。
+- ソース管理された `.gs` / `.js` ファイル内にCI用バッチ関数がない。
 - `.gs` ファイルの Node VM 構文チェックに失敗した。
 - `clasp push --force` に失敗した。
 - `clasp push`、`clasp create-deployment`、`clasp run` の出力に `No credentials found` が含まれる。
 - `clasp run` の出力に `Script function not found` が含まれる。
-- GASテスト出力に `NG`、`Exception:`、`Error:` が含まれる。
+- GASテスト出力に `NG`、`Exception`、`Error:`、`Exceeded maximum execution time` が含まれる。
+- GAS側のバッチ定義検証で、`runAllTests()` 相当のテスト一覧からの欠落、重複、公開入口数の不一致が見つかった。
 
-つまり、GAS側の `runAllTests` の実結果が失敗した場合、GitHub Actionsのcheckも失敗します。
+つまり、GAS側のいずれかのCI用バッチ関数の実結果が失敗した場合、GitHub Actionsのcheckも失敗します。
 
-一方、`Unable to run script function`、`not authorized to execute the function`、`clasp was not authorized` など、`clasp run` の実行権限が原因と判断できる場合は、CI全体は失敗させません。GitHub Step Summary に `clasp run unavailable` と明記し、`clasp push --force` とソース検証が通ったことをもってrequired checkを成功させます。
+一方、`Unable to run script function`、`not authorized to execute the function`、`clasp was not authorized` など、`clasp run` の実行権限が原因と判断できる場合は、CI全体は失敗させません。GitHub Step Summary に `clasp run unavailable` と明記し、`clasp push --force` とソース検証が通ったことをもってrequired checkを成功させます。このfallbackは認証・実行権限の問題に限定し、テスト失敗や実行時間超過には使いません。
 
 ## 手動GASテスト
 
-既存のApps Scriptエディタ上での手動テスト運用は残します。`clasp run unavailable` になったコード変更PRでは、PR #52 のように必要に応じて Apps Script エディタから `runAllTests` を手動実行し、結果をPR本文へ残してください。
+既存のApps Scriptエディタ上での手動テスト運用は残します。`clasp run unavailable` になったコード変更PRでは、必要に応じて Apps Script エディタから `runGasTestBatch01` から `runGasTestBatch08` までを手動実行し、結果をPR本文へ残してください。`runAllTests()` は従来どおり手動の一括確認用に残しますが、実行時間上限に近い場合はバッチ関数を使います。
 
 ローカルでclaspを使う場合は、未追跡の `.clasp.json` を `.clasp.example.json` から作成し、必ず非本番のApps Scriptプロジェクトを指定してください。

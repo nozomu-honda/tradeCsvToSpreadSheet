@@ -5,8 +5,18 @@ readonly SUMMARY_FILE="${GITHUB_STEP_SUMMARY:-}"
 readonly CLASP_RC_PATH="${HOME}/.clasprc.json"
 readonly CLASP_PROJECT_PATH=".clasp.json"
 readonly DEPLOYMENT_DESCRIPTION="GAS CI ${GITHUB_SHA:-local} ${GITHUB_RUN_ID:-manual}"
+readonly GAS_TEST_FAILURE_PATTERN='(^|[[:space:]])NG([[:space:]]|$)|Exception|(^|[[:space:]])Error:|Exceeded maximum execution time'
 
-test_functions=("runAllTests")
+test_functions=(
+  "runGasTestBatch01"
+  "runGasTestBatch02"
+  "runGasTestBatch03"
+  "runGasTestBatch04"
+  "runGasTestBatch05"
+  "runGasTestBatch06"
+  "runGasTestBatch07"
+  "runGasTestBatch08"
+)
 clasp_command=(clasp)
 clasp_user_status="not configured"
 if [[ -n "${CLASP_USER:-}" ]]; then
@@ -287,22 +297,22 @@ for function_name in "${test_functions[@]}"; do
 
   test_failed=0
   test_failure_reason=""
-  if [[ ${unavailable} -eq 0 ]] && printf '%s\n' "${output}" | grep -Eq '(^|[[:space:]])NG([[:space:]]|$)|^Exception:|^Error:'; then
+  if [[ ${unavailable} -eq 0 ]] && printf '%s\n' "${output}" | grep -Eq "${GAS_TEST_FAILURE_PATTERN}"; then
     test_failed=1
-    test_failure_reason="GAS test output contained NG or Exception/Error"
+    test_failure_reason="GAS test output contained NG, Exception, Error, or execution timeout"
   fi
 
   if [[ ${unavailable} -eq 1 ]]; then
     exit_code=0
-    echo "::warning title=clasp run unavailable::${function_name} could not be executed after clasp push: ${unavailable_reason}. Source was pushed and validated; run the GAS tests manually in the Apps Script editor when this check gates a code PR."
+    echo "::warning title=clasp run unavailable::${function_name} could not be executed after clasp push: ${unavailable_reason}. Source was pushed and validated; run the GAS test batches manually in the Apps Script editor when this check gates a code PR."
   elif [[ ${test_failed} -eq 1 ]]; then
     exit_code=1
-    echo "::error title=GAS test reported failures::${function_name} output contained NG or Exception/Error."
+    echo "::error title=GAS test reported failures::${function_name} output contained NG, Exception, Error, or execution timeout."
   fi
 
   append_summary "### ${function_name}"
   if [[ ${unavailable} -eq 1 ]]; then
-    append_summary "- Result: SKIP (clasp run unavailable)" "- Reason: ${unavailable_reason}" "- Follow-up: run \`${function_name}\` manually in the Apps Script editor when this check gates a code PR, and record the result in the PR body." ""
+    append_summary "- Result: SKIP (clasp run unavailable)" "- Reason: ${unavailable_reason}" "- Follow-up: run all GAS test batch functions manually in the Apps Script editor when this check gates a code PR, and record the result in the PR body." ""
     unavailable_functions+=("${function_name}")
   elif [[ ${test_failed} -eq 1 ]]; then
     append_summary "- Result: FAIL (${test_failure_reason})" ""
@@ -333,9 +343,9 @@ fi
 
 if [[ ${#unavailable_functions[@]} -gt 0 ]]; then
   echo "::notice title=clasp run unavailable::clasp run was unavailable for: ${unavailable_functions[*]}. Source validation and clasp push completed."
-  append_summary "### clasp run unavailable" "- Functions: ${unavailable_functions[*]}" "- CI completed after source validation and \`clasp push --force\` because clasp could not execute the pushed function." "- Manual follow-up: run \`runAllTests\` in the Apps Script editor for code PRs such as PR #52, then record the result in the PR body." ""
+  append_summary "### clasp run unavailable" "- Functions: ${unavailable_functions[*]}" "- CI completed after source validation and \`clasp push --force\` because clasp could not execute the pushed function." "- Manual follow-up: run all GAS test batch functions in the Apps Script editor for code PRs, then record the result in the PR body." ""
   append_summary "### Result" "GAS source validation and clasp push passed. clasp run was unavailable, so manual GAS execution is required for full runtime confirmation."
   exit 0
 fi
 
-append_summary "### Result" "All GAS test functions passed."
+append_summary "### Result" "All GAS test batch functions passed."

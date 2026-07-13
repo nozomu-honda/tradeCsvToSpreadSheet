@@ -74,6 +74,7 @@ src/
 主な責務:
 - `runSmokeTests()`
 - `runAllTests()`
+- `runGasTestBatch01()` 〜 `runGasTestBatch08()`
 - `runSelectedTests_()`
 
 ### `test_temp_spreadsheet_helpers.gs`
@@ -185,9 +186,14 @@ DB保存 / ロールバック / リセットのテストです。
 フル実行用です。  
 仕様変更後、まとめて確認するときに使います。
 
+### `runGasTestBatch01()` 〜 `runGasTestBatch08()`
+GitHub Actions の GAS CI 用です。
+`runAllTests()` 相当のテスト一覧を13件ずつに分け、Apps Script の実行時間上限を避けながら全件を順番に確認します。
+
 ### 目安
 - `runSmokeTests()` は **ロジック破壊を早く検知する** ためのもの
 - `runAllTests()` は **Spreadsheet 実体込みの確認** まで含めるもの
+- GitHub Actions では **CI用バッチ関数を全件実行する** もの
 
 ---
 
@@ -461,6 +467,8 @@ Apps Script の日次クォータに当たりやすくなります。
 - `runSmokeTests()`
 - `runAllTests()`
 
+CI用バッチ関数は `runAllTests()` 相当のテスト一覧から自動生成されます。新しいテストを `CORE_TESTS_` または `FULL_ONLY_TESTS_` へ追加すると、バッチ側にも含まれます。8バッチに収まらない数まで増えた場合は、公開バッチ関数とCIの実行リストも増やします。未対応のままだと、バッチ定義検証で失敗します。
+
 ### 3. テスト名は期待結果まで分かるようにする
 悪い例:
 - `test_trade_1_`
@@ -480,6 +488,7 @@ Apps Script の日次クォータに当たりやすくなります。
 - 本番コードの変更に追随しているか
 - `runSmokeTests()` に入れるべきか
 - `runAllTests()` に入れるべきか
+- CI用バッチで欠落・重複なく実行されるか
 - 一時Spreadsheet作成回数が増えすぎていないか
 - DB列追加時に関連テストを更新しているか
 - README / docs と整合しているか

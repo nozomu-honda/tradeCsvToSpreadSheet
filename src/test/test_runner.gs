@@ -113,12 +113,176 @@ const FULL_ONLY_TESTS_ = [
   test_writeSheet_averageUnitPriceNumberFormat_,
 ];
 
+const ALL_GAS_TESTS_ = CORE_TESTS_.concat(FULL_ONLY_TESTS_);
+const GAS_TEST_BATCH_SIZE_ = 13;
+const GAS_TEST_BATCH_ENTRY_POINTS_ = [
+  'runGasTestBatch01',
+  'runGasTestBatch02',
+  'runGasTestBatch03',
+  'runGasTestBatch04',
+  'runGasTestBatch05',
+  'runGasTestBatch06',
+  'runGasTestBatch07',
+  'runGasTestBatch08',
+];
+const GAS_TEST_BATCHES_ = buildGasTestBatches_(ALL_GAS_TESTS_, GAS_TEST_BATCH_SIZE_);
+
 function runSmokeTests() {
   return runSelectedTests_(CORE_TESTS_, '軽い確認テスト');
 }
 
 function runAllTests() {
-  return runSelectedTests_(CORE_TESTS_.concat(FULL_ONLY_TESTS_), 'フルテスト');
+  return runSelectedTests_(ALL_GAS_TESTS_, 'フルテスト');
+}
+
+function runGasTestBatch01() {
+  return runGasTestBatch_(0);
+}
+
+function runGasTestBatch02() {
+  return runGasTestBatch_(1);
+}
+
+function runGasTestBatch03() {
+  return runGasTestBatch_(2);
+}
+
+function runGasTestBatch04() {
+  return runGasTestBatch_(3);
+}
+
+function runGasTestBatch05() {
+  return runGasTestBatch_(4);
+}
+
+function runGasTestBatch06() {
+  return runGasTestBatch_(5);
+}
+
+function runGasTestBatch07() {
+  return runGasTestBatch_(6);
+}
+
+function runGasTestBatch08() {
+  return runGasTestBatch_(7);
+}
+
+function runGasTestBatch_(batchIndex) {
+  validateGasTestBatchDefinitions_();
+
+  const batch = GAS_TEST_BATCHES_[batchIndex];
+  if (!batch) {
+    throw new Error('GASテストバッチが見つかりません: ' + (batchIndex + 1));
+  }
+
+  return runSelectedTests_(batch.tests, 'GASテストバッチ ' + batch.label);
+}
+
+function buildGasTestBatches_(tests, batchSize) {
+  const batches = [];
+  for (let i = 0; i < tests.length; i += batchSize) {
+    batches.push({
+      batchNumber: batches.length + 1,
+      tests: tests.slice(i, i + batchSize),
+    });
+  }
+
+  const total = batches.length;
+  return batches.map(function(batch) {
+    return {
+      label: zeroPadGasTestBatchNumber_(batch.batchNumber) + '/' + zeroPadGasTestBatchNumber_(total),
+      tests: batch.tests,
+    };
+  });
+}
+
+function validateGasTestBatchDefinitions_() {
+  const errors = [];
+
+  if (GAS_TEST_BATCH_SIZE_ <= 0) {
+    errors.push('GAS_TEST_BATCH_SIZE_ must be greater than 0.');
+  }
+
+  if (GAS_TEST_BATCHES_.length !== GAS_TEST_BATCH_ENTRY_POINTS_.length) {
+    errors.push('公開バッチ関数数と生成バッチ数が一致しません: entryPoints=' + GAS_TEST_BATCH_ENTRY_POINTS_.length + ', batches=' + GAS_TEST_BATCHES_.length);
+  }
+
+  const expectedNames = getTestFunctionNames_(ALL_GAS_TESTS_);
+  const actualTests = [];
+  GAS_TEST_BATCHES_.forEach(function(batch, batchIndex) {
+    if (!batch.tests || batch.tests.length === 0) {
+      errors.push('空のGASテストバッチがあります: ' + zeroPadGasTestBatchNumber_(batchIndex + 1));
+      return;
+    }
+    actualTests.push.apply(actualTests, batch.tests);
+  });
+
+  const actualNames = getTestFunctionNames_(actualTests);
+  const duplicateExpectedNames = findDuplicateNames_(expectedNames);
+  const duplicateActualNames = findDuplicateNames_(actualNames);
+  if (duplicateExpectedNames.length > 0) {
+    errors.push('テスト一覧に重複があります: ' + duplicateExpectedNames.join(', '));
+  }
+  if (duplicateActualNames.length > 0) {
+    errors.push('バッチ内に重複があります: ' + duplicateActualNames.join(', '));
+  }
+
+  const expectedCounts = countNames_(expectedNames);
+  const actualCounts = countNames_(actualNames);
+  const missingNames = [];
+  Object.keys(expectedCounts).forEach(function(name) {
+    if (!actualCounts[name]) {
+      missingNames.push(name);
+    }
+  });
+  if (missingNames.length > 0) {
+    errors.push('バッチから欠落したテストがあります: ' + missingNames.join(', '));
+  }
+
+  const unexpectedNames = [];
+  Object.keys(actualCounts).forEach(function(name) {
+    if (!expectedCounts[name]) {
+      unexpectedNames.push(name);
+    }
+  });
+  if (unexpectedNames.length > 0) {
+    errors.push('テスト一覧にない関数がバッチへ含まれています: ' + unexpectedNames.join(', '));
+  }
+
+  if (actualNames.length !== expectedNames.length) {
+    errors.push('テスト総数が一致しません: expected=' + expectedNames.length + ', actual=' + actualNames.length);
+  }
+
+  if (errors.length > 0) {
+    throw new Error('GASテストバッチ定義が不正です:\n' + errors.join('\n'));
+  }
+}
+
+function getTestFunctionNames_(tests) {
+  return tests.map(function(fn, index) {
+    if (typeof fn !== 'function') {
+      return '(non-function #' + (index + 1) + ')';
+    }
+    return fn.name || '(anonymous #' + (index + 1) + ')';
+  });
+}
+
+function findDuplicateNames_(names) {
+  const counts = countNames_(names);
+  return Object.keys(counts).filter(function(name) {
+    return counts[name] > 1;
+  });
+}
+
+function countNames_(names) {
+  return names.reduce(function(counts, name) {
+    counts[name] = (counts[name] || 0) + 1;
+    return counts;
+  }, {});
+}
+
+function zeroPadGasTestBatchNumber_(value) {
+  return String(value).padStart(2, '0');
 }
 
 function runSelectedTests_(tests, label) {
