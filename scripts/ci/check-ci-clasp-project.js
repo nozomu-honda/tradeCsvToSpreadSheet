@@ -119,16 +119,100 @@ try {
     fail('.claspignore must exclude scripts/** from GAS push targets');
   }
 
-  for (const workflowPath of [
-    '.github/workflows/gas-tests.yml',
-    '.github/workflows/gas-web-e2e.yml',
+  const gasTestsWorkflow = readWorkflow('.github/workflows/gas-tests.yml');
+  const gasWebE2eWorkflow = readWorkflow('.github/workflows/gas-web-e2e.yml');
+  const gasTestsGroup = extractConcurrencyGroupExpression(
+    gasTestsWorkflow,
+    '.github/workflows/gas-tests.yml'
+  );
+  const gasWebE2eGroup = extractConcurrencyGroupExpression(
+    gasWebE2eWorkflow,
+    '.github/workflows/gas-web-e2e.yml'
+  );
+
+  assertEqual(
+    evaluateGitHubExpression(gasTestsGroup, pullRequestContext({
+      label: 'run-gas-tests',
+      prNumber: 72,
+      runId: 1001,
+    })),
+    'gas-shared-test-project',
+    'GAS Tests target label concurrency group'
+  );
+  assertEqual(
+    evaluateGitHubExpression(gasWebE2eGroup, pullRequestContext({
+      label: 'gas-web-e2e',
+      prNumber: 72,
+      runId: 1002,
+    })),
+    'gas-shared-test-project',
+    'Web E2E target label concurrency group'
+  );
+  assertEqual(
+    evaluateGitHubExpression(gasTestsGroup, pullRequestContext({
+      label: 'run-gas-tests',
+      prNumber: 73,
+      runId: 1003,
+    })),
+    'gas-shared-test-project',
+    'GAS Tests target label concurrency group for another PR'
+  );
+  assertEqual(
+    evaluateGitHubExpression(gasWebE2eGroup, pullRequestContext({
+      label: 'gas-web-e2e',
+      prNumber: 73,
+      runId: 1004,
+    })),
+    'gas-shared-test-project',
+    'Web E2E target label concurrency group for another PR'
+  );
+  assertEqual(
+    evaluateGitHubExpression(gasWebE2eGroup, workflowDispatchContext({ runId: 1005 })),
+    'gas-shared-test-project',
+    'Web E2E workflow_dispatch concurrency group'
+  );
+
+  const gasTestsNonTargetGroup = evaluateGitHubExpression(
+    gasTestsGroup,
+    pullRequestContext({ label: 'gas-web-e2e', prNumber: 72, runId: 2001 })
+  );
+  const gasWebE2eNonTargetGroup = evaluateGitHubExpression(
+    gasWebE2eGroup,
+    pullRequestContext({ label: 'run-gas-tests', prNumber: 72, runId: 2002 })
+  );
+  const gasTestsExternalGroup = evaluateGitHubExpression(
+    gasTestsGroup,
+    pullRequestContext({
+      label: 'run-gas-tests',
+      prNumber: 72,
+      runId: 2003,
+      headRepo: 'someone/fork',
+    })
+  );
+  const gasWebE2eExternalGroup = evaluateGitHubExpression(
+    gasWebE2eGroup,
+    pullRequestContext({
+      label: 'gas-web-e2e',
+      prNumber: 72,
+      runId: 2004,
+      headRepo: 'someone/fork',
+    })
+  );
+
+  assertEqual(gasTestsNonTargetGroup, 'gas-tests-skip-2001', 'GAS Tests non-target label group');
+  assertEqual(gasWebE2eNonTargetGroup, 'gas-web-e2e-skip-2002', 'Web E2E non-target label group');
+  assertEqual(gasTestsExternalGroup, 'gas-tests-skip-2003', 'GAS Tests external PR group');
+  assertEqual(gasWebE2eExternalGroup, 'gas-web-e2e-skip-2004', 'Web E2E external PR group');
+
+  for (const [workflowPath, workflowSource, workflowGroup] of [
+    ['.github/workflows/gas-tests.yml', gasTestsWorkflow, gasTestsGroup],
+    ['.github/workflows/gas-web-e2e.yml', gasWebE2eWorkflow, gasWebE2eGroup],
   ]) {
-    const source = fs.readFileSync(path.join(rootDir, workflowPath), 'utf8');
-    if (!source.includes('group: gas-test-project-${{ github.event.pull_request.number || github.ref }}')) {
-      fail(`${workflowPath} must serialize access to the shared test Apps Script project`);
-    }
-    if (!source.includes('cancel-in-progress: false')) {
+    if (!workflowSource.includes('cancel-in-progress: false')) {
       fail(`${workflowPath} must queue instead of canceling the paired GAS workflow`);
+    }
+    if (workflowGroup.includes('pull_request.number')) {
+      fail(`${workflowPath} concurrency group must not depend on the PR number`);
     }
   }
 
@@ -141,6 +225,89 @@ function assertEqual(actual, expected, label) {
   if (actual !== expected) {
     fail(`${label} mismatch\nexpected: ${expected}\nactual:   ${actual}`);
   }
+}
+
+function readWorkflow(workflowPath) {
+  return fs.readFileSync(path.join(rootDir, workflowPath), 'utf8');
+}
+
+function extractConcurrencyGroupExpression(source, workflowPath) {
+  const lines = source.split(/\r?\n/);
+  const concurrencyIndex = lines.findIndex((line) => line.trim() === 'concurrency:');
+  if (concurrencyIndex === -1) {
+    fail(`${workflowPath} has no workflow-level concurrency section`);
+  }
+
+  for (let index = concurrencyIndex + 1; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (/^\S/.test(line) && line.trim() !== '') {
+      break;
+    }
+    if (line.trim() === 'group: >-') {
+      const expressionLines = [];
+      for (let expressionIndex = index + 1; expressionIndex < lines.length; expressionIndex += 1) {
+        const expressionLine = lines[expressionIndex];
+        if (/^  [A-Za-z0-9_-]+:/.test(expressionLine)) {
+          break;
+        }
+        expressionLines.push(expressionLine.trim());
+      }
+      const expression = expressionLines.join(' ').replace(/\s+/g, ' ').trim();
+      if (!expression) {
+        fail(`${workflowPath} has an empty concurrency group expression`);
+      }
+      return expression;
+    }
+  }
+
+  fail(`${workflowPath} must use a folded workflow-level concurrency group expression`);
+}
+
+function evaluateGitHubExpression(expression, context) {
+  const match = expression.match(/^\$\{\{\s*(.*)\s*\}\}$/);
+  if (!match) {
+    fail(`invalid GitHub expression: ${expression}`);
+  }
+
+  const body = match[1];
+  const format = (template, ...values) => template.replace(/\{(\d+)\}/g, (_, index) => {
+    const value = values[Number(index)];
+    return value === undefined ? '' : String(value);
+  });
+  const evaluator = new Function('github', 'format', `return (${body});`);
+  return evaluator(context.github, format);
+}
+
+function pullRequestContext({ label, prNumber, runId, headRepo = 'nozomu-honda/tradeCsvToSpreadSheet' }) {
+  return {
+    github: {
+      event_name: 'pull_request',
+      event: {
+        label: { name: label },
+        pull_request: {
+          number: prNumber,
+          head: {
+            repo: {
+              full_name: headRepo,
+            },
+          },
+        },
+      },
+      repository: 'nozomu-honda/tradeCsvToSpreadSheet',
+      run_id: runId,
+    },
+  };
+}
+
+function workflowDispatchContext({ runId }) {
+  return {
+    github: {
+      event_name: 'workflow_dispatch',
+      event: {},
+      repository: 'nozomu-honda/tradeCsvToSpreadSheet',
+      run_id: runId,
+    },
+  };
 }
 
 function fail(message) {

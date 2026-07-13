@@ -38,7 +38,9 @@ CI用バッチ関数は `runGasTestBatch01` から `runGasTestBatch09` までで
 
 `run-gas-tests` 以外のラベルで起動した場合は、job名を `Ignore non-GAS label` に切り替えて軽く成功させます。required check名の `Push test GAS project and run tests` は `run-gas-tests` ラベルの時だけ作られるため、通常のラベル運用でGAS checkを誤って成功させたり失敗させたりしません。
 
-GAS Tests と GAS Web App E2E は同じテスト専用 Apps Script プロジェクトへpushし、Script Propertiesも共有します。そのため、両workflowは同じconcurrency groupで直列化し、同時実行しません。`run-gas-tests` と `gas-web-e2e` を続けて付けた場合も、片方が完了してからもう片方が開始されます。
+GAS Tests と GAS Web App E2E は同じテスト専用 Apps Script プロジェクトへpushし、Script Propertiesも共有します。そのため、実際に共有テストprojectへ触るrunだけを、PR番号を含まない共通のconcurrency group `gas-shared-test-project` で直列化し、同時実行しません。`run-gas-tests` と `gas-web-e2e` を続けて付けた場合も、片方が完了してからもう片方が開始されます。
+
+`run-gas-tests` 以外のラベルで起動した `Ignore non-GAS label` run や、Secretsを使わないskip/guard runは、`github.run_id` を含む固有groupへ分離します。これにより、軽量なignore/skip runが、待機中のGAS TestsやWeb E2Eの実runをキャンセルしないようにします。
 
 ## 推奨マージフロー
 

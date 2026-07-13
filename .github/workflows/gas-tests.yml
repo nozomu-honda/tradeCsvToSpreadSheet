@@ -12,7 +12,14 @@ permissions:
   checks: read
 
 concurrency:
-  group: gas-test-project-${{ github.event.pull_request.number || github.ref }}
+  group: >-
+    ${{
+      (
+        github.event_name == 'pull_request' &&
+        github.event.label.name == 'run-gas-tests' &&
+        github.event.pull_request.head.repo.full_name == github.repository
+      ) && 'gas-shared-test-project' || format('gas-tests-skip-{0}', github.run_id)
+    }}
   cancel-in-progress: false
 
 jobs:
