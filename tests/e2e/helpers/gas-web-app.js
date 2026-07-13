@@ -201,6 +201,9 @@ async function openPreparedWebApp(page, { prepareTargetDbKey }) {
   expect(prepareResult.ok, prepareResult.error || JSON.stringify(prepareResult.value)).toBe(true);
   expect(prepareResult.value.ok, JSON.stringify(prepareResult.value || {})).toBe(true);
   expect(prepareResult.value.targetDbKey).toBe(prepareTargetDbKey);
+  expect(prepareResult.value.outputReset && prepareResult.value.outputReset.ok).toBe(true);
+  expect(prepareResult.value.outputReset.spreadsheetName).toBe('株管理ツール_E2E_TEST_OUTPUT');
+  expect(Array.isArray(prepareResult.value.outputReset.deletedSheetNames)).toBe(true);
 
   await app.evaluate((ciToken) => {
     window.__CI_E2E_TOKEN__ = ciToken;

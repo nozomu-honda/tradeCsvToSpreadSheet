@@ -19,6 +19,7 @@
 - 既定の `dynamic-public` モードでは、CI run ごとに一時 Web アプリ deployment を作成し、その `/exec` URL を Playwright にだけ渡す。実 URL はログに出さず、GitHub Actions の mask 対象にする。
 - `CI_E2E_TOKEN` Script Property が設定されているテストprojectでは、Web アプリの server function は token 付き payload を必須にする。Script Property が未設定の初回は、token 保護された `prepareE2EWebAppRun` が GitHub Secret 由来の payload から初期化する。Playwright は token を URL や DOM には出さず、`google.script.run` の payload にだけ含める。
 - E2E 開始時に token 保護された `prepareE2EWebAppRun` を呼び、ケースごとに指定した `nomura_test` / `rakuten_test` などの test DB だけ root storage mode を有効化する。Playwright helper は、準備対象DB、UIで選ぶDB、期待する実追加先DB、期待するDB種別、出力Spreadsheet検査DB、cleanup/rollback DBをケースごとに明示して検証する。
+- `prepareE2EWebAppRun` は、各ケース開始前にE2E専用出力Spreadsheetを既知の初期状態へ戻す。初期化では `株管理ツール_E2E_TEST_OUTPUT` という固定名のE2E出力Spreadsheetだけを対象にし、`元データ`、野村/楽天の既知出力シート、金銭残高シートなどE2Eが生成する業務出力シートを削除する。任意Spreadsheet IDは受け取らず、token保護とtest DB限定を維持し、未知の制御用シートとSpreadsheet自体は壊さない。
 - 出力リンクが作成された後は、token 保護された `inspectE2EOutputSpreadsheetFromWebApp` で出力 Spreadsheet の主要シート名と主要セル値を確認する。全セル完全一致ではなく、CSV fixture の一意な銘柄コード、銘柄名、ティッカー、ファンド名、入出金摘要が期待シートに出ていることを最小限確認する。
 - PR #63 時点では、検査helperがデフォルト25行 / 40列、最大100行 / 80列の `getDisplayValues()` 結果をクライアントへ返し、Playwright側で列検索していた。この方式は、test DBに有効レコードが残る、fixture明細が増える、出力列が増える、といった場合に正しい出力でも期待値が取得範囲外になり得る。
 - 現在は条件検索方式とし、Playwrightは `requiredSheets` / `absentSheets` / `checks` / `rowChecks` だけをpayloadに渡す。GAS側は許可済みシートの1行目から `headerName` を完全一致で探し、`checks` では見つけた列の実最終行まで `expectedValue` を完全一致検索する。`rowChecks` ではアンカー列・値で候補行を探し、その同じ行にある複数列を完全一致で検査する。クライアントへは存在判定、検出可否、列番号、行番号など最小限の結果だけを返し、セル全体の二次元配列は返さない。
