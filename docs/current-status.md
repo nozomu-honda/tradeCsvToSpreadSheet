@@ -16,6 +16,7 @@
 - DB作成先フォルダ指定の実装を追加。
 - オーナー権限では `DriveApp.getFolderById()` が成功することを確認済み。
 - Codex移行用の `AGENTS.md` / handoff系ドキュメント / プロンプトテンプレートを追加。
+- GitHub上のIssue/PR/レビュー/作業報告など、人間が読む文章は原則として日本語で記述する運用ルールを追加。
 - PR #32「DBリセット/ロールバック対象で楽天DBを個別選択できるようにする」は develop にマージ済み。
   - リセット/ロールバック対象で野村DB・楽天DBを個別選択可能。
   - 選択中DBをUIから開くボタンを追加。
@@ -155,10 +156,20 @@
   - `rakuten_dividend` かつ `入金（分配金）` の場合に、楽天投資信託出力へ `分配金` / `受付金額` を反映する初期対応。
   - cleanupは複数importIdを保持し、元本払戻金ケースでは買付importと払戻importの両方を論理rollbackする。
   - GitHub Actionsで `Push test GAS project and run tests` と `Deploy test Web app and run Rakuten Playwright E2E` の成功を確認済み。
+- PR #70「GASテストを実行時間上限内の複数バッチに分割する」は develop にマージ済み。
+  - GAS CIは `runAllTests()` の1回実行ではなく、CI用バッチ関数を順番に実行する構成へ変更。
+  - `clasp push --force` とAPI executable deployment更新は1回だけ行い、その後に各バッチを `clasp run` する。
+  - バッチ定義の欠落・重複・公開入口数の不一致を検知する検証を追加。
+  - 現在はPR #67の追加テストを含め、105件のGASテストを `runGasTestBatch01` から `runGasTestBatch09` までの9バッチで実行する。
+- PR #67「E2E出力Spreadsheet検査を行単位で確認できるようにする」は develop にマージ済み。
+  - `inspectE2EOutputSpreadsheetFromWebApp` に `rowChecks` を追加し、アンカー行を基準に同じ行の複数列を検査可能にした。
+  - 既存の `checks` は後方互換用の単独列検索として維持。
+  - 楽天元本払戻金E2Eで、買付行と払戻行の値を取り違えないよう、払戻行そのものを `rowChecks` で確認する。
+  - `rowChecks` のGASテストを追加し、GAS CIの現在の実行対象は105件・9バッチ構成になった。
 
 ## 進行中 / 未マージ
 
-- Issue #69対応: GAS CIの `runAllTests()` 1回実行がApps Scriptの実行時間上限を超えるため、CI用バッチ関数に分割するDraft PRを準備中。`clasp push --force` とAPI executable deployment更新は1回だけ行い、全バッチの欠落・重複を検証してから逐次実行する方針。
+- なし
 
 ## 未完了 / 確認待ち
 
@@ -193,5 +204,5 @@ AutoHotkeyショートカットの説明は `docs/codex-shortcuts.md` を参照�
 - `appsscript.json` のOAuth scope変更後は、Webアプリの新バージョン再デプロイが必要。
 - Webアプリを「アクセスしているユーザー」として実行する場合、利用者ごとにDrive権限承認とDBフォルダ編集権限が必要。
 - `spreadsheetId` 未設定DBは Script Properties の `DB_SPREADSHEET_ID_<DB_KEY>` に実ファイルIDを保存して再利用する。
-- CIのPR必須チェック `Push test GAS project and run tests` は、`run-gas-tests` ラベル付与時だけ作成される。GAS影響ファイルがある場合はCI用GASテストバッチ関数の存在確認、`.gs` 構文チェック、`clasp push --force`、可能な場合は全バッチの `clasp run` を必須確認とする。`clasp run` が権限上使えない場合は Step Summary に `clasp run unavailable` と記録し、Apps Script エディタからの手動バッチ実行結果をPR本文へ残す。
-- PR #31 / PR #32 / PR #33 / PR #34 / PR #35 / PR #36 / PR #37 / PR #38 / PR #39 / PR #40 / PR #41 / PR #42 / PR #45 / PR #46 / PR #52 / PR #53 / PR #54 / PR #55 / PR #56 / PR #57 / PR #58 / PR #59 / PR #60 / PR #61 / PR #62 / PR #63 / PR #64 / PR #65 は develop にマージ済み。
+- CIのPR必須チェック `Push test GAS project and run tests` は、`run-gas-tests` ラベル付与時だけ作成される。GAS影響ファイルがある場合はCI用GASテストバッチ関数の存在確認、`.gs` 構文チェック、`clasp push --force`、可能な場合は `runGasTestBatch01` から `runGasTestBatch09` まで全9バッチの `clasp run` を必須確認とする。`clasp run` が権限上使えない場合は Step Summary に `clasp run unavailable` と記録し、Apps Script エディタからの手動バッチ実行結果をPR本文へ残す。
+- PR #31 / PR #32 / PR #33 / PR #34 / PR #35 / PR #36 / PR #37 / PR #38 / PR #39 / PR #40 / PR #41 / PR #42 / PR #45 / PR #46 / PR #52 / PR #53 / PR #54 / PR #55 / PR #56 / PR #57 / PR #58 / PR #59 / PR #60 / PR #61 / PR #62 / PR #63 / PR #64 / PR #65 / PR #67 / PR #70 は develop にマージ済み。
