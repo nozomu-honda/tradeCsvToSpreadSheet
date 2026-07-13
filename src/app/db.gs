@@ -53,6 +53,15 @@ function resolveDbTarget_(targetDbKey) {
   };
 }
 
+function shouldUseCiE2eRootDbFolder_(target) {
+  const key = text_(target && target.key);
+  if (!isTestDbTarget_(key)) {
+    return false;
+  }
+
+  return text_(PropertiesService.getScriptProperties().getProperty('CI_E2E_DISABLE_DB_FOLDER')) === '1';
+}
+
 function getDbTargetList_() {
   return getDbTargets_()
     .filter(function(target) {
