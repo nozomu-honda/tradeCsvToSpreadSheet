@@ -16,6 +16,7 @@ test_functions=(
   "runGasTestBatch06"
   "runGasTestBatch07"
   "runGasTestBatch08"
+  "runGasTestBatch09"
 )
 clasp_command=(clasp)
 clasp_user_status="not configured"

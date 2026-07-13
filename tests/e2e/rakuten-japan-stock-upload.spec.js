@@ -397,17 +397,27 @@ test.describe('GAS Web app Rakuten CSV upload E2E', () => {
         outputSpreadsheet: {
           requiredSheets: ['楽天投資信託', '金銭残高（円）'],
           absentSheets: ['投信'],
-          checks: [
-            { sheetName: '楽天投資信託', headerName: 'ファンド名', expectedValue: fixtures.fundName },
-            { sheetName: '楽天投資信託', headerName: '分配金', expectedValue: '分配金' },
-            { sheetName: '楽天投資信託', headerName: '受付金額', expectedValue: '100' },
-            { sheetName: '楽天投資信託', headerName: '受渡金額', expectedValue: '100' },
-            { sheetName: '楽天投資信託', headerName: '元金払戻金', expectedValue: '1' },
-            { sheetName: '楽天投資信託', headerName: '平均取得単価', expectedValue: '900' },
-            { sheetName: '楽天投資信託', headerName: '簿価', expectedValue: '900' },
-            { sheetName: '楽天投資信託', headerName: '銘柄ごとの残高', expectedValue: '900' },
-            { sheetName: '金銭残高（円）', headerName: '銘柄名', expectedValue: fixtures.fundName },
-            { sheetName: '金銭残高（円）', headerName: '投信受渡金額［円］', expectedValue: '100' },
+          rowChecks: [
+            {
+              sheetName: '楽天投資信託',
+              anchor: { headerName: 'ファンド名', expectedValue: fixtures.fundName },
+              checks: [
+                { headerName: '分配金', expectedValue: '分配金' },
+                { headerName: '受付金額', expectedValue: '100' },
+                { headerName: '受渡金額', expectedValue: '100' },
+                { headerName: '元金払戻金', expectedValue: '1' },
+                { headerName: '平均取得単価', expectedValue: '' },
+                { headerName: '簿価', expectedValue: '' },
+                { headerName: '銘柄ごとの残高', expectedValue: '900' },
+              ],
+            },
+            {
+              sheetName: '金銭残高（円）',
+              anchor: { headerName: '銘柄名', expectedValue: fixtures.fundName },
+              checks: [
+                { headerName: '投信受渡金額［円］', expectedValue: '100' },
+              ],
+            },
           ],
         },
       },
