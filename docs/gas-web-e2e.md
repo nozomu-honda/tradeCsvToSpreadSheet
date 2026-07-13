@@ -11,7 +11,7 @@
 - `pull_request_target` は使わない。
 - fork / external PR では Google Secrets を使う step へ進ませない。
 - 既存 required check の `Push test GAS project and run tests` とは別 workflow とし、通常の GAS CI fallback 方針を変えない。
-- CI用のclasp project設定は `${RUNNER_TEMP}` 配下へ生成し、すべてのclasp呼び出しで `--project <CI専用設定ファイル>` を明示する。リポジトリ直下の `.clasp.json` は生成・利用しない。設定ファイルは一時領域に置くが、`rootDir` は `GITHUB_WORKSPACE` の絶対パスへ正規化し、push対象は常にリポジトリルート配下にする。
+- CI用のclasp project設定は `${RUNNER_TEMP}` 配下へ生成し、すべてのclasp呼び出しで `--project <CI専用設定ファイル>` と `--ignore <repo .claspignore>` を明示する。リポジトリ直下の `.clasp.json` は生成・利用しない。設定ファイルは一時領域に置くが、`rootDir` は `GITHUB_WORKSPACE` の絶対パスへ正規化し、push対象は常にリポジトリルート配下にする。`.claspignore` もリポジトリ直下のファイルを使い、CI用NodeスクリプトやdocsをGAS push対象にしない。
 - E2E CIでは従来どおり `.claspignore` を使い、テスト専用 Apps Script プロジェクトへテストコードもpushできる。本番反映では `.clasp.productionignore` を使い、`src/test/**` を本番Apps Scriptへpushしない。
 - workflow 内では、テスト専用 Apps Script プロジェクトへ push する直前の `appsscript.json` にだけ `webapp.access = ANYONE_ANONYMOUS` / `webapp.executeAs = USER_DEPLOYING` を注入する。リポジトリ上の manifest は通常運用向けのままにする。
 - 同じく push 直前の CI ローカル source にだけ、`DB_CONFIG.DB_FOLDER_ID` と固定 TEST_OUTPUT Spreadsheet ID を空にする。これにより、動的公開E2Eは clasp 実行ユーザーがアクセスできない既存Driveフォルダや固定Spreadsheetへ向かわず、テスト専用projectの実行ユーザーDrive rootに test DB / test output を作成または再利用する。リポジトリ上の `db_config.gs` は変更しない。

@@ -4,6 +4,8 @@ set -Eeuo pipefail
 readonly SUMMARY_FILE="${GITHUB_STEP_SUMMARY:-}"
 readonly CLASP_RC_PATH="${HOME}/.clasprc.json"
 readonly CLASP_PROJECT_PATH="${RUNNER_TEMP:-/tmp}/gas-web-e2e-clasp-project.json"
+readonly CI_REPO_ROOT="${GITHUB_WORKSPACE:-${PWD}}"
+readonly CLASP_IGNORE_PATH="${CI_REPO_ROOT}/.claspignore"
 readonly DEPLOYMENT_DESCRIPTION="GAS Web E2E ${GITHUB_SHA:-local} ${GITHUB_RUN_ID:-manual}"
 readonly WEBAPP_PROBE_PATH="${RUNNER_TEMP:-/tmp}/gas-webapp-probe.html"
 readonly CLASP_DEPLOY_LOG="${RUNNER_TEMP:-/tmp}/clasp-deploy.log"
@@ -13,7 +15,7 @@ readonly MANIFEST_BACKUP_PATH="${RUNNER_TEMP:-/tmp}/gas-web-e2e-appsscript.json.
 readonly DB_CONFIG_BACKUP_PATH="${RUNNER_TEMP:-/tmp}/gas-web-e2e-db_config.gs.bak"
 export CLASP_PROJECT_PATH
 
-clasp_command=(clasp --project "${CLASP_PROJECT_PATH}")
+clasp_command=(clasp --project "${CLASP_PROJECT_PATH}" --ignore "${CLASP_IGNORE_PATH}")
 clasp_user_status="not configured"
 if [[ -n "${CLASP_USER:-}" ]]; then
   clasp_command+=(--user "${CLASP_USER}")
@@ -198,8 +200,9 @@ append_summary \
   "- Deploy mode: \`${WEBAPP_DEPLOY_MODE}\`" \
   "- Test manifest: injects \`webapp.access = ANYONE_ANONYMOUS\` and \`webapp.executeAs = USER_DEPLOYING\` before push" \
   "- Test storage: clears \`DB_CONFIG.DB_FOLDER_ID\` and fixed TEST_OUTPUT ID in the CI-local source before push" \
-  "- Project config: runner temporary file via \`clasp --project\`" \
-  "- Push: \`clasp --project <ci-project> push --force\`" \
+  "- Project config: runner temporary file via \`clasp --project\`, with repository absolute \`rootDir\`" \
+  "- Ignore: repository \`.claspignore\` via \`clasp --ignore\`" \
+  "- Push: \`clasp --project <ci-project> --ignore <repo .claspignore> push --force\`" \
   "- Optional clasp user: ${clasp_user_status}" \
   ""
 

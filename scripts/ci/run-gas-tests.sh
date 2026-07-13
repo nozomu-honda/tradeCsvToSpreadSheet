@@ -4,6 +4,8 @@ set -Eeuo pipefail
 readonly SUMMARY_FILE="${GITHUB_STEP_SUMMARY:-}"
 readonly CLASP_RC_PATH="${HOME}/.clasprc.json"
 readonly CLASP_PROJECT_PATH="${RUNNER_TEMP:-/tmp}/gas-ci-clasp-project.json"
+readonly CI_REPO_ROOT="${GITHUB_WORKSPACE:-${PWD}}"
+readonly CLASP_IGNORE_PATH="${CI_REPO_ROOT}/.claspignore"
 readonly DEPLOYMENT_DESCRIPTION="GAS CI ${GITHUB_SHA:-local} ${GITHUB_RUN_ID:-manual}"
 readonly GAS_TEST_FAILURE_PATTERN='(^|[[:space:]])NG([[:space:]]|$)|Exception|(^|[[:space:]])Error:|Exceeded maximum execution time'
 export CLASP_PROJECT_PATH
@@ -19,7 +21,7 @@ test_functions=(
   "runGasTestBatch08"
   "runGasTestBatch09"
 )
-clasp_command=(clasp --project "${CLASP_PROJECT_PATH}")
+clasp_command=(clasp --project "${CLASP_PROJECT_PATH}" --ignore "${CLASP_IGNORE_PATH}")
 clasp_user_status="not configured"
 if [[ -n "${CLASP_USER:-}" ]]; then
   clasp_command+=(--user "${CLASP_USER}")
@@ -219,7 +221,7 @@ manifest.executionApi = { access: 'ANYONE' };
 fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
 NODE
 
-append_summary "## GAS CI" "" "- Target: test-only Apps Script project from \`GAS_TEST_SCRIPT_ID\`" "- Source entry points: verified before push" "- Test manifest: injects \`executionApi\` in CI before push" "- Project config: runner temporary file via \`clasp --project\`" "- Push: \`clasp --project <ci-project> push --force\`" "- Deployment: update only when \`GAS_TEST_DEPLOYMENT_ID\` is set; otherwise skip creating a new versioned deployment" "- Execution: \`clasp --project <ci-project> run\` in devMode, using the latest pushed code" "- Optional clasp user: ${clasp_user_status}" "- Tests: \`${test_functions[*]}\`" ""
+append_summary "## GAS CI" "" "- Target: test-only Apps Script project from \`GAS_TEST_SCRIPT_ID\`" "- Source entry points: verified before push" "- Test manifest: injects \`executionApi\` in CI before push" "- Project config: runner temporary file via \`clasp --project\`, with repository absolute \`rootDir\`" "- Ignore: repository \`.claspignore\` via \`clasp --ignore\`" "- Push: \`clasp --project <ci-project> --ignore <repo .claspignore> push --force\`" "- Deployment: update only when \`GAS_TEST_DEPLOYMENT_ID\` is set; otherwise skip creating a new versioned deployment" "- Execution: \`clasp --project <ci-project> run\` in devMode, using the latest pushed code" "- Optional clasp user: ${clasp_user_status}" "- Tests: \`${test_functions[*]}\`" ""
 
 run_clasp_step "clasp --project push" push --force
 

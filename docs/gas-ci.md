@@ -106,7 +106,7 @@ required check 名は次のまま維持します。
 - `run-gas-tests` ラベルが付いた同一リポジトリPRだけがsecret-backed GAS jobに進めます。
 - forkや外部PRでは冒頭のガードで失敗し、Google Secretsを使うstepへ進みません。
 - CIの対象はテスト専用 Apps Script プロジェクトだけです。
-- CI用のclasp project設定はrunner一時領域に生成し、すべての `clasp` 呼び出しで `--project` により明示します。リポジトリ直下の `.clasp.json` は生成・利用しません。設定ファイル自体は一時領域に置きますが、`rootDir` は `GITHUB_WORKSPACE` の絶対パスに正規化し、push対象は常にリポジトリルート配下にします。
+- CI用のclasp project設定はrunner一時領域に生成し、すべての `clasp` 呼び出しで `--project` により明示します。リポジトリ直下の `.clasp.json` は生成・利用しません。設定ファイル自体は一時領域に置きますが、`rootDir` は `GITHUB_WORKSPACE` の絶対パスに正規化し、push対象は常にリポジトリルート配下にします。`.claspignore` もリポジトリ直下のファイルを `--ignore` で明示し、CI用NodeスクリプトやdocsをGAS push対象にしません。
 - `.clasprc.json` はGitHub SecretsからCI runner上に生成し、リポジトリにはコミットしません。
 - workflowはCI runner上の `appsscript.json` にだけ `executionApi` を注入してから、テスト専用Apps Scriptへpushします。
 - CI用Googleアカウントには、本番GAS、本番Spreadsheet、本番Driveフォルダへの権限を持たせないでください。
@@ -121,7 +121,7 @@ CI用:
 - project設定は `${RUNNER_TEMP}` 配下へ生成します。
 - 生成するproject設定の `rootDir` は、設定ファイルの親ディレクトリではなく、リポジトリルートの絶対パスにします。GitHub Actionsでは `GITHUB_WORKSPACE` を優先し、ローカル検証時だけ現在の作業ディレクトリを使います。
 - `CLASP_PROJECT_JSON` を使う場合も、CI側でparseしたうえで `scriptId` を `GAS_TEST_SCRIPT_ID` に上書きし、`rootDir` をリポジトリルートの絶対パスへ正規化します。相対 `srcDir` が一時領域をpush対象にしないよう、CIでは `srcDir` を使いません。
-- すべての `clasp` 呼び出しに `--project <CI専用設定ファイル>` を付けます。
+- すべての `clasp` 呼び出しに `--project <CI専用設定ファイル>` と `--ignore <repo .claspignore>` を付けます。
 - 既存の `.claspignore` を使うため、`src/test/**` を含むGASテストコードもテスト専用Apps Scriptプロジェクトへpushできます。
 
 本番用:

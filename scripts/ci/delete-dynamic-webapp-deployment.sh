@@ -4,10 +4,12 @@ set -Eeuo pipefail
 readonly SUMMARY_FILE="${GITHUB_STEP_SUMMARY:-}"
 readonly CLASP_RC_PATH="${HOME}/.clasprc.json"
 readonly CLASP_PROJECT_PATH="${RUNNER_TEMP:-/tmp}/gas-web-e2e-cleanup-clasp-project.json"
+readonly CI_REPO_ROOT="${GITHUB_WORKSPACE:-${PWD}}"
+readonly CLASP_IGNORE_PATH="${CI_REPO_ROOT}/.claspignore"
 readonly DELETE_LOG="${RUNNER_TEMP:-/tmp}/clasp-delete-webapp-deployment.log"
 export CLASP_PROJECT_PATH
 
-clasp_command=(clasp --project "${CLASP_PROJECT_PATH}")
+clasp_command=(clasp --project "${CLASP_PROJECT_PATH}" --ignore "${CLASP_IGNORE_PATH}")
 clasp_user_status="not configured"
 if [[ -n "${CLASP_USER:-}" ]]; then
   clasp_command+=(--user "${CLASP_USER}")

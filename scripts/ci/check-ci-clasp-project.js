@@ -103,9 +103,20 @@ try {
     if (!source.includes('node scripts/ci/write-ci-clasp-config.js')) {
       fail(`${scriptPath} does not use the shared CI clasp config writer`);
     }
+    if (!source.includes('CLASP_IGNORE_PATH="${CI_REPO_ROOT}/.claspignore"')) {
+      fail(`${scriptPath} does not resolve the repository .claspignore`);
+    }
+    if (!source.includes('--ignore "${CLASP_IGNORE_PATH}"')) {
+      fail(`${scriptPath} does not pass --ignore to clasp`);
+    }
     if (/rootDir:\s*['"]\.['"]/.test(source)) {
       fail(`${scriptPath} still generates rootDir "." inline`);
     }
+  }
+
+  const claspIgnore = fs.readFileSync(path.join(rootDir, '.claspignore'), 'utf8');
+  if (!claspIgnore.split(/\r?\n/).some((line) => line.trim() === 'scripts/**')) {
+    fail('.claspignore must exclude scripts/** from GAS push targets');
   }
 
   console.log('ci clasp project config ok');
