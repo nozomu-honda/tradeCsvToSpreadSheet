@@ -24,7 +24,6 @@ function runFromWebApp(payload) {
 
   assertCiE2eTokenForWebAppIfConfigured_(payload);
   enableCiE2eRootDbFolderForPayload_(payload);
-  const e2eUseRootStorage = !!text_(payload && payload.ciE2eToken);
 
   const csvUrl = (payload.csvUrl || '').trim();
   const spreadsheetUrl = (payload.spreadsheetUrl || '').trim();
@@ -33,6 +32,7 @@ function runFromWebApp(payload) {
   const targetDbKey = payload.targetDbKey || getDefaultDbTargetKey_();
 
   resolveDbTarget_(targetDbKey);
+  const e2eUseRootStorage = shouldUseCiE2eRootDbFolder_({ key: targetDbKey });
 
   const inputCount =
     (csvUrl ? 1 : 0) +
