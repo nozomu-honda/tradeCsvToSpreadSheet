@@ -3,10 +3,11 @@ set -Eeuo pipefail
 
 readonly SUMMARY_FILE="${GITHUB_STEP_SUMMARY:-}"
 readonly CLASP_RC_PATH="${HOME}/.clasprc.json"
-readonly CLASP_PROJECT_PATH=".clasp.json"
+readonly CLASP_PROJECT_PATH="${RUNNER_TEMP:-/tmp}/gas-web-e2e-cleanup-clasp-project.json"
 readonly DELETE_LOG="${RUNNER_TEMP:-/tmp}/clasp-delete-webapp-deployment.log"
+export CLASP_PROJECT_PATH
 
-clasp_command=(clasp)
+clasp_command=(clasp --project "${CLASP_PROJECT_PATH}")
 clasp_user_status="not configured"
 if [[ -n "${CLASP_USER:-}" ]]; then
   clasp_command+=(--user "${CLASP_USER}")
@@ -63,6 +64,12 @@ fi
 node <<'NODE'
 const fs = require('fs');
 const os = require('os');
+const projectPath = process.env.CLASP_PROJECT_PATH;
+
+if (!projectPath) {
+  console.error('::error title=Missing CI project path::CLASP_PROJECT_PATH is not set.');
+  process.exit(1);
+}
 
 function parseJson(raw, label) {
   try {
@@ -81,9 +88,9 @@ function writeJsonFile(path, raw, label) {
 writeJsonFile(`${os.homedir()}/.clasprc.json`, process.env.CLASPRC_JSON || '', 'CLASPRC_JSON');
 
 if ((process.env.CLASP_PROJECT_JSON || '').trim()) {
-  writeJsonFile('.clasp.json', process.env.CLASP_PROJECT_JSON, 'CLASP_PROJECT_JSON');
+  writeJsonFile(projectPath, process.env.CLASP_PROJECT_JSON, 'CLASP_PROJECT_JSON');
 } else {
-  writeJsonFile('.clasp.json', JSON.stringify({
+  writeJsonFile(projectPath, JSON.stringify({
     scriptId: process.env.GAS_TEST_SCRIPT_ID,
     rootDir: '.',
     scriptExtensions: ['.js', '.gs'],
@@ -91,11 +98,11 @@ if ((process.env.CLASP_PROJECT_JSON || '').trim()) {
     jsonExtensions: ['.json'],
     filePushOrder: [],
     skipSubdirectories: false
-  }), 'generated .clasp.json');
+  }), 'generated CI clasp project JSON');
 }
 NODE
 
-echo "::group::delete dynamic Web app deployment"
+echo "::group::clasp --project delete dynamic Web app deployment"
 set +e
 "${clasp_command[@]}" delete-deployment "${GAS_WEB_E2E_DYNAMIC_DEPLOYMENT_ID}" > "${DELETE_LOG}" 2>&1
 delete_exit=$?

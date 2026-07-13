@@ -75,7 +75,7 @@ jobs:
 
           is_gas_impacting_file() {
             case "$1" in
-              src/*|scripts/*|.github/workflows/*|appsscript.json|Index.html|.claspignore|.clasp.example.json|package.json|package-lock.json)
+              src/*|scripts/*|.github/workflows/*|appsscript.json|Index.html|.claspignore|.clasp.productionignore|.clasp.example.json|.clasp.production.example.json|package.json|package-lock.json)
                 return 0
                 ;;
               *)

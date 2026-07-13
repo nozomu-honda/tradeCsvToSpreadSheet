@@ -3,7 +3,10 @@
   "private": true,
   "scripts": {
     "e2e:list": "playwright test --list",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "gas:production:open": "node scripts/gas-production.js open",
+    "gas:production:status": "node scripts/gas-production.js status",
+    "gas:production:push": "node scripts/gas-production.js push"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1"

@@ -87,8 +87,26 @@ VS Code でローカル編集する。
 
 ### 2. Apps Script へ反映
 
+bareな `clasp push` は使わない。CI用と本番用のApps Script project設定・認証を混同しないため、用途ごとに入口を分ける。
+
+CI用の反映はGitHub Actionsだけが行う。ローカルPCからテスト専用Apps Scriptプロジェクトへ手動pushしない。
+
+本番反映は、本番専用設定を用意したうえで次のnpmコマンドだけを使う。
+
 ```bash
-clasp push
+npm run gas:production:status
+npm run gas:production:push
+```
+
+本番用のApps Scriptエディタを開く場合だけ、次を使う。
+
+```bash
+npm run gas:production:open
+```
+
+本番反映には、ローカル専用の `.clasp.production.json` とclasp named user `production` を使う。`.clasp.production.json`、`.clasprc.json`、Script ID、Deployment ID、Web App URL、Spreadsheet URL、OAuth token、GitHub Secrets実値はコミットしない。
+
+`gas:production:push` は、`develop` ブランチ、clean working tree、最新 `origin/develop` 一致、production認証、production専用ignore、確認入力を満たさない限り停止する。
 
 ---
 

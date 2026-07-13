@@ -1,6 +1,6 @@
 # GAS Web App E2E
 
-最小構成の GAS Web アプリ E2E は、テスト専用 Apps Script プロジェクトへ `clasp push --force` し、GitHub Actions から開ける一時 Web アプリ deployment を作成してから Playwright で楽天CSVアップロードの代表ケースを確認する。
+最小構成の GAS Web アプリ E2E は、CI runnerの一時project設定を `clasp --project` で明示してテスト専用 Apps Script プロジェクトへpushし、GitHub Actions から開ける一時 Web アプリ deployment を作成してから Playwright で楽天CSVアップロードの代表ケースを確認する。
 
 ## 方針
 
@@ -11,6 +11,8 @@
 - `pull_request_target` は使わない。
 - fork / external PR では Google Secrets を使う step へ進ませない。
 - 既存 required check の `Push test GAS project and run tests` とは別 workflow とし、通常の GAS CI fallback 方針を変えない。
+- CI用のclasp project設定は `${RUNNER_TEMP}` 配下へ生成し、すべてのclasp呼び出しで `--project <CI専用設定ファイル>` を明示する。リポジトリ直下の `.clasp.json` は生成・利用しない。
+- E2E CIでは従来どおり `.claspignore` を使い、テスト専用 Apps Script プロジェクトへテストコードもpushできる。本番反映では `.clasp.productionignore` を使い、`src/test/**` を本番Apps Scriptへpushしない。
 - workflow 内では、テスト専用 Apps Script プロジェクトへ push する直前の `appsscript.json` にだけ `webapp.access = ANYONE_ANONYMOUS` / `webapp.executeAs = USER_DEPLOYING` を注入する。リポジトリ上の manifest は通常運用向けのままにする。
 - 同じく push 直前の CI ローカル source にだけ、`DB_CONFIG.DB_FOLDER_ID` と固定 TEST_OUTPUT Spreadsheet ID を空にする。これにより、動的公開E2Eは clasp 実行ユーザーがアクセスできない既存Driveフォルダや固定Spreadsheetへ向かわず、テスト専用projectの実行ユーザーDrive rootに test DB / test output を作成または再利用する。リポジトリ上の `db_config.gs` は変更しない。
 - 既定の `dynamic-public` モードでは、CI run ごとに一時 Web アプリ deployment を作成し、その `/exec` URL を Playwright にだけ渡す。実 URL はログに出さず、GitHub Actions の mask 対象にする。
@@ -73,7 +75,7 @@ PR #60 時点のログでは、`clasp push --force` は成功していたが、`
 任意:
 
 - `CLASP_USER`: `clasp --user` が必要な場合だけ設定する。
-- `CLASP_PROJECT_JSON`: `GAS_TEST_SCRIPT_ID` だけでは足りない `.clasp.json` 設定が必要な場合だけ設定する。
+- `CLASP_PROJECT_JSON`: `GAS_TEST_SCRIPT_ID` だけでは足りないclasp project設定が必要な場合だけ設定する。CI runnerの一時ファイルへ書き込み、リポジトリ直下には作成しない。
 - `GAS_TEST_WEBAPP_DEPLOYMENT_ID`: `fixed-url` モードで更新対象の固定 Web アプリ deployment ID を使う場合だけ設定する。
 - `GAS_TEST_WEBAPP_URL`: `fixed-url` モードで固定 Web アプリ URL を使う場合だけ設定する。
 

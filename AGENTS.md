@@ -54,6 +54,19 @@ GitHub上で人間が読む文章は、原則として日本語で記述する�
 - GitHub Actionsのcheck名など、既存仕様との互換性が必要な名称
 - 一般的な技術用語で、英語表記のほうが明確なもの
 
+## clasp操作ルール
+
+- 人・Codexともに、リポジトリ直下でbareな `clasp push` を実行しない。
+- CI用clasp操作はGitHub Actionsだけに任せる。
+- CIではrunner一時領域のproject設定を使い、テスト専用Apps Scriptプロジェクトだけへpushする。
+- 本番反映は本番専用npmコマンドだけを使う。
+  - `npm run gas:production:open`
+  - `npm run gas:production:status`
+  - `npm run gas:production:push`
+- 本番反映は `.clasp.production.json`、`.clasp.productionignore`、clasp named user `production` を必ず使う。
+- `.clasp.production.json`、`.clasprc.json`、OAuth token、Script ID、Deployment ID、Web App URL、Spreadsheet URL、Drive folder ID、GitHub Secrets実値はコミットしない。
+- Codexは本番反映、GitHub Secrets変更、本番GAS・本番DB・本番Drive操作を実行しない。
+
 ## 技術前提
 
 - Google Apps Script / V8 を前提とする。
