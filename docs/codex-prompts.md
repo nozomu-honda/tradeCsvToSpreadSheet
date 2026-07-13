@@ -28,6 +28,7 @@ docs/codex-prompts.md の T02 を使って進めてください。
 - ただし、`develop` / `main` への直接コミット、Ready for review化、マージはしない。
 - Secret、トークン、OAuth情報、実URL、実IDはコミットしない。
 - 本番GAS、本番DB、本番Driveには触れない。
+- リポジトリ直下でbareな `clasp push` は実行しない。CI用clasp操作はGitHub Actionsだけに任せ、本番反映は人間が本番専用npmコマンドで行う。Codexは本番反映を実行しない。
 - 仕様変更、DBスキーマ変更、出力列変更、本番環境操作が必要になったら止まって確認する。
 - 大きすぎる変更は、PR分割案を出してから進める。
 - 調査だけで止めたい場合は、T01 または T03 を明示して使う。

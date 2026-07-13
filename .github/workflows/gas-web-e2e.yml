@@ -15,8 +15,18 @@ env:
   GAS_WEB_E2E_DEPLOY_MODE: dynamic-public
 
 concurrency:
-  group: gas-web-e2e-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: >-
+    ${{
+      (
+        github.event_name == 'workflow_dispatch' ||
+        (
+          github.event_name == 'pull_request' &&
+          github.event.label.name == 'gas-web-e2e' &&
+          github.event.pull_request.head.repo.full_name == github.repository
+        )
+      ) && 'gas-shared-test-project' || format('gas-web-e2e-skip-{0}', github.run_id)
+    }}
+  cancel-in-progress: false
 
 jobs:
   gas-web-e2e:

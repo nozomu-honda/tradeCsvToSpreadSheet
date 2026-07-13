@@ -3,9 +3,12 @@ set -Eeuo pipefail
 
 readonly SUMMARY_FILE="${GITHUB_STEP_SUMMARY:-}"
 readonly CLASP_RC_PATH="${HOME}/.clasprc.json"
-readonly CLASP_PROJECT_PATH=".clasp.json"
+readonly CLASP_PROJECT_PATH="${RUNNER_TEMP:-/tmp}/gas-ci-clasp-project.json"
+readonly CI_REPO_ROOT="${GITHUB_WORKSPACE:-${PWD}}"
+readonly CLASP_IGNORE_PATH="${CI_REPO_ROOT}/.claspignore"
 readonly DEPLOYMENT_DESCRIPTION="GAS CI ${GITHUB_SHA:-local} ${GITHUB_RUN_ID:-manual}"
 readonly GAS_TEST_FAILURE_PATTERN='(^|[[:space:]])NG([[:space:]]|$)|Exception|(^|[[:space:]])Error:|Exceeded maximum execution time'
+export CLASP_PROJECT_PATH
 
 test_functions=(
   "runGasTestBatch01"
@@ -18,7 +21,7 @@ test_functions=(
   "runGasTestBatch08"
   "runGasTestBatch09"
 )
-clasp_command=(clasp)
+clasp_command=(clasp --project "${CLASP_PROJECT_PATH}" --ignore "${CLASP_IGNORE_PATH}")
 clasp_user_status="not configured"
 if [[ -n "${CLASP_USER:-}" ]]; then
   clasp_command+=(--user "${CLASP_USER}")
@@ -198,9 +201,10 @@ done
 
 run_source_syntax_check
 
+node scripts/ci/write-ci-clasp-config.js
+
 node <<'NODE'
 const fs = require('fs');
-const os = require('os');
 
 function parseJson(raw, label) {
   try {
@@ -211,39 +215,18 @@ function parseJson(raw, label) {
   }
 }
 
-function writeJsonFile(path, raw, label) {
-  const parsed = parseJson(raw, label);
-  fs.writeFileSync(path, JSON.stringify(parsed, null, 2) + '\n', { mode: 0o600 });
-}
-
-writeJsonFile(`${os.homedir()}/.clasprc.json`, process.env.CLASPRC_JSON || '', 'CLASPRC_JSON');
-
-if ((process.env.CLASP_PROJECT_JSON || '').trim()) {
-  writeJsonFile('.clasp.json', process.env.CLASP_PROJECT_JSON, 'CLASP_PROJECT_JSON');
-} else {
-  writeJsonFile('.clasp.json', JSON.stringify({
-    scriptId: process.env.GAS_TEST_SCRIPT_ID,
-    rootDir: '.',
-    scriptExtensions: ['.js', '.gs'],
-    htmlExtensions: ['.html'],
-    jsonExtensions: ['.json'],
-    filePushOrder: [],
-    skipSubdirectories: false
-  }), 'generated .clasp.json');
-}
-
 const manifestPath = 'appsscript.json';
 const manifest = parseJson(fs.readFileSync(manifestPath, 'utf8'), 'appsscript.json');
 manifest.executionApi = { access: 'ANYONE' };
 fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
 NODE
 
-append_summary "## GAS CI" "" "- Target: test-only Apps Script project from \`GAS_TEST_SCRIPT_ID\`" "- Source entry points: verified before push" "- Test manifest: injects \`executionApi\` in CI before push" "- Push: \`clasp push --force\`" "- Deployment: update only when \`GAS_TEST_DEPLOYMENT_ID\` is set; otherwise skip creating a new versioned deployment" "- Execution: \`clasp run\` in devMode, using the latest pushed code" "- Optional clasp user: ${clasp_user_status}" "- Tests: \`${test_functions[*]}\`" ""
+append_summary "## GAS CI" "" "- Target: test-only Apps Script project from \`GAS_TEST_SCRIPT_ID\`" "- Source entry points: verified before push" "- Test manifest: injects \`executionApi\` in CI before push" "- Project config: runner temporary file via \`clasp --project\`, with repository absolute \`rootDir\`" "- Ignore: repository \`.claspignore\` via \`clasp --ignore\`" "- Push: \`clasp --project <ci-project> --ignore <repo .claspignore> push --force\`" "- Deployment: update only when \`GAS_TEST_DEPLOYMENT_ID\` is set; otherwise skip creating a new versioned deployment" "- Execution: \`clasp --project <ci-project> run\` in devMode, using the latest pushed code" "- Optional clasp user: ${clasp_user_status}" "- Tests: \`${test_functions[*]}\`" ""
 
-run_clasp_step "clasp push" push --force
+run_clasp_step "clasp --project push" push --force
 
 if [[ -n "${GAS_TEST_DEPLOYMENT_ID:-}" ]]; then
-  run_clasp_step "clasp API executable deployment" create-deployment --deploymentId "${GAS_TEST_DEPLOYMENT_ID}" --description "${DEPLOYMENT_DESCRIPTION}"
+  run_clasp_step "clasp --project API executable deployment" create-deployment --deploymentId "${GAS_TEST_DEPLOYMENT_ID}" --description "${DEPLOYMENT_DESCRIPTION}"
 else
   echo "::notice title=Skipping deployment creation::GAS_TEST_DEPLOYMENT_ID is not set, so CI will not create a new versioned deployment. The test Apps Script project must already have API executable access configured for clasp run."
   append_summary "### API executable deployment" "- Result: SKIP" "- \`GAS_TEST_DEPLOYMENT_ID\` is not set, so CI did not create a new versioned deployment." "- The test Apps Script project must already have API executable access configured for \`clasp run\`." ""
@@ -344,7 +327,7 @@ fi
 
 if [[ ${#unavailable_functions[@]} -gt 0 ]]; then
   echo "::notice title=clasp run unavailable::clasp run was unavailable for: ${unavailable_functions[*]}. Source validation and clasp push completed."
-  append_summary "### clasp run unavailable" "- Functions: ${unavailable_functions[*]}" "- CI completed after source validation and \`clasp push --force\` because clasp could not execute the pushed function." "- Manual follow-up: run all GAS test batch functions in the Apps Script editor for code PRs, then record the result in the PR body." ""
+  append_summary "### clasp run unavailable" "- Functions: ${unavailable_functions[*]}" "- CI completed after source validation and \`clasp --project <ci-project> push --force\` because clasp could not execute the pushed function." "- Manual follow-up: run all GAS test batch functions in the Apps Script editor for code PRs, then record the result in the PR body." ""
   append_summary "### Result" "GAS source validation and clasp push passed. clasp run was unavailable, so manual GAS execution is required for full runtime confirmation."
   exit 0
 fi

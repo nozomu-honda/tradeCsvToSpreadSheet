@@ -169,7 +169,9 @@
 
 ## 進行中 / 未マージ
 
-- なし
+- Issue #71「CI用と本番反映用のclasp設定・操作を完全分離する」対応をDraft PRで準備中。
+  - CI用clasp project設定はrunner一時領域へ生成し、すべてのCI側clasp操作で `--project <CI専用設定ファイル>` を明示する方針。
+  - 本番反映はローカル専用の `.clasp.production.json`、`.clasp.productionignore`、clasp named user `production` を使う本番専用npmコマンドだけに限定する方針。
 
 ## 未完了 / 確認待ち
 
@@ -201,8 +203,9 @@ AutoHotkeyショートカットの説明は `docs/codex-shortcuts.md` を参照�
 ## 注意点
 
 - 実際のフォルダID・スプレッドシートID・WebアプリURLはコミットしない。
+- 人・Codexともに、リポジトリ直下でbareな `clasp push` を実行しない。CI操作はGitHub Actionsだけに任せ、本番反映は人間が本番専用npmコマンドで行う。
 - `appsscript.json` のOAuth scope変更後は、Webアプリの新バージョン再デプロイが必要。
 - Webアプリを「アクセスしているユーザー」として実行する場合、利用者ごとにDrive権限承認とDBフォルダ編集権限が必要。
 - `spreadsheetId` 未設定DBは Script Properties の `DB_SPREADSHEET_ID_<DB_KEY>` に実ファイルIDを保存して再利用する。
-- CIのPR必須チェック `Push test GAS project and run tests` は、`run-gas-tests` ラベル付与時だけ作成される。GAS影響ファイルがある場合はCI用GASテストバッチ関数の存在確認、`.gs` 構文チェック、`clasp push --force`、可能な場合は `runGasTestBatch01` から `runGasTestBatch09` まで全9バッチの `clasp run` を必須確認とする。`clasp run` が権限上使えない場合は Step Summary に `clasp run unavailable` と記録し、Apps Script エディタからの手動バッチ実行結果をPR本文へ残す。
+- CIのPR必須チェック `Push test GAS project and run tests` は、`run-gas-tests` ラベル付与時だけ作成される。GAS影響ファイルがある場合はCI用GASテストバッチ関数の存在確認、`.gs` 構文チェック、CI専用project設定を明示した `clasp --project <ci-project> push --force`、可能な場合は `runGasTestBatch01` から `runGasTestBatch09` まで全9バッチの `clasp run` を必須確認とする。`clasp run` が権限上使えない場合は Step Summary に `clasp run unavailable` と記録し、Apps Script エディタからの手動バッチ実行結果をPR本文へ残す。
 - PR #31 / PR #32 / PR #33 / PR #34 / PR #35 / PR #36 / PR #37 / PR #38 / PR #39 / PR #40 / PR #41 / PR #42 / PR #45 / PR #46 / PR #52 / PR #53 / PR #54 / PR #55 / PR #56 / PR #57 / PR #58 / PR #59 / PR #60 / PR #61 / PR #62 / PR #63 / PR #64 / PR #65 / PR #67 / PR #70 は develop にマージ済み。

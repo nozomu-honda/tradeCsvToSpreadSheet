@@ -82,13 +82,41 @@
 
 ## 開発フロー
 
-### 1. コード編集
-VS Code でローカル編集する。
+### 1. 初回セットアップ
 
-### 2. Apps Script へ反映
+このリポジトリでは、npm scriptからローカルに固定された `@google/clasp@3.3.0` を使う。初回または `package-lock.json` 更新後は、先に依存関係をインストールする。
 
 ```bash
-clasp push
+npm ci
+```
+
+### 2. コード編集
+VS Code でローカル編集する。
+
+### 3. Apps Script へ反映
+
+bareな `clasp push` は使わない。CI用と本番用のApps Script project設定・認証を混同しないため、用途ごとに入口を分ける。
+
+CI用の反映はGitHub Actionsだけが行う。ローカルPCからテスト専用Apps Scriptプロジェクトへ手動pushしない。
+
+本番反映は、本番専用設定を用意したうえで次のnpmコマンドだけを使う。
+
+```bash
+npm run gas:production:status
+npm run gas:production:push
+```
+
+本番用のApps Scriptエディタを開く場合だけ、次を使う。
+
+```bash
+npm run gas:production:open
+```
+
+本番反映には、ローカル専用の `.clasp.production.json` とclasp named user `production` を使う。`.clasp.production.json`、`.clasprc.json`、Script ID、Deployment ID、Web App URL、Spreadsheet URL、OAuth token、GitHub Secrets実値はコミットしない。
+
+`gas:production:status` は内部で `clasp show-file-status` を実行し、本番専用project設定と本番専用ignoreでpush対象を確認する。
+
+`gas:production:push` は、`develop` ブランチ、clean working tree、最新 `origin/develop` 一致、production認証、production専用ignore、確認入力を満たさない限り停止する。
 
 ---
 

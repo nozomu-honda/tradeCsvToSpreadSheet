@@ -4,7 +4,7 @@
 
 CI用バッチ関数は `runGasTestBatch01` から `runGasTestBatch09` までです。各バッチは `CORE_TESTS_` と `FULL_ONLY_TESTS_` を結合した `runAllTests()` 相当のテスト一覧から最大13件ずつ生成します。9バッチに収まらない数までテストが増えた場合は、公開バッチ関数とCIの実行リストを増やさない限り、バッチ定義検証で失敗します。`runAllTests()` は既存の手動確認用入口として残しますが、CIではApps Scriptの実行時間上限を避けるため、`runAllTests` の1回実行ではなく全バッチの逐次実行にします。
 
-標準GCPプロジェクトの制約やOAuth権限により `clasp run` が実行できない環境では、`clasp push --force` とソース検証をCIの必須確認とし、GAS実行本体は Apps Script エディタから手動でバッチ関数を実行します。
+標準GCPプロジェクトの制約やOAuth権限により `clasp run` が実行できない環境では、CI専用project設定を明示した `clasp --project <ci-project> push --force` とソース検証をCIの必須確認とし、GAS実行本体は Apps Script エディタから手動でバッチ関数を実行します。
 
 ## 目的
 
@@ -38,7 +38,9 @@ CI用バッチ関数は `runGasTestBatch01` から `runGasTestBatch09` までで
 
 `run-gas-tests` 以外のラベルで起動した場合は、job名を `Ignore non-GAS label` に切り替えて軽く成功させます。required check名の `Push test GAS project and run tests` は `run-gas-tests` ラベルの時だけ作られるため、通常のラベル運用でGAS checkを誤って成功させたり失敗させたりしません。
 
-`run-gas-tests` ラベル同士は古い実行をキャンセルしますが、通常ラベルの実行は別concurrency groupに分けるため、進行中のGAS最終確認runをキャンセルしません。
+GAS Tests と GAS Web App E2E は同じテスト専用 Apps Script プロジェクトへpushし、Script Propertiesも共有します。そのため、実際に共有テストprojectへ触るrunだけを、PR番号を含まない共通のconcurrency group `gas-shared-test-project` で直列化し、同時実行しません。`run-gas-tests` と `gas-web-e2e` を続けて付けた場合も、片方が完了してからもう片方が開始されます。
+
+`run-gas-tests` 以外のラベルで起動した `Ignore non-GAS label` run や、Secretsを使わないskip/guard runは、`github.run_id` を含む固有groupへ分離します。これにより、軽量なignore/skip runが、待機中のGAS TestsやWeb E2Eの実runをキャンセルしないようにします。
 
 ## 推奨マージフロー
 
@@ -76,7 +78,7 @@ required check 名は次のまま維持します。
 
 ## GAS実行対象の判定
 
-`run-gas-tests` ラベルが付いた場合でも、すべての変更でGASを実行するわけではありません。workflow内で `develop` との差分を確認し、次のようなGAS影響ファイルがある場合だけソース検証、`clasp push --force`、可能な場合は `clasp run` によるCI用バッチ関数の逐次実行を行います。
+`run-gas-tests` ラベルが付いた場合でも、すべての変更でGASを実行するわけではありません。workflow内で `develop` との差分を確認し、次のようなGAS影響ファイルがある場合だけソース検証、CI専用project設定を明示した `clasp --project <ci-project> push --force`、可能な場合は `clasp --project <ci-project> run` によるCI用バッチ関数の逐次実行を行います。
 
 - `src/**`
 - `scripts/**`
@@ -84,7 +86,9 @@ required check 名は次のまま維持します。
 - `appsscript.json`
 - `Index.html`
 - `.claspignore`
+- `.clasp.productionignore`
 - `.clasp.example.json`
+- `.clasp.production.example.json`
 - `package.json`
 - `package-lock.json`
 
@@ -104,9 +108,33 @@ required check 名は次のまま維持します。
 - `run-gas-tests` ラベルが付いた同一リポジトリPRだけがsecret-backed GAS jobに進めます。
 - forkや外部PRでは冒頭のガードで失敗し、Google Secretsを使うstepへ進みません。
 - CIの対象はテスト専用 Apps Script プロジェクトだけです。
-- `.clasp.json` と `.clasprc.json` はGitHub Secretsから生成し、リポジトリにはコミットしません。
+- CI用のclasp project設定はrunner一時領域に生成し、すべての `clasp` 呼び出しで `--project` により明示します。リポジトリ直下の `.clasp.json` は生成・利用しません。設定ファイル自体は一時領域に置きますが、`rootDir` は `GITHUB_WORKSPACE` の絶対パスに正規化し、push対象は常にリポジトリルート配下にします。`.claspignore` もリポジトリ直下のファイルを `--ignore` で明示し、CI用NodeスクリプトやdocsをGAS push対象にしません。
+- `.clasprc.json` はGitHub SecretsからCI runner上に生成し、リポジトリにはコミットしません。
 - workflowはCI runner上の `appsscript.json` にだけ `executionApi` を注入してから、テスト専用Apps Scriptへpushします。
 - CI用Googleアカウントには、本番GAS、本番Spreadsheet、本番Driveフォルダへの権限を持たせないでください。
+- 人・Codexともに、リポジトリ直下でbareな `clasp push` を実行しません。
+- 本番反映は `npm run gas:production:push` だけを使い、Codexは実行しません。
+
+## clasp設定の分離
+
+CI用:
+
+- GitHub Actions内だけで使用します。
+- project設定は `${RUNNER_TEMP}` 配下へ生成します。
+- 生成するproject設定の `rootDir` は、設定ファイルの親ディレクトリではなく、リポジトリルートの絶対パスにします。GitHub Actionsでは `GITHUB_WORKSPACE` を優先し、ローカル検証時だけ現在の作業ディレクトリを使います。
+- `CLASP_PROJECT_JSON` を使う場合も、CI側でparseしたうえで `scriptId` を `GAS_TEST_SCRIPT_ID` に上書きし、`rootDir` をリポジトリルートの絶対パスへ正規化します。相対 `srcDir` が一時領域をpush対象にしないよう、CIでは `srcDir` を使いません。
+- すべての `clasp` 呼び出しに `--project <CI専用設定ファイル>` と `--ignore <repo .claspignore>` を付けます。
+- 既存の `.claspignore` を使うため、`src/test/**` を含むGASテストコードもテスト専用Apps Scriptプロジェクトへpushできます。
+
+本番用:
+
+- ローカル専用の `.clasp.production.json` を使います。このファイルは `.gitignore` 対象で、コミットしません。
+- placeholderだけを含む `.clasp.production.example.json` をサンプルとして管理します。
+- clasp named user `production` を使い、必ず `--user production` を指定します。
+- production専用ignoreの `.clasp.productionignore` を使い、少なくとも `src/test/**` を本番Apps Scriptへpushしません。
+- 本番操作は `npm run gas:production:open`、`npm run gas:production:status`、`npm run gas:production:push` だけを使います。
+- `gas:production:status` は内部で `clasp show-file-status` を実行し、本番専用project設定と本番専用ignoreでpush対象を確認します。
+- `gas:production:push` は `develop`、clean working tree、最新 `origin/develop` 一致、production認証、production専用ignore、確認入力を満たさない限り停止します。
 
 ## 必要なGitHub Secrets
 
@@ -119,24 +147,24 @@ required check 名は次のまま維持します。
 
 - `CLASP_USER`: `clasp --user` に渡すユーザー名またはメールアドレス。`CLASPRC_JSON` を `clasp login --user <ci-user>` で生成した場合に設定します。
 - `GAS_TEST_DEPLOYMENT_ID`: テスト専用 Apps Script プロジェクトの既存API executable deployment ID。設定した場合だけ、CIが既存deploymentを更新します。未設定の場合、CIは新しいversioned deploymentを作成しません。
-- `CLASP_PROJECT_JSON`: `GAS_TEST_SCRIPT_ID` だけでは足りないclasp設定が必要な場合の `.clasp.json` 全体。
+- `CLASP_PROJECT_JSON`: `GAS_TEST_SCRIPT_ID` だけでは足りないclasp設定が必要な場合のproject設定JSON全体。CI runnerの一時ファイルへ書き込み、リポジトリ直下には作成しません。Secret内の `scriptId`、`rootDir`、`srcDir` はそのまま使わず、CI側で `GAS_TEST_SCRIPT_ID` とリポジトリルート基準へ正規化します。
 - `GOOGLE_OAUTH_CLIENT_SECRET_JSON`: 現在のclaspベースworkflowでは未使用です。将来 Apps Script API ベースへ移行する場合の候補として残します。
 
 OAuth token、Script ID、deployment ID、Spreadsheet ID、Drive folder ID、本番DB IDなどの実値はコミットしないでください。
 
-テスト専用 Apps Script プロジェクトでAPI executable accessを有効にできる場合は、`clasp run` でCI用バッチ関数をすべて自動実行します。標準GCPプロジェクトの制約などでAPI実行可能ファイルを作成できない場合や、`clasp run` の実行権限が取れない場合は、CIでは `clasp push --force` とソース検証までを確認し、GAS実行本体は Apps Script エディタから手動実行します。
+テスト専用 Apps Script プロジェクトでAPI executable accessを有効にできる場合は、`clasp run` でCI用バッチ関数をすべて自動実行します。標準GCPプロジェクトの制約などでAPI実行可能ファイルを作成できない場合や、`clasp run` の実行権限が取れない場合は、CIでは `clasp --project <ci-project> push --force` とソース検証までを確認し、GAS実行本体は Apps Script エディタから手動実行します。
 
 ## 実行内容
 
 GAS実行対象と判定された場合、workflowは次を行います。
 
 1. `CLASPRC_JSON` から `~/.clasprc.json` を生成する。
-2. `GAS_TEST_SCRIPT_ID` から `.clasp.json` を生成する。`CLASP_PROJECT_JSON` がある場合はそちらを使う。
-3. `CLASP_USER` がある場合は `clasp --user "$CLASP_USER" ...` として実行する。
+2. `GAS_TEST_SCRIPT_ID` からrunner一時領域にCI専用project設定JSONを生成する。`CLASP_PROJECT_JSON` がある場合もそのまま書き込まず、`scriptId`、`rootDir`、`srcDir` をCI側で正規化する。
+3. `CLASP_USER` がある場合は `clasp --user "$CLASP_USER" ...` として実行し、すべての `clasp` 呼び出しで `--project <CI専用設定ファイル>` を明示する。
 4. ソース管理された `.gs` / `.js` ファイル内にCI用バッチ関数がすべて存在することを確認する。
 5. `.gs` ファイルを Node VM parser で構文チェックする。GAS固有APIの実行はしない。
 6. CI runner上の `appsscript.json` に `executionApi: { access: 'ANYONE' }` を注入する。
-7. テスト専用 Apps Script プロジェクトへ `clasp push --force` する。
+7. テスト専用 Apps Script プロジェクトへ `clasp --project <ci-project> push --force` する。
 8. `GAS_TEST_DEPLOYMENT_ID` が設定されている場合だけ、API executable deployment を更新する。未設定の場合は、新しいversioned deploymentを作成せずスキップする。
 9. 最新のpush済みコードに対して `clasp run runGasTestBatch01` から `runGasTestBatch09` までを順番に試行する。`clasp push` とdeployment更新は1回だけ行う。
 10. 各バッチの開始時に、Apps Script側でバッチ定義の欠落・重複・公開入口数の不一致を検証する。実行権限エラーで使えない場合だけ `clasp run unavailable` として記録し、手動実行へ切り替える。
@@ -150,7 +178,7 @@ workflowは次の場合に明示的に失敗します。
 - forkまたは外部PRで `run-gas-tests` ラベルが付いた。
 - ソース管理された `.gs` / `.js` ファイル内にCI用バッチ関数がない。
 - `.gs` ファイルの Node VM 構文チェックに失敗した。
-- `clasp push --force` に失敗した。
+- CI専用project設定を明示した `clasp push` に失敗した。
 - `clasp push`、`clasp create-deployment`、`clasp run` の出力に `No credentials found` が含まれる。
 - `clasp run` の出力に `Script function not found` が含まれる。
 - GASテスト出力に `NG`、`Exception`、`Error:`、`Exceeded maximum execution time` が含まれる。
@@ -158,10 +186,10 @@ workflowは次の場合に明示的に失敗します。
 
 つまり、GAS側のいずれかのCI用バッチ関数の実結果が失敗した場合、GitHub Actionsのcheckも失敗します。
 
-一方、`Unable to run script function`、`not authorized to execute the function`、`clasp was not authorized` など、`clasp run` の実行権限が原因と判断できる場合は、CI全体は失敗させません。GitHub Step Summary に `clasp run unavailable` と明記し、`clasp push --force` とソース検証が通ったことをもってrequired checkを成功させます。このfallbackは認証・実行権限の問題に限定し、テスト失敗や実行時間超過には使いません。
+一方、`Unable to run script function`、`not authorized to execute the function`、`clasp was not authorized` など、`clasp run` の実行権限が原因と判断できる場合は、CI全体は失敗させません。GitHub Step Summary に `clasp run unavailable` と明記し、`clasp --project <ci-project> push --force` とソース検証が通ったことをもってrequired checkを成功させます。このfallbackは認証・実行権限の問題に限定し、テスト失敗や実行時間超過には使いません。
 
 ## 手動GASテスト
 
 既存のApps Scriptエディタ上での手動テスト運用は残します。`clasp run unavailable` になったコード変更PRでは、必要に応じて Apps Script エディタから `runGasTestBatch01` から `runGasTestBatch09` までを手動実行し、結果をPR本文へ残してください。`runAllTests()` は従来どおり手動の一括確認用に残しますが、実行時間上限に近い場合はバッチ関数を使います。
 
-ローカルでclaspを使う場合は、未追跡の `.clasp.json` を `.clasp.example.json` から作成し、必ず非本番のApps Scriptプロジェクトを指定してください。
+ローカルで本番Apps Scriptを操作する場合は、未追跡の `.clasp.production.json` を `.clasp.production.example.json` から作成し、clasp named user `production` で認証してください。bareな `clasp push` やリポジトリ直下の `.clasp.json` に依存する運用は使いません。

@@ -3,7 +3,9 @@ set -Eeuo pipefail
 
 readonly SUMMARY_FILE="${GITHUB_STEP_SUMMARY:-}"
 readonly CLASP_RC_PATH="${HOME}/.clasprc.json"
-readonly CLASP_PROJECT_PATH=".clasp.json"
+readonly CLASP_PROJECT_PATH="${RUNNER_TEMP:-/tmp}/gas-web-e2e-clasp-project.json"
+readonly CI_REPO_ROOT="${GITHUB_WORKSPACE:-${PWD}}"
+readonly CLASP_IGNORE_PATH="${CI_REPO_ROOT}/.claspignore"
 readonly DEPLOYMENT_DESCRIPTION="GAS Web E2E ${GITHUB_SHA:-local} ${GITHUB_RUN_ID:-manual}"
 readonly WEBAPP_PROBE_PATH="${RUNNER_TEMP:-/tmp}/gas-webapp-probe.html"
 readonly CLASP_DEPLOY_LOG="${RUNNER_TEMP:-/tmp}/clasp-deploy.log"
@@ -11,8 +13,9 @@ readonly CLASP_DEPLOYMENTS_LOG="${RUNNER_TEMP:-/tmp}/clasp-deployments.log"
 readonly WEBAPP_DEPLOY_MODE="${GAS_WEB_E2E_DEPLOY_MODE:-dynamic-public}"
 readonly MANIFEST_BACKUP_PATH="${RUNNER_TEMP:-/tmp}/gas-web-e2e-appsscript.json.bak"
 readonly DB_CONFIG_BACKUP_PATH="${RUNNER_TEMP:-/tmp}/gas-web-e2e-db_config.gs.bak"
+export CLASP_PROJECT_PATH
 
-clasp_command=(clasp)
+clasp_command=(clasp --project "${CLASP_PROJECT_PATH}" --ignore "${CLASP_IGNORE_PATH}")
 clasp_user_status="not configured"
 if [[ -n "${CLASP_USER:-}" ]]; then
   clasp_command+=(--user "${CLASP_USER}")
@@ -155,9 +158,10 @@ echo "::endgroup::"
 cp appsscript.json "${MANIFEST_BACKUP_PATH}"
 cp src/app/db_config.gs "${DB_CONFIG_BACKUP_PATH}"
 
+node scripts/ci/write-ci-clasp-config.js
+
 node <<'NODE'
 const fs = require('fs');
-const os = require('os');
 
 function parseJson(raw, label) {
   try {
@@ -166,27 +170,6 @@ function parseJson(raw, label) {
     console.error(`::error title=Invalid ${label}::${error.message}`);
     process.exit(1);
   }
-}
-
-function writeJsonFile(path, raw, label) {
-  const parsed = parseJson(raw, label);
-  fs.writeFileSync(path, JSON.stringify(parsed, null, 2) + '\n', { mode: 0o600 });
-}
-
-writeJsonFile(`${os.homedir()}/.clasprc.json`, process.env.CLASPRC_JSON || '', 'CLASPRC_JSON');
-
-if ((process.env.CLASP_PROJECT_JSON || '').trim()) {
-  writeJsonFile('.clasp.json', process.env.CLASP_PROJECT_JSON, 'CLASP_PROJECT_JSON');
-} else {
-  writeJsonFile('.clasp.json', JSON.stringify({
-    scriptId: process.env.GAS_TEST_SCRIPT_ID,
-    rootDir: '.',
-    scriptExtensions: ['.js', '.gs'],
-    htmlExtensions: ['.html'],
-    jsonExtensions: ['.json'],
-    filePushOrder: [],
-    skipSubdirectories: false
-  }), 'generated .clasp.json');
 }
 
 const manifestPath = 'appsscript.json';
@@ -217,11 +200,13 @@ append_summary \
   "- Deploy mode: \`${WEBAPP_DEPLOY_MODE}\`" \
   "- Test manifest: injects \`webapp.access = ANYONE_ANONYMOUS\` and \`webapp.executeAs = USER_DEPLOYING\` before push" \
   "- Test storage: clears \`DB_CONFIG.DB_FOLDER_ID\` and fixed TEST_OUTPUT ID in the CI-local source before push" \
-  "- Push: \`clasp push --force\`" \
+  "- Project config: runner temporary file via \`clasp --project\`, with repository absolute \`rootDir\`" \
+  "- Ignore: repository \`.claspignore\` via \`clasp --ignore\`" \
+  "- Push: \`clasp --project <ci-project> --ignore <repo .claspignore> push --force\`" \
   "- Optional clasp user: ${clasp_user_status}" \
   ""
 
-echo "::group::clasp push"
+echo "::group::clasp --project push"
 "${clasp_command[@]}" push --force
 echo "::endgroup::"
 cleanup_manifest_backup() {
@@ -236,7 +221,7 @@ cleanup_manifest_backup() {
 }
 cleanup_manifest_backup
 
-echo "::group::clasp deployments"
+echo "::group::clasp --project deployments"
 set +e
 "${clasp_command[@]}" deployments --json > "${CLASP_DEPLOYMENTS_LOG}" 2>&1
 deployments_exit=$?
@@ -280,7 +265,7 @@ webapp_url=""
 dynamic_deployment_id=""
 
 if [[ "${WEBAPP_DEPLOY_MODE}" == "dynamic-public" ]]; then
-  echo "::group::clasp deploy dynamic public Web app"
+  echo "::group::clasp --project deploy dynamic public Web app"
   set +e
   "${clasp_command[@]}" deploy \
     --json \
@@ -311,7 +296,7 @@ if [[ "${WEBAPP_DEPLOY_MODE}" == "dynamic-public" ]]; then
   append_summary "### Web app deployment" "- Result: created dynamic public deployment" "- Cleanup: deployment will be deleted after the job" ""
   echo "::endgroup::"
 elif [[ "${WEBAPP_DEPLOY_MODE}" == "fixed-url" ]]; then
-  echo "::group::clasp deploy fixed Web app"
+  echo "::group::clasp --project deploy fixed Web app"
   set +e
   "${clasp_command[@]}" deploy \
     --json \

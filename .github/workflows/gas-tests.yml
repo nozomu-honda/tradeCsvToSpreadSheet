@@ -12,8 +12,15 @@ permissions:
   checks: read
 
 concurrency:
-  group: gas-tests-${{ github.event.pull_request.number }}-${{ github.event.label.name == 'run-gas-tests' && 'final' || github.run_id }}
-  cancel-in-progress: true
+  group: >-
+    ${{
+      (
+        github.event_name == 'pull_request' &&
+        github.event.label.name == 'run-gas-tests' &&
+        github.event.pull_request.head.repo.full_name == github.repository
+      ) && 'gas-shared-test-project' || format('gas-tests-skip-{0}', github.run_id)
+    }}
+  cancel-in-progress: false
 
 jobs:
   gas-tests:
@@ -75,7 +82,7 @@ jobs:
 
           is_gas_impacting_file() {
             case "$1" in
-              src/*|scripts/*|.github/workflows/*|appsscript.json|Index.html|.claspignore|.clasp.example.json|package.json|package-lock.json)
+              src/*|scripts/*|.github/workflows/*|appsscript.json|Index.html|.claspignore|.clasp.productionignore|.clasp.example.json|.clasp.production.example.json|package.json|package-lock.json)
                 return 0
                 ;;
               *)

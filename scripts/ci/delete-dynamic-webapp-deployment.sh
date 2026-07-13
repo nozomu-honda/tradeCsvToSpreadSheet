@@ -3,10 +3,13 @@ set -Eeuo pipefail
 
 readonly SUMMARY_FILE="${GITHUB_STEP_SUMMARY:-}"
 readonly CLASP_RC_PATH="${HOME}/.clasprc.json"
-readonly CLASP_PROJECT_PATH=".clasp.json"
+readonly CLASP_PROJECT_PATH="${RUNNER_TEMP:-/tmp}/gas-web-e2e-cleanup-clasp-project.json"
+readonly CI_REPO_ROOT="${GITHUB_WORKSPACE:-${PWD}}"
+readonly CLASP_IGNORE_PATH="${CI_REPO_ROOT}/.claspignore"
 readonly DELETE_LOG="${RUNNER_TEMP:-/tmp}/clasp-delete-webapp-deployment.log"
+export CLASP_PROJECT_PATH
 
-clasp_command=(clasp)
+clasp_command=(clasp --project "${CLASP_PROJECT_PATH}" --ignore "${CLASP_IGNORE_PATH}")
 clasp_user_status="not configured"
 if [[ -n "${CLASP_USER:-}" ]]; then
   clasp_command+=(--user "${CLASP_USER}")
@@ -60,42 +63,9 @@ if [[ -n "${CLASP_USER:-}" ]]; then
   echo "::add-mask::${CLASP_USER}"
 fi
 
-node <<'NODE'
-const fs = require('fs');
-const os = require('os');
+node scripts/ci/write-ci-clasp-config.js
 
-function parseJson(raw, label) {
-  try {
-    return JSON.parse(raw);
-  } catch (error) {
-    console.error(`::error title=Invalid ${label}::${error.message}`);
-    process.exit(1);
-  }
-}
-
-function writeJsonFile(path, raw, label) {
-  const parsed = parseJson(raw, label);
-  fs.writeFileSync(path, JSON.stringify(parsed, null, 2) + '\n', { mode: 0o600 });
-}
-
-writeJsonFile(`${os.homedir()}/.clasprc.json`, process.env.CLASPRC_JSON || '', 'CLASPRC_JSON');
-
-if ((process.env.CLASP_PROJECT_JSON || '').trim()) {
-  writeJsonFile('.clasp.json', process.env.CLASP_PROJECT_JSON, 'CLASP_PROJECT_JSON');
-} else {
-  writeJsonFile('.clasp.json', JSON.stringify({
-    scriptId: process.env.GAS_TEST_SCRIPT_ID,
-    rootDir: '.',
-    scriptExtensions: ['.js', '.gs'],
-    htmlExtensions: ['.html'],
-    jsonExtensions: ['.json'],
-    filePushOrder: [],
-    skipSubdirectories: false
-  }), 'generated .clasp.json');
-}
-NODE
-
-echo "::group::delete dynamic Web app deployment"
+echo "::group::clasp --project delete dynamic Web app deployment"
 set +e
 "${clasp_command[@]}" delete-deployment "${GAS_WEB_E2E_DYNAMIC_DEPLOYMENT_ID}" > "${DELETE_LOG}" 2>&1
 delete_exit=$?
