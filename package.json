@@ -10,6 +10,7 @@
     "test:gas-production-wrapper": "node scripts/ci/check-gas-production-wrapper.js"
   },
   "devDependencies": {
+    "@google/clasp": "3.3.0",
     "@playwright/test": "^1.61.1"
   }
 }

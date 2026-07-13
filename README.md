@@ -82,10 +82,18 @@
 
 ## 開発フロー
 
-### 1. コード編集
+### 1. 初回セットアップ
+
+このリポジトリでは、npm scriptからローカルに固定された `@google/clasp@3.3.0` を使う。初回または `package-lock.json` 更新後は、先に依存関係をインストールする。
+
+```bash
+npm ci
+```
+
+### 2. コード編集
 VS Code でローカル編集する。
 
-### 2. Apps Script へ反映
+### 3. Apps Script へ反映
 
 bareな `clasp push` は使わない。CI用と本番用のApps Script project設定・認証を混同しないため、用途ごとに入口を分ける。
 

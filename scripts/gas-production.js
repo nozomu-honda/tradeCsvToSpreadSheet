@@ -172,8 +172,8 @@ function run(bin, args, options) {
     ...options,
   };
 
-  if (process.platform === 'win32' && bin === 'clasp') {
-    const executable = resolveWindowsCommand(bin);
+  if (bin === 'clasp') {
+    const executable = resolveClaspCommand();
     if (!executable) {
       return {
         status: null,
@@ -182,6 +182,11 @@ function run(bin, args, options) {
         stderr: '',
       };
     }
+
+    if (process.platform !== 'win32') {
+      return spawnSync(executable, args, baseOptions);
+    }
+
     const commandLine = [executable, ...args].map(quoteWindowsShellArg).join(' ');
     return spawnSync(commandLine, {
       ...baseOptions,
@@ -192,9 +197,26 @@ function run(bin, args, options) {
   return spawnSync(bin, args, baseOptions);
 }
 
+function resolveClaspCommand() {
+  const localBin = path.join(ROOT_DIR, 'node_modules', '.bin');
+  const localCommand = resolveCommandFromDirs('clasp', [localBin]);
+  if (localCommand) {
+    return localCommand;
+  }
+
+  return resolveWindowsCommand('clasp');
+}
+
 function resolveWindowsCommand(command) {
   const pathDirs = (process.env.PATH || process.env.Path || '').split(path.delimiter).filter(Boolean);
+  return resolveCommandFromDirs(command, pathDirs);
+}
+
+function resolveCommandFromDirs(command, pathDirs) {
   const extensions = ['.cmd', '.exe', '.bat'];
+  if (process.platform !== 'win32') {
+    extensions.unshift('');
+  }
 
   for (const dir of pathDirs) {
     for (const extension of extensions) {
