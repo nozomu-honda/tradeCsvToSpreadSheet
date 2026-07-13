@@ -1,164 +1,158 @@
 # TODO / 引き継ぎメモ
 
-このファイルは、次チャットへ安全に引き継ぐための **現状整理・未反映差分・次に見るべき場所** をまとめる。  
-確定仕様は `spec.md` と `trade-rules.md` を正とする。
+このファイルは、次に実装・確認する候補だけをまとめる。
+現在の状態判断は `docs/current-status.md` を正とし、古い推測ベースの記述は使わない。
 
----
+## 現在の前提
 
-## 1. 現在のコード状態（ざっくり）
+- 最新 `develop` では、Issue #71 / PR #72 のclasp分離対応は完了済み。
+- 最新 `develop` では、Issue #73 / PR #74 のclasp運用ガイド整理は完了済み。
+- 楽天DBの専用ヘッダー対応、楽天DBから共通計算モデルへの変換、楽天配当金の手入力列対応は完了済み。
+- Web UIの6シート表記、外債件数表示、タブ順固定、`runStagingSheetFromWebApp` の重複整理は完了済み。
+- `runSmokeTests()` と `runAllTests()` は未実装タスクではなく、既存の手動テスト入口として扱う。
+- 本番Apps Scriptへのpushと本番Webアプリ再デプロイは未実施。
 
-### 1.1 すでにコードへ反映済みの可能性が高いもの
-- `config.gs`
-  - `OUTPUT_FOREIGN_BOND = '外債'`
-- `builder.gs`
-  - 外貨買付系簿価は `受渡金額 × レート - 税額`
-  - `入金（分配金）` は簿価・銘柄ごとの残高を増やさない
-- `source_routing_rakuten_phase1.gs`
-  - 楽天日本株 / 米国株 / 投信 / 配当金・分配金 / 入出金履歴の検出・正規化あり
-- `writer.gs`
-  - `外債` シートの非表示列設定あり
-- `db_config.gs`
-  - `test DB` あり
-  - `test DB` 用固定出力Spreadsheet設定あり
-- `test_runner.gs`
-  - 6シートテストあり
-  - 外債 writer テストあり
-  - 外貨買付簿価のテストあり
+## 次の開発候補
 
-### 1.2 まだ未反映差分の可能性が高いもの
-- `web.gs`
-  - `doGet()` タイトルが `4シート生成` のままの可能性
-  - `runStagingSheetFromWebApp` が重複定義の可能性
-- `Index.html`
-  - 見出し / ボタン文言が `5シート生成` のままの可能性
-  - 実行結果表示に `外債件数` がない可能性
-- タブ順固定
-  - `reorderOutputSheets_()` 相当が未実装または未接続の可能性
-  - 固定出力Spreadsheet再利用時に古いタブ順を引きずる可能性
+### 1. 野村共通CSV Web E2E
 
----
+次の開発対象は、野村共通CSVのWeb App E2Eを追加すること。
 
-## 2. 次チャットで最初に確認するファイル
+確認したいこと:
 
-### 2.1 必須
-- `src/app/web.gs`
-- `Index.html`
-- `src/app/import.gs`
-- `src/app/db.gs`
-- `src/app/config.gs`
-- `src/app/writer.gs`
-- `src/app/builder.gs`
-- `src/app/db_config.gs`
-- `src/test/test_runner.gs`
+- Web UIから野村共通CSVをアップロードできる。
+- `nomura_test` へ保存される。
+- 楽天DBへ誤ルーティングされない。
+- 6シート出力が作成される。
+- 出力リンクから主要シートと主要セルを検査できる。
+- cleanup / rollback が成功する。
+- 実URL、Spreadsheet ID、Drive folder ID、tokenをログやfixtureへ出さない。
 
-### 2.2 余裕があれば
-- `src/test/test_output_split.gs`
-- `src/test/test_writer.gs`
-- `src/test/test_trade_rows.gs`
+### 2. 外債Web E2E
 
----
+野村共通CSV Web E2Eの後に、外債を含むWeb App E2Eを追加する。
 
-## 3. 最新の合意仕様
+確認したいこと:
 
-### 3.1 出力
-- 6シート出力
-- `外債` は `米国株` から分離
-- タブ順は  
-  `元データ → 日本株 → 米国株 → 外債 → 投信 → 金銭残高（円） → 金銭残高（ドル）`
+- 外債行が `外債` シートへ出力される。
+- `米国株` へ混ざらない。
+- 実行結果に `外債件数` が出る。
+- タブ順が崩れない。
+- 外債の主要列、為替レート、簿価、金銭残高への影響を確認できる。
 
-### 3.2 UI
-- タイトルは `6シート生成`
-- 実行ボタンも `6シート生成`
-- 実行結果に `外債件数` を表示
+### 3. 大容量CSV Web E2E
 
-### 3.3 計算
-- 外貨買付系簿価は  
-  `受渡金額 × レート - 手数料の消費税額`
-- `入金（分配金）` は簿価・銘柄ごとの残高を増やさない
-- 平均取得単価は内部小数保持、表示整数
-- 売却簿価は `-acquisitionPrice`
+代表的な大容量CSVで、Web UIからのアップロード、取込、出力、cleanupが現実的な時間内に終わることを確認する。
 
-### 3.4 一次受け枠
-- CSVリンク / スプレッドシートURLまたはID / ローカルCSVファイル の3系統で作成可能
-- 赤セルは必須入力
-- `test DB` だけ赤セル必須入力バリデーションをスキップ可能
+確認したいこと:
 
-### 3.5 DB
-- `test DB` は固定確認用Spreadsheetへ再出力可能
-- 重複判定は `rowHash`
-- ロールバックは `importId` 単位の論理削除
-- 楽天DBは、将来的に野村共通 `DB_HEADERS` ではなく楽天専用 `RAKUTEN_DB_HEADERS` へ保存する
-- 楽天入力処理 / 楽天DB保存 / 楽天出力 / 楽天ロールバックは野村処理から分離し、計算コアだけ共通利用する
-- 楽天配当金CSVでは `レート` / `現地源泉税［円］` / `国内源泉税［円］` を楽天専用補完列として扱う
+- ブラウザ操作がタイムアウトしない。
+- GAS実行時間上限に近づくケースを検知できる。
+- 重複判定や件数表示が大きい入力でも崩れない。
+- fixtureやログに実運用データを含めない。
 
----
+### 4. 入力異常系Web E2E
 
-## 4. 次にやること
+header不足、不正CSV、重複importなどの異常系をWeb UI経由で確認する。
 
-### 4.1 最優先
-- [ ] 楽天DB保存処理を `RAKUTEN_DB_HEADERS` ベースに切り替えるPRを分けて作る
-- [ ] 楽天DBレコードから共通計算モデルへ変換する処理を設計/実装する
-- [ ] 楽天配当金CSVの手入力3カラムの検出・バリデーションを追加する
-- [ ] `web.gs` のタイトル文言確認
-- [ ] `Index.html` の見出し / 実行ボタン文言確認
-- [ ] 実行結果表示へ `外債件数` を追加
-- [ ] タブ順固定 helper を実装または接続
-- [ ] `runStagingSheetFromWebApp` の重複定義整理
-- [ ] `runSmokeTests`
-- [ ] `runAllTests`
+候補:
 
-### 4.2 実データ確認
-- [ ] 6シート出力で `外債` が独立タブに出ることを確認
-- [ ] タブ順が `日本株 → 米国株 → 外債 → 投信` になることを確認
-- [ ] `入金（分配金）` で簿価・残高が増えないことを確認
-- [ ] 外貨買付系簿価が `受渡金額 × レート - 税額` になっていることを確認
-- [ ] 約定日 / 受渡日 の日付ずれが再発しないことを確認
-- [ ] 楽天投資信託CSVを実取込して `投信` に出ることを確認
-- [ ] 楽天配当金・分配金CSVを実取込して `入金（配当金）` / `入金（分配金）` と金銭残高に出ることを確認
-- [ ] 楽天入出金履歴CSVを実取込して `入金（振込）` / `出金（振込）` と金銭残高に出ることを確認
+- 必須header不足。
+- 不正なCSV構造。
+- 空ファイル。
+- サポート外フォーマット。
+- 同じCSVの再投入による `insertedCount = 0` / `skippedCount = rowCount`。
+- 一部重複を含むCSVで `insertedCount > 0` / `skippedCount > 0`。
+- 赤セル必須入力と `test DB` のバリデーションスキップ境界。
 
-### 4.3 DB確認
-- [ ] 同じ入力を再投入して `insertedCount = 0` / `skippedCount = rowCount` を確認
-- [ ] 一部重複を含む別入力を投入して `insertedCount > 0` / `skippedCount > 0` を確認
-- [ ] `test DB` の固定出力Spreadsheet再利用が維持されることを確認
-- [ ] `取引DB` と `取込履歴` を目視確認
+### 5. rollback異常系Web E2E
 
----
+rollbackの正常系は既存E2Eで使っているが、異常系の明示確認は残っている。
 
-## 5. テスト運用メモ
+候補:
 
-- `runSmokeTests`
-  - 軽い確認
-  - ロジック破壊の早期検知用
-- `runAllTests`
-  - writer 系も含むフル確認
-- 固定Spreadsheet再利用運用
-  - Script Properties
-  - テスト用フォルダ
-  - safer sync
-  - auto ensure
-- `test DB`
-  - 赤セルバリデーションを無視して後続確認用
-  - 固定出力Spreadsheetへ上書き出力
+- 存在しない `importId`。
+- すでにrollback済みの `importId`。
+- 対象DBを間違えた場合。
+- 楽天入力後に実際の追加先DBへrollback対象が合うこと。
+- cleanup helperの失敗時にworkflowが失敗すること。
 
----
+### 6. 楽天の実運用データ確認
 
-## 6. よくあるハマりどころ
+代表fixtureではなく、実運用に近いデータで確認する。
 
-- `Index.html` だけ直して `web.gs` のタイトルが古いまま残る
-- `config.gs` / `writer.gs` / テストは6シート化済みでも、UIだけ5シート表記のまま残る
-- 固定出力Spreadsheetを再利用していると、タブ順が前回状態を引きずる
-- `builder.gs` の計算式修正後に、旧テスト名が runner に残る
-- `runStagingSheetFromWebApp` の重複定義が残ると、見た目上わかりづらい
+確認対象:
 
----
+- 楽天米国株。
+- 楽天投資信託。
+- 楽天金銭残高。
+- 楽天配当金・分配金。
+- 楽天元本払戻金。
+- 楽天入出金履歴。
 
-## 7. 次チャット用メモ
+注意:
 
-次チャットでは、まず **コードの現状確認 → 未反映差分の最小修正 → docs / テスト整合** の順で進める。  
-特に優先順位は次のとおり。
+- 実Spreadsheet ID、Drive folder ID、口座情報、個人情報をIssue/PR/docsへ貼らない。
+- 必要なら匿名化したfixtureを別PRで追加する。
 
-1. `web.gs` / `Index.html`
-2. タブ順固定
-3. 実データ確認
-4. docs 最終整合
+### 7. 楽天の残りの専用出力対応
+
+楽天配当金・分配金・元本払戻金は、既存楽天タブと金銭残高への代表値反映まで進んでいる。
+ただし、Driveの最終見た目に近い全列・全ケースの専用出力再現は残っている。
+
+候補:
+
+- 楽天米国株配当の全列再現。
+- 楽天投信分配金の全列再現。
+- 楽天元本払戻金の全列再現。
+- 楽天cash系出力の実運用データ確認後の不足列補完。
+
+## 運用上の未完了事項
+
+- 本番Apps Scriptへの `npm run gas:production:push`。
+- 本番Webアプリの新バージョン再デプロイ。
+- 本番Webアプリの主要画面確認。
+- 別ユーザーでのDrive OAuth承認確認。
+- 別ユーザーでのDBフォルダ編集権限確認。
+- 楽天専用ロールバックUIの実運用表示確認。
+
+## テスト運用メモ
+
+- `runSmokeTests()`
+  - 軽い手動確認用。
+  - ロジック破壊の早期検知に使う。
+- `runAllTests()`
+  - 手動の一括確認用。
+  - テスト件数が多く、Apps Scriptの実行時間上限に近い場合はCI用バッチ関数を使う。
+- `runGasTestBatch01()` から `runGasTestBatch09()`
+  - CI用。
+  - `runAllTests()` 相当のテスト一覧を分割して実行する。
+- PRのGAS最終確認
+  - `run-gas-tests` ラベルを付ける。
+  - `Push test GAS project and run tests` の成功を確認する。
+- PRのWeb App E2E確認
+  - `gas-web-e2e` ラベルまたは `workflow_dispatch` で起動する。
+  - `Deploy test Web app and run Rakuten Playwright E2E` の成功を確認する。
+
+## 完了済みとして未完了一覧へ戻さない項目
+
+- 楽天DBの `RAKUTEN_DB_HEADERS` 保存。
+- 楽天DBレコードから共通計算モデルへの変換。
+- 楽天配当金CSVの手入力3列対応。
+- Web UIの6シート表記。
+- 実行結果の外債件数表示。
+- 出力タブ順固定。
+- `runStagingSheetFromWebApp` の重複整理。
+- `runSmokeTests()` / `runAllTests()` のソース管理。
+- CI用と本番用のclasp設定分離。
+- clasp反映手順の `docs/clasp-operations.md` への整理。
+
+## 関連ドキュメント
+
+- 現状整理: `docs/current-status.md`
+- GAS CI詳細: `docs/gas-ci.md`
+- Web App E2E詳細: `docs/gas-web-e2e.md`
+- clasp反映手順: `docs/clasp-operations.md`
+- 仕様: `docs/spec.md`
+- 取引ルール: `docs/trade-rules.md`
+- Codex依頼テンプレート: `docs/codex-prompts.md`
