@@ -1,5 +1,7 @@
 # GAS CI
 
+CI用と本番用のどちらへ、どのコマンドで反映するかを先に確認したい場合は、[`clasp-operations.md`](clasp-operations.md)を参照してください。このドキュメントではGAS CI内部の詳細を説明します。
+
 このリポジトリは Google Apps Script / V8 のプロジェクトです。GAS CI は、GitHub Actions からテスト専用 Apps Script プロジェクトへ clasp でソースを反映し、ソース検証後に可能な場合だけ GAS 上のCI用バッチ関数を `clasp run` で順番に実行します。
 
 CI用バッチ関数は `runGasTestBatch01` から `runGasTestBatch09` までです。各バッチは `CORE_TESTS_` と `FULL_ONLY_TESTS_` を結合した `runAllTests()` 相当のテスト一覧から最大13件ずつ生成します。9バッチに収まらない数までテストが増えた場合は、公開バッチ関数とCIの実行リストを増やさない限り、バッチ定義検証で失敗します。`runAllTests()` は既存の手動確認用入口として残しますが、CIではApps Scriptの実行時間上限を避けるため、`runAllTests` の1回実行ではなく全バッチの逐次実行にします。
