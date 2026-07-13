@@ -1,11 +1,11 @@
 # GAS Web App E2E
 
-最小構成の GAS Web アプリ E2E は、CI runnerの一時project設定を `clasp --project` で明示してテスト専用 Apps Script プロジェクトへpushし、GitHub Actions から開ける一時 Web アプリ deployment を作成してから Playwright で楽天CSVアップロードの代表ケースを確認する。
+最小構成の GAS Web アプリ E2E は、CI runnerの一時project設定を `clasp --project` で明示してテスト専用 Apps Script プロジェクトへpushし、GitHub Actions から開ける一時 Web アプリ deployment を作成してから Playwright で野村・楽天CSVアップロードの代表ケースを確認する。
 
 ## 方針
 
 - PR #43 の古い楽天配当金 7 件 E2E は使わず、現在の `develop` に合わせて小さく作り直す。
-- 初回対象は楽天日本株 CSV アップロード 1 ケースだけにした。現在は楽天日本株、楽天米国株、楽天投資信託、楽天入出金履歴、楽天配当金・分配金・元本払戻金の代表ケースを確認する。
+- 初回対象は楽天日本株 CSV アップロード 1 ケースだけにした。現在は野村共通CSVの日本株1ケースに加え、楽天日本株、楽天米国株、楽天投資信託、楽天入出金履歴、楽天配当金・分配金・元本払戻金の代表ケースを確認する。
 - 外部スプレッドシート URL は使わず、Playwright のローカル CSV fixture をアップロードする。
 - workflow は `workflow_dispatch` または同一リポジトリ PR に `gas-web-e2e` ラベルが付いた時だけ実行する。
 - `pull_request_target` は使わない。
@@ -18,8 +18,8 @@
 - 同じく push 直前の CI ローカル source にだけ、`DB_CONFIG.DB_FOLDER_ID` と固定 TEST_OUTPUT Spreadsheet ID を空にする。これにより、動的公開E2Eは clasp 実行ユーザーがアクセスできない既存Driveフォルダや固定Spreadsheetへ向かわず、テスト専用projectの実行ユーザーDrive rootに test DB / test output を作成または再利用する。リポジトリ上の `db_config.gs` は変更しない。
 - 既定の `dynamic-public` モードでは、CI run ごとに一時 Web アプリ deployment を作成し、その `/exec` URL を Playwright にだけ渡す。実 URL はログに出さず、GitHub Actions の mask 対象にする。
 - `CI_E2E_TOKEN` Script Property が設定されているテストprojectでは、Web アプリの server function は token 付き payload を必須にする。Script Property が未設定の初回は、token 保護された `prepareE2EWebAppRun` が GitHub Secret 由来の payload から初期化する。Playwright は token を URL や DOM には出さず、`google.script.run` の payload にだけ含める。
-- E2E 開始時に token 保護された `prepareE2EWebAppRun` を呼び、`nomura_test` / `rakuten_test` などの test DB だけ root storage mode を有効化する。
-- 出力リンクが作成された後は、token 保護された `inspectE2EOutputSpreadsheetFromWebApp` で出力 Spreadsheet の主要シート名と主要セル値を確認する。全セル完全一致ではなく、楽天CSV fixture の一意な銘柄名・ティッカー・ファンド名・入出金摘要が期待シートに出ていることを最小限確認する。
+- E2E 開始時に token 保護された `prepareE2EWebAppRun` を呼び、ケースごとに指定した `nomura_test` / `rakuten_test` などの test DB だけ root storage mode を有効化する。Playwright helper は、準備対象DB、UIで選ぶDB、期待する実追加先DB、期待するDB種別、出力Spreadsheet検査DB、cleanup/rollback DBをケースごとに明示して検証する。
+- 出力リンクが作成された後は、token 保護された `inspectE2EOutputSpreadsheetFromWebApp` で出力 Spreadsheet の主要シート名と主要セル値を確認する。全セル完全一致ではなく、CSV fixture の一意な銘柄コード、銘柄名、ティッカー、ファンド名、入出金摘要が期待シートに出ていることを最小限確認する。
 - PR #63 時点では、検査helperがデフォルト25行 / 40列、最大100行 / 80列の `getDisplayValues()` 結果をクライアントへ返し、Playwright側で列検索していた。この方式は、test DBに有効レコードが残る、fixture明細が増える、出力列が増える、といった場合に正しい出力でも期待値が取得範囲外になり得る。
 - 現在は条件検索方式とし、Playwrightは `requiredSheets` / `absentSheets` / `checks` / `rowChecks` だけをpayloadに渡す。GAS側は許可済みシートの1行目から `headerName` を完全一致で探し、`checks` では見つけた列の実最終行まで `expectedValue` を完全一致検索する。`rowChecks` ではアンカー列・値で候補行を探し、その同じ行にある複数列を完全一致で検査する。クライアントへは存在判定、検出可否、列番号、行番号など最小限の結果だけを返し、セル全体の二次元配列は返さない。
 - `checks` は後方互換用の単独列検索であり、複数列が同じ明細行にあることまでは保証しない。行の整合性が必要な検査、特に元本払戻金のように買付行と払戻行が同じファンド名で並ぶケースでは `rowChecks` を使う。
@@ -32,18 +32,19 @@
 各ケースは次の共通フローで確認する。
 
 1. GAS Web アプリを開く。
-2. 追加先 DB として UI 上の `nomura_test` を選ぶ。
+2. 追加先 DB としてケースごとに指定した UI 表示DBを選ぶ。現在は野村・楽天どちらも UI 上では `nomura_test` を選ぶ。
 3. CSV fixture をアップロードする。
 4. 実行する。
-5. 楽天入力として検出され、内部ルーティングで `rakuten_test` に保存されることを確認する。
+5. 入力形式として検出され、ケースごとの期待どおりに内部ルーティングされることを確認する。野村共通CSVは `nomura_test`、楽天CSVは `rakuten_test` に保存される。
 6. 結果表示で、検出形式、選択 DB キー、実際の追加先 DB キー、実際の追加先 DB 種別、取込 ID、読込件数、追加件数、出力リンクを確認する。
 7. 出力件数表示から対象シート系統の件数が増えていることを確認する。
 8. 出力リンクの Spreadsheet ID を使い、E2E helper 経由で主要シート名と主要セル値を条件検索する。
-9. E2E cleanup helper から対象 `importId` を `rakuten_test` 内で論理ロールバックする。
+9. E2E cleanup helper から対象 `importId` をケースごとの cleanup 対象 test DB 内で論理ロールバックする。
 10. cleanup 結果は Playwright attachment と workflow summary に保存する。
 
-現在の代表ケースは次の7つ。
+現在の代表ケースは次の8つ。
 
+- 野村共通 日本株 CSV: `nomura_common` として検出し、UI選択DBと実追加先DBがどちらも `nomura_test`、DB種別が野村DBであることを確認する。読込件数1、追加件数1、スキップ件数0、出力 Spreadsheet に共通 `日本株` があり `楽天日本株` がないこと、fixture の銘柄コード・銘柄名が `日本株` に出ていること、`nomura_test` 内で rollback できることを確認する。
 - 楽天日本株 CSV: `rakuten_jp_stock` として検出し、日本株出力件数が1件以上であること、出力 Spreadsheet に `楽天日本株` があり共通 `日本株` が残っていないこと、fixture の銘柄コード・銘柄名が `楽天日本株` に出ていることを確認する。
 - 楽天米国株 CSV: `rakuten_us_stock` として検出し、米国株と金銭残高（ドル）の出力件数が1件以上であること、出力 Spreadsheet に `楽天米国株` / `金銭残高（ドル）` があり共通 `米国株` が残っていないこと、fixture のティッカー・銘柄名が出ていることを確認する。
 - 楽天投資信託 CSV: `rakuten_fund` として検出し、投信と金銭残高（円）の出力件数が1件以上であること、出力 Spreadsheet に `楽天投資信託` / `金銭残高（円）` があり共通 `投信` が残っていないこと、fixture のファンド名が出ていることを確認する。
@@ -90,7 +91,7 @@ PR #60 時点のログでは、`clasp push --force` は成功していたが、`
 
 cleanup helper は `nomura_test` / `rakuten_test` だけを対象にし、既存の `rollbackImport_()` を使って `rolledBackAt` を記録する。取込レコードの物理削除はしない。
 
-出力 Spreadsheet 検査 helper は `CI_E2E_TOKEN` を必須にし、test DB target だけを許可する。読み取り対象は E2E root storage mode の出力名 `株管理ツール_E2E_TEST_OUTPUT` に限定し、シート名も楽天E2Eで必要な出力シートだけを allowlist 化する。本番 Spreadsheet や任意シートを読む用途には使わない。
+出力 Spreadsheet 検査 helper は `CI_E2E_TOKEN` を必須にし、test DB target だけを許可する。読み取り対象は E2E root storage mode の出力名 `株管理ツール_E2E_TEST_OUTPUT` に限定し、シート名もWeb E2Eで必要な出力シートだけを allowlist 化する。本番 Spreadsheet や任意シートを読む用途には使わない。
 
 検査payloadは次の制限を持つ。
 

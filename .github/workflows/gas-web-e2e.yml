@@ -30,7 +30,7 @@ concurrency:
 
 jobs:
   gas-web-e2e:
-    name: Deploy test Web app and run Rakuten Playwright E2E
+    name: Deploy test Web app and run Playwright E2E
     if: >-
       ${{
         github.event_name == 'workflow_dispatch' ||
@@ -109,7 +109,7 @@ jobs:
           {
             echo "### Playwright E2E"
             echo "- Result: PASS"
-            echo "- Cases: Rakuten Japan stock, US stock, fund, cash, dividend, distribution, and principal return CSV upload with cleanup"
+            echo "- Cases: Nomura Japan stock plus Rakuten Japan stock, US stock, fund, cash, dividend, distribution, and principal return CSV upload with cleanup"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload Playwright artifacts
