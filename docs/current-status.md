@@ -11,6 +11,12 @@
 - PR #72「CI用と本番反映用のclasp操作を分離する」は `develop` にマージ済み。
 - Issue #73「CI用と本番用のclasp反映手順を分かりやすく整理する」は完了済み。
 - PR #74「CI用と本番用のclasp反映手順を整理する」は `develop` にマージ済み。
+- Issue #79「本番Apps Scriptへの反映からE2E専用helperを除外する」は完了済み。
+- PR #80「本番反映からE2E専用helperを除外する」は `develop` にマージ済み。
+- Issue #76「野村共通CSVのWeb E2E基盤と日本株1ケースを追加する」は対応中。
+- PR #78「野村日本株のGAS Web App E2Eを追加」はDraftのまま未マージ。
+- Issue #75「現状ドキュメントを最新developの状態へ整理する」はPR #77で対応中。
+- PR #77「現状ドキュメントを最新developに合わせて整理する」はDraftのまま未マージ。
 - 2026-07-13時点で、本番Apps Scriptへのpushと本番Webアプリ再デプロイは未実施。
 
 ## 完了済みの主な範囲
@@ -76,6 +82,8 @@
   - `npm run gas:production:status`
   - `npm run gas:production:push`
 - 本番用project設定は `.clasp.production.json`、本番用ignoreは `.clasp.productionignore`、認証はclasp named user `production` を使う。
+- 本番用 `.clasp.productionignore` では `src/test/**` と `src/app/e2e_helpers.gs` をpush対象から除外する。
+- 本番用ラッパーは、`src/test/**` または `src/app/e2e_helpers.gs` の除外設定が欠けている場合、`status` / `open` / `push` を安全側で停止する。
 - clasp反映手順は `docs/clasp-operations.md` に整理済み。
 
 ### Web App E2E
@@ -110,12 +118,12 @@
 - 楽天米国株・楽天投資信託・楽天金銭残高・配当金/分配金/元本払戻金は、代表fixtureの自動テストが進んでいるが、実運用データでの最終確認は未完了。
 - 楽天専用ロールバックUI分離は初期対応済みだが、実運用でのWeb UI表示確認は未完了。
 - 楽天配当金・分配金・元本払戻金の専用出力は代表値反映まで進んでいるが、全列・全ケースを楽天専用出力として完全再現する対応は残っている。
-- Web App E2Eは楽天主要ケースを優先して整備済み。野村共通CSV、外債、大容量CSV、異常系、rollback異常系は未整備。
+- Web App E2Eは楽天主要ケースを優先して整備済み。野村共通CSVはIssue #76 / PR #78で対応中。外債、大容量CSV、異常系、rollback異常系は未整備。
 
 ## 次の開発優先順位
 
-1. 野村共通CSV Web E2Eを追加する。
-2. 外債Web E2Eを追加する。
+1. Issue #76 / PR #78で、野村共通CSV Web E2Eを完了させる。
+2. PR #78の完了後に、外債Web E2Eの追加を検討する。
 3. 大容量CSV Web E2Eを追加する。
 4. header不足、不正CSV、重複importなどの異常系Web E2Eを追加する。
 5. rollback異常系Web E2Eを追加する。
@@ -147,6 +155,7 @@ AutoHotkeyショートカットの説明は `docs/codex-shortcuts.md` を参照�
 - 実際のScript ID、Deployment ID、Web App URL、Spreadsheet URL、Drive folder ID、OAuth token、GitHub Secrets実値はコミットしない。
 - 人・Codexともに、リポジトリ直下でbareな `clasp push` を実行しない。
 - CI操作はGitHub Actionsだけに任せ、本番反映は人間が本番専用npmコマンドで行う。
+- 本番反映前は、最新 `develop` へ更新して `npm run gas:production:status` を確認し、`src/test/**` と `src/app/e2e_helpers.gs` が本番push対象に含まれないことを人間が確認する。
 - Codexは本番反映、GitHub Secrets変更、本番GAS・本番DB・本番Drive操作を実行しない。
 - `appsscript.json` のOAuth scope変更後は、Webアプリの新バージョン再デプロイが必要。
 - Webアプリを「アクセスしているユーザー」として実行する場合、利用者ごとにDrive権限承認とDBフォルダ編集権限が必要。

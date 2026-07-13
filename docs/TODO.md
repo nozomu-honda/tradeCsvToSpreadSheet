@@ -7,16 +7,18 @@
 
 - 最新 `develop` では、Issue #71 / PR #72 のclasp分離対応は完了済み。
 - 最新 `develop` では、Issue #73 / PR #74 のclasp運用ガイド整理は完了済み。
+- 最新 `develop` では、Issue #79 / PR #80 の本番push対象からE2E専用helperを除外する対応は完了済み。
 - 楽天DBの専用ヘッダー対応、楽天DBから共通計算モデルへの変換、楽天配当金の手入力列対応は完了済み。
 - Web UIの6シート表記、外債件数表示、タブ順固定、`runStagingSheetFromWebApp` の重複整理は完了済み。
 - `runSmokeTests()` と `runAllTests()` は未実装タスクではなく、既存の手動テスト入口として扱う。
 - 本番Apps Scriptへのpushと本番Webアプリ再デプロイは未実施。
+- 本番反映前は、最新 `develop` で `npm run gas:production:status` を再確認し、`src/test/**` と `src/app/e2e_helpers.gs` が本番push対象に含まれないことを確認する。
 
 ## 次の開発候補
 
 ### 1. 野村共通CSV Web E2E
 
-次の開発対象は、野村共通CSVのWeb App E2Eを追加すること。
+Issue #76 / PR #78で対応中。Draft PRが未マージのため、完了済み扱いにはしない。
 
 確認したいこと:
 
@@ -30,7 +32,7 @@
 
 ### 2. 外債Web E2E
 
-野村共通CSV Web E2Eの後に、外債を含むWeb App E2Eを追加する。
+PR #78の完了後に、外債を含むWeb App E2Eの追加を検討する。PR #78が未マージの間は、次の確定着手対象として前倒ししない。
 
 確認したいこと:
 
@@ -109,6 +111,9 @@ rollbackの正常系は既存E2Eで使っているが、異常系の明示確認
 
 ## 運用上の未完了事項
 
+- 本番反映前に、最新 `develop` を取得して `npm run gas:production:status` を再確認する。
+- 本番push対象のTracked filesに `src/test/**` が含まれないことを確認する。
+- 本番push対象のTracked filesに `src/app/e2e_helpers.gs` が含まれないことを確認する。
 - 本番Apps Scriptへの `npm run gas:production:push`。
 - 本番Webアプリの新バージョン再デプロイ。
 - 本番Webアプリの主要画面確認。
@@ -146,6 +151,7 @@ rollbackの正常系は既存E2Eで使っているが、異常系の明示確認
 - `runSmokeTests()` / `runAllTests()` のソース管理。
 - CI用と本番用のclasp設定分離。
 - clasp反映手順の `docs/clasp-operations.md` への整理。
+- 本番push対象からの `src/test/**` と `src/app/e2e_helpers.gs` の除外。
 
 ## 関連ドキュメント
 
