@@ -15,7 +15,7 @@
 - CI用のclasp project設定は `${RUNNER_TEMP}` 配下へ生成し、すべてのclasp呼び出しで `--project <CI専用設定ファイル>` と `--ignore <repo .claspignore>` を明示する。リポジトリ直下の `.clasp.json` は生成・利用しない。設定ファイルは一時領域に置くが、`rootDir` は `GITHUB_WORKSPACE` の絶対パスへ正規化し、push対象は常にリポジトリルート配下にする。`.claspignore` もリポジトリ直下のファイルを使い、CI用NodeスクリプトやdocsをGAS push対象にしない。
 - E2E CIでは従来どおり `.claspignore` を使い、テスト専用 Apps Script プロジェクトへテストコードもpushできる。本番反映では `.clasp.productionignore` を使い、`src/test/**` を本番Apps Scriptへpushしない。
 - workflow 内では、テスト専用 Apps Script プロジェクトへ push する直前の `appsscript.json` にだけ `webapp.access = ANYONE_ANONYMOUS` / `webapp.executeAs = USER_DEPLOYING` を注入する。リポジトリ上の manifest は通常運用向けのままにする。
-- 同じく push 直前の CI ローカル source にだけ、`DB_CONFIG.DB_FOLDER_ID` と固定 TEST_OUTPUT Spreadsheet ID を空にする。これにより、動的公開E2Eは clasp 実行ユーザーがアクセスできない既存Driveフォルダや固定Spreadsheetへ向かわず、テスト専用projectの実行ユーザーDrive rootに test DB / test output を作成または再利用する。リポジトリ上の `db_config.gs` は変更しない。
+- 同じく push 直前の CI ローカル source にだけ、`DB_CONFIG.DB_FOLDER_ID`、`nomura_test` の固定DB Spreadsheet ID、固定 TEST_OUTPUT Spreadsheet ID を空にする。これにより、動的公開E2Eは clasp 実行ユーザーがアクセスできない既存Driveフォルダや固定Spreadsheetへ向かわず、テスト専用projectの実行ユーザーDrive rootに test DB / test output を作成または再利用する。リポジトリ上の `db_config.gs` は変更しない。`nomura_corp_a` / `nomura_corp_b` の固定IDは本番法人DB向け設定として維持し、CIローカル変換では空にしない。
 - 既定の `dynamic-public` モードでは、CI run ごとに一時 Web アプリ deployment を作成し、その `/exec` URL を Playwright にだけ渡す。実 URL はログに出さず、GitHub Actions の mask 対象にする。
 - `CI_E2E_TOKEN` Script Property が設定されているテストprojectでは、Web アプリの server function は token 付き payload を必須にする。Script Property が未設定の初回は、token 保護された `prepareE2EWebAppRun` が GitHub Secret 由来の payload から初期化する。Playwright は token を URL や DOM には出さず、`google.script.run` の payload にだけ含める。
 - E2E 開始時に token 保護された `prepareE2EWebAppRun` を呼び、ケースごとに指定した `nomura_test` / `rakuten_test` などの test DB だけ root storage mode を有効化する。Playwright helper は、準備対象DB、UIで選ぶDB、期待する実追加先DB、期待するDB種別、出力Spreadsheet検査DB、cleanup/rollback DBをケースごとに明示して検証する。
@@ -116,6 +116,8 @@ workflow summary には次を残す。
 - 出力 Spreadsheet の主要シート名・主要セル値の条件検索結果
 - cleanup / rollback 結果
 - CI ローカルの test storage 設定
+  - `DB_CONFIG.DB_FOLDER_ID`、`nomura_test` の固定DB ID、固定 TEST_OUTPUT IDを空にしたこと
+  - `nomura_corp_a` / `nomura_corp_b` の固定IDを維持したこと
 - 一時 Web アプリ deployment の削除結果
 
 ## ローカル確認
