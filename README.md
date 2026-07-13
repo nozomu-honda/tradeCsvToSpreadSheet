@@ -106,6 +106,8 @@ npm run gas:production:open
 
 本番反映には、ローカル専用の `.clasp.production.json` とclasp named user `production` を使う。`.clasp.production.json`、`.clasprc.json`、Script ID、Deployment ID、Web App URL、Spreadsheet URL、OAuth token、GitHub Secrets実値はコミットしない。
 
+`gas:production:status` は内部で `clasp show-file-status` を実行し、本番専用project設定と本番専用ignoreでpush対象を確認する。
+
 `gas:production:push` は、`develop` ブランチ、clean working tree、最新 `origin/develop` 一致、production認証、production専用ignore、確認入力を満たさない限り停止する。
 
 ---

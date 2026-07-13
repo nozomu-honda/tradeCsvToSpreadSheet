@@ -129,6 +129,7 @@ CI用:
 - clasp named user `production` を使い、必ず `--user production` を指定します。
 - production専用ignoreの `.clasp.productionignore` を使い、少なくとも `src/test/**` を本番Apps Scriptへpushしません。
 - 本番操作は `npm run gas:production:open`、`npm run gas:production:status`、`npm run gas:production:push` だけを使います。
+- `gas:production:status` は内部で `clasp show-file-status` を実行し、本番専用project設定と本番専用ignoreでpush対象を確認します。
 - `gas:production:push` は `develop`、clean working tree、最新 `origin/develop` 一致、production認証、production専用ignore、確認入力を満たさない限り停止します。
 
 ## 必要なGitHub Secrets

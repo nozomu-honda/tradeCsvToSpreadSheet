@@ -12,7 +12,7 @@ const PRODUCTION_USER = 'production';
 const CONFIRMATION_PHRASE = 'PRODUCTION PUSH';
 const CLASP_COMMANDS = {
   open: 'open-script',
-  status: 'status',
+  status: 'show-file-status',
   push: 'push',
 };
 
@@ -173,7 +173,16 @@ function run(bin, args, options) {
   };
 
   if (process.platform === 'win32' && bin === 'clasp') {
-    const commandLine = [bin, ...args].map(quoteWindowsShellArg).join(' ');
+    const executable = resolveWindowsCommand(bin);
+    if (!executable) {
+      return {
+        status: null,
+        error: new Error('clasp command was not found in PATH.'),
+        stdout: '',
+        stderr: '',
+      };
+    }
+    const commandLine = [executable, ...args].map(quoteWindowsShellArg).join(' ');
     return spawnSync(commandLine, {
       ...baseOptions,
       shell: true,
@@ -181,6 +190,22 @@ function run(bin, args, options) {
   }
 
   return spawnSync(bin, args, baseOptions);
+}
+
+function resolveWindowsCommand(command) {
+  const pathDirs = (process.env.PATH || process.env.Path || '').split(path.delimiter).filter(Boolean);
+  const extensions = ['.cmd', '.exe', '.bat'];
+
+  for (const dir of pathDirs) {
+    for (const extension of extensions) {
+      const candidate = path.join(dir, `${command}${extension}`);
+      if (fs.existsSync(candidate)) {
+        return candidate;
+      }
+    }
+  }
+
+  return '';
 }
 
 function quoteWindowsShellArg(value) {

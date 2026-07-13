@@ -6,7 +6,8 @@
     "e2e": "playwright test",
     "gas:production:open": "node scripts/gas-production.js open",
     "gas:production:status": "node scripts/gas-production.js status",
-    "gas:production:push": "node scripts/gas-production.js push"
+    "gas:production:push": "node scripts/gas-production.js push",
+    "test:gas-production-wrapper": "node scripts/ci/check-gas-production-wrapper.js"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1"
