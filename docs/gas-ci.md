@@ -106,7 +106,7 @@ required check 名は次のまま維持します。
 - `run-gas-tests` ラベルが付いた同一リポジトリPRだけがsecret-backed GAS jobに進めます。
 - forkや外部PRでは冒頭のガードで失敗し、Google Secretsを使うstepへ進みません。
 - CIの対象はテスト専用 Apps Script プロジェクトだけです。
-- CI用のclasp project設定はrunner一時領域に生成し、すべての `clasp` 呼び出しで `--project` により明示します。リポジトリ直下の `.clasp.json` は生成・利用しません。
+- CI用のclasp project設定はrunner一時領域に生成し、すべての `clasp` 呼び出しで `--project` により明示します。リポジトリ直下の `.clasp.json` は生成・利用しません。設定ファイル自体は一時領域に置きますが、`rootDir` は `GITHUB_WORKSPACE` の絶対パスに正規化し、push対象は常にリポジトリルート配下にします。
 - `.clasprc.json` はGitHub SecretsからCI runner上に生成し、リポジトリにはコミットしません。
 - workflowはCI runner上の `appsscript.json` にだけ `executionApi` を注入してから、テスト専用Apps Scriptへpushします。
 - CI用Googleアカウントには、本番GAS、本番Spreadsheet、本番Driveフォルダへの権限を持たせないでください。
@@ -119,6 +119,8 @@ CI用:
 
 - GitHub Actions内だけで使用します。
 - project設定は `${RUNNER_TEMP}` 配下へ生成します。
+- 生成するproject設定の `rootDir` は、設定ファイルの親ディレクトリではなく、リポジトリルートの絶対パスにします。GitHub Actionsでは `GITHUB_WORKSPACE` を優先し、ローカル検証時だけ現在の作業ディレクトリを使います。
+- `CLASP_PROJECT_JSON` を使う場合も、CI側でparseしたうえで `scriptId` を `GAS_TEST_SCRIPT_ID` に上書きし、`rootDir` をリポジトリルートの絶対パスへ正規化します。相対 `srcDir` が一時領域をpush対象にしないよう、CIでは `srcDir` を使いません。
 - すべての `clasp` 呼び出しに `--project <CI専用設定ファイル>` を付けます。
 - 既存の `.claspignore` を使うため、`src/test/**` を含むGASテストコードもテスト専用Apps Scriptプロジェクトへpushできます。
 
@@ -143,7 +145,7 @@ CI用:
 
 - `CLASP_USER`: `clasp --user` に渡すユーザー名またはメールアドレス。`CLASPRC_JSON` を `clasp login --user <ci-user>` で生成した場合に設定します。
 - `GAS_TEST_DEPLOYMENT_ID`: テスト専用 Apps Script プロジェクトの既存API executable deployment ID。設定した場合だけ、CIが既存deploymentを更新します。未設定の場合、CIは新しいversioned deploymentを作成しません。
-- `CLASP_PROJECT_JSON`: `GAS_TEST_SCRIPT_ID` だけでは足りないclasp設定が必要な場合のproject設定JSON全体。CI runnerの一時ファイルへ書き込み、リポジトリ直下には作成しません。
+- `CLASP_PROJECT_JSON`: `GAS_TEST_SCRIPT_ID` だけでは足りないclasp設定が必要な場合のproject設定JSON全体。CI runnerの一時ファイルへ書き込み、リポジトリ直下には作成しません。Secret内の `scriptId`、`rootDir`、`srcDir` はそのまま使わず、CI側で `GAS_TEST_SCRIPT_ID` とリポジトリルート基準へ正規化します。
 - `GOOGLE_OAUTH_CLIENT_SECRET_JSON`: 現在のclaspベースworkflowでは未使用です。将来 Apps Script API ベースへ移行する場合の候補として残します。
 
 OAuth token、Script ID、deployment ID、Spreadsheet ID、Drive folder ID、本番DB IDなどの実値はコミットしないでください。
@@ -155,7 +157,7 @@ OAuth token、Script ID、deployment ID、Spreadsheet ID、Drive folder ID、本
 GAS実行対象と判定された場合、workflowは次を行います。
 
 1. `CLASPRC_JSON` から `~/.clasprc.json` を生成する。
-2. `GAS_TEST_SCRIPT_ID` からrunner一時領域にCI専用project設定JSONを生成する。`CLASP_PROJECT_JSON` がある場合はそちらを使う。
+2. `GAS_TEST_SCRIPT_ID` からrunner一時領域にCI専用project設定JSONを生成する。`CLASP_PROJECT_JSON` がある場合もそのまま書き込まず、`scriptId`、`rootDir`、`srcDir` をCI側で正規化する。
 3. `CLASP_USER` がある場合は `clasp --user "$CLASP_USER" ...` として実行し、すべての `clasp` 呼び出しで `--project <CI専用設定ファイル>` を明示する。
 4. ソース管理された `.gs` / `.js` ファイル内にCI用バッチ関数がすべて存在することを確認する。
 5. `.gs` ファイルを Node VM parser で構文チェックする。GAS固有APIの実行はしない。

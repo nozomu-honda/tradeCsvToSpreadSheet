@@ -7,7 +7,8 @@
     "gas:production:open": "node scripts/gas-production.js open",
     "gas:production:status": "node scripts/gas-production.js status",
     "gas:production:push": "node scripts/gas-production.js push",
-    "test:gas-production-wrapper": "node scripts/ci/check-gas-production-wrapper.js"
+    "test:gas-production-wrapper": "node scripts/ci/check-gas-production-wrapper.js",
+    "test:ci-clasp-project": "node scripts/ci/check-ci-clasp-project.js"
   },
   "devDependencies": {
     "@google/clasp": "3.3.0",

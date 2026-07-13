@@ -199,15 +199,10 @@ done
 
 run_source_syntax_check
 
+node scripts/ci/write-ci-clasp-config.js
+
 node <<'NODE'
 const fs = require('fs');
-const os = require('os');
-const projectPath = process.env.CLASP_PROJECT_PATH;
-
-if (!projectPath) {
-  console.error('::error title=Missing CI project path::CLASP_PROJECT_PATH is not set.');
-  process.exit(1);
-}
 
 function parseJson(raw, label) {
   try {
@@ -216,27 +211,6 @@ function parseJson(raw, label) {
     console.error(`::error title=Invalid ${label}::${error.message}`);
     process.exit(1);
   }
-}
-
-function writeJsonFile(path, raw, label) {
-  const parsed = parseJson(raw, label);
-  fs.writeFileSync(path, JSON.stringify(parsed, null, 2) + '\n', { mode: 0o600 });
-}
-
-writeJsonFile(`${os.homedir()}/.clasprc.json`, process.env.CLASPRC_JSON || '', 'CLASPRC_JSON');
-
-if ((process.env.CLASP_PROJECT_JSON || '').trim()) {
-  writeJsonFile(projectPath, process.env.CLASP_PROJECT_JSON, 'CLASP_PROJECT_JSON');
-} else {
-  writeJsonFile(projectPath, JSON.stringify({
-    scriptId: process.env.GAS_TEST_SCRIPT_ID,
-    rootDir: '.',
-    scriptExtensions: ['.js', '.gs'],
-    htmlExtensions: ['.html'],
-    jsonExtensions: ['.json'],
-    filePushOrder: [],
-    skipSubdirectories: false
-  }), 'generated CI clasp project JSON');
 }
 
 const manifestPath = 'appsscript.json';
