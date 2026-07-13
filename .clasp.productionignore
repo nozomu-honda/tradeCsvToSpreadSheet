@@ -3,6 +3,7 @@
 docs/**
 scripts/**
 src/test/**
+src/app/e2e_helpers.gs
 node_modules/**
 tests/**
 playwright.config.js

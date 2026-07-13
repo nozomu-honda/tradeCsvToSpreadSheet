@@ -94,7 +94,7 @@ npm exec -- clasp login --user production
 npm run gas:production:status
 ```
 
-エラーにならず、本番へ送る予定のファイルが表示されれば初回準備は完了です。`src/test/**`が対象に含まれていないことも確認します。
+エラーにならず、本番へ送る予定のファイルが表示されれば初回準備は完了です。`src/test/**` と `src/app/e2e_helpers.gs` が対象に含まれていないことも確認します。
 
 ### 毎回の本番反映手順
 
@@ -171,6 +171,7 @@ npm run gas:production:open
 - project設定: `.clasp.production.json`
 - ignore: `.clasp.productionignore`
 - テストコード: `src/test/**`はpush対象外
+- E2E専用helper: `src/app/e2e_helpers.gs`はpush対象外
 
 ## 絶対に実行しない操作
 
