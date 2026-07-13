@@ -42,6 +42,12 @@
   - 保留事項
   - 再開用メモ
 
+- [`docs/clasp-operations.md`](docs/clasp-operations.md)
+  - CI用Apps Scriptへの反映手順
+  - 本番Apps Scriptへの反映手順
+  - 本番Webアプリの再デプロイ手順
+  - CI用と本番用の設定・認証・ignoreの違い
+
 ---
 
 ## このリポジトリでのルール
@@ -96,6 +102,8 @@ VS Code でローカル編集する。
 ### 3. Apps Script へ反映
 
 bareな `clasp push` は使わない。CI用と本番用のApps Script project設定・認証を混同しないため、用途ごとに入口を分ける。
+
+実際の操作手順は、最初に [`docs/clasp-operations.md`](docs/clasp-operations.md) を確認する。
 
 CI用の反映はGitHub Actionsだけが行う。ローカルPCからテスト専用Apps Scriptプロジェクトへ手動pushしない。
 
