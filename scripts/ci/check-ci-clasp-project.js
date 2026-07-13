@@ -119,6 +119,19 @@ try {
     fail('.claspignore must exclude scripts/** from GAS push targets');
   }
 
+  for (const workflowPath of [
+    '.github/workflows/gas-tests.yml',
+    '.github/workflows/gas-web-e2e.yml',
+  ]) {
+    const source = fs.readFileSync(path.join(rootDir, workflowPath), 'utf8');
+    if (!source.includes('group: gas-test-project-${{ github.event.pull_request.number || github.ref }}')) {
+      fail(`${workflowPath} must serialize access to the shared test Apps Script project`);
+    }
+    if (!source.includes('cancel-in-progress: false')) {
+      fail(`${workflowPath} must queue instead of canceling the paired GAS workflow`);
+    }
+  }
+
   console.log('ci clasp project config ok');
 } finally {
   fs.rmSync(tempRoot, { recursive: true, force: true });
