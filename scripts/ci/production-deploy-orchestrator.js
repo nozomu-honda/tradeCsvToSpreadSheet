@@ -190,6 +190,22 @@ async function readManagedProductionStatusIssue({ adapters, env }) {
   };
 }
 
+function hydrateStateFromProductionStatusIssue(state, parsed) {
+  return {
+    ...state,
+    previousProductionSha: parsed.currentProductionSha || 'unknown',
+    currentProductionSha: parsed.currentProductionSha || 'unknown',
+    commitsBehindDevelop: parsed.commitsBehindDevelop || state.commitsBehindDevelop || 'unknown',
+    lastSuccessfulDeploymentSha: parsed.lastSuccessfulDeploymentSha || 'unknown',
+    lastSuccessfulDeploymentAt: parsed.lastSuccessfulDeploymentAt || 'unknown',
+    lastDeploymentWorkflowUrl: parsed.lastDeploymentWorkflowUrl || 'unknown',
+    lastStatusSyncWorkflowUrl: parsed.lastStatusSyncWorkflowUrl || 'unknown',
+    sourcePush: parsed.sourcePush || state.sourcePush,
+    deploymentUpdate: parsed.deploymentUpdate || state.deploymentUpdate,
+    smokeTest: parsed.smokeTest || state.smokeTest,
+  };
+}
+
 async function updateManagedProductionStatusIssue({ adapters, env, state }) {
   const issueNumber = Number(env.PRODUCTION_STATUS_ISSUE_NUMBER);
   const issue = await adapters.githubRequest('GET', `/repos/${env.GITHUB_REPOSITORY}/issues/${issueNumber}`);
@@ -228,12 +244,14 @@ async function safeUpdateStatusIssue({ adapters, env, state }) {
 async function runProductionDeploy({ env, adapters, cwd = process.cwd() }) {
   const dryRun = booleanFromEnv(env.DRY_RUN, true);
   const dryRunMode = dryRun ? (env.DRY_RUN_MODE || 'static') : 'authenticated';
+  const staticDryRun = dryRun && dryRunMode === 'static';
   const force = booleanFromEnv(env.FORCE, false);
   const sourcePrNumber = env.SOURCE_PR_NUMBER || '';
   let state;
   let currentStage = 'preflight';
   let claspFiles;
   let sourcePushSucceeded = false;
+  let statusIssueReadSucceeded = false;
 
   try {
     adapters.addMasksFromEnv();
@@ -262,6 +280,24 @@ async function runProductionDeploy({ env, adapters, cwd = process.cwd() }) {
       status: 'preflight',
     });
 
+    if (!staticDryRun) {
+      currentStage = 'status-issue-read';
+      const managedIssue = await readManagedProductionStatusIssue({ adapters, env });
+      statusIssueReadSucceeded = true;
+      state = hydrateStateFromProductionStatusIssue(state, managedIssue.parsed);
+
+      const duplicate = shouldBlockDuplicateDeployment({
+        currentProductionSha: managedIssue.parsed.currentProductionSha,
+        productionStatus: managedIssue.parsed.productionStatus,
+        targetSha,
+        force,
+      });
+      if (duplicate.blocked) {
+        throw new Error(duplicate.reason);
+      }
+      state.duplicateGuard = 'passed';
+    }
+
     currentStage = 'required-checks';
     const requiredCheckResult = await validateRequiredChecks({
       adapters,
@@ -278,7 +314,7 @@ async function runProductionDeploy({ env, adapters, cwd = process.cwd() }) {
       adapters.runValidationScript(script);
     }
 
-    if (dryRun && dryRunMode === 'static') {
+    if (staticDryRun) {
       state.duplicateGuard = 'skipped-static-dry-run';
       adapters.writeStepSummary([
         renderDryRunSummary(state),
@@ -289,26 +325,6 @@ async function runProductionDeploy({ env, adapters, cwd = process.cwd() }) {
       ].join('\n'));
       return state;
     }
-
-    currentStage = 'status-issue-read';
-    const managedIssue = await readManagedProductionStatusIssue({ adapters, env });
-    state.previousProductionSha = managedIssue.parsed.currentProductionSha;
-    state.currentProductionSha = managedIssue.parsed.currentProductionSha;
-    state.lastSuccessfulDeploymentSha = managedIssue.parsed.lastSuccessfulDeploymentSha || 'unknown';
-    state.lastSuccessfulDeploymentAt = managedIssue.parsed.lastSuccessfulDeploymentAt || 'unknown';
-    state.lastDeploymentWorkflowUrl = managedIssue.parsed.lastDeploymentWorkflowUrl || 'unknown';
-    state.lastStatusSyncWorkflowUrl = managedIssue.parsed.lastStatusSyncWorkflowUrl || 'unknown';
-
-    const duplicate = shouldBlockDuplicateDeployment({
-      currentProductionSha: managedIssue.parsed.currentProductionSha,
-      productionStatus: managedIssue.parsed.productionStatus,
-      targetSha,
-      force,
-    });
-    if (duplicate.blocked) {
-      throw new Error(duplicate.reason);
-    }
-    state.duplicateGuard = 'passed';
 
     currentStage = 'production-status';
     claspFiles = adapters.writeProductionClaspFiles();
@@ -413,7 +429,7 @@ async function runProductionDeploy({ env, adapters, cwd = process.cwd() }) {
       failedState.sourcePush = 'success';
     }
     adapters.writeStepSummary(renderProductionStatusIssue(failedState));
-    if (!dryRun) {
+    if (!dryRun && statusIssueReadSucceeded) {
       await safelyRecordFailure({ adapters, env, state: failedState });
     }
     throw error;
@@ -426,6 +442,7 @@ module.exports = {
   DEFAULT_REQUIRED_CHECKS,
   STATUS_MARKER,
   assertDevelopUnchanged,
+  hydrateStateFromProductionStatusIssue,
   readManagedProductionStatusIssue,
   requiredCheckNames,
   runProductionDeploy,

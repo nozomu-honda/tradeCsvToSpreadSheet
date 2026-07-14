@@ -91,6 +91,7 @@ dry-runには2種類あります。
 
 実行しないこと:
 
+- Production Status Issue読込。
 - 本番clasp認証確認。
 - `npm run gas:production:status`。
 - 本番Apps Scriptへのpush。
@@ -107,6 +108,7 @@ GitHub Environment `production` のSecrets / Variablesを使い、本番操作�
 実行すること:
 
 - Static dry-runの確認。
+- required checksや `npm ci` より前にProduction Status Issueを読み、現在の本番commit、最終成功deployment、前回工程結果をstateへ反映する。
 - Production Status Issueのmarker確認。
 - 同一SHA二重反映ガード。
 - clasp named user `production` 認証確認。
@@ -128,20 +130,21 @@ GitHub Environment `production` のSecrets / Variablesを使い、本番操作�
 
 1. control workflowが、マージ済みPRのmerge commit SHAを `target_sha` として `deploy-production.yml` を `ref: develop` でdispatchする。
 2. deploy workflowが信頼済み `develop` をcheckoutし、`HEAD == origin/develop == target_sha` を確認する。
-3. required checksが成功していることを確認する。
-4. `npm ci` とローカル検証を実行する。
-5. Production Status Issueのmarkerを確認する。
-6. `npm run gas:production:status -- --json` の実出力を解析する。
-7. 本番push直前に `HEAD == origin/develop == target_sha` を再確認する。
-8. `npm run gas:production:push` を実行する。
-9. 既存Webアプリdeployment更新直前にもdevelopを再確認する。
-10. source push後にdevelopが進んでいた場合は、すでにpushした同一SHAのdeployment updateとSmoke Testまで完遂する。
-11. `clasp deploy --deploymentId` で既存deploymentを更新する。
-12. 本番Webアプリへ安全なHTTP Smoke Testを実行する。
-13. Smoke Test後に最新 `origin/develop` を再取得する。
-14. 本番反映したSHAが最新developと一致すればProduction Status Issueを `deployed` にする。
-15. source push後にdevelopが進んでいれば、本番反映工程が成功していてもProduction Status Issueは `not-deployed` にする。
-16. 途中で失敗した場合は `failed` にし、失敗ステージと失敗内容を保持する。
+3. Production Status Issueを読み、marker、現在の本番commit、最終成功deployment、前回工程結果を確認する。
+4. 同一SHA二重反映ガードを確認する。
+5. required checksが成功していることを確認する。
+6. `npm ci` とローカル検証を実行する。
+7. `npm run gas:production:status -- --json` の実出力を解析する。
+8. 本番push直前に `HEAD == origin/develop == target_sha` を再確認する。
+9. `npm run gas:production:push` を実行する。
+10. 既存Webアプリdeployment更新直前にもdevelopを再確認する。
+11. source push後にdevelopが進んでいた場合は、すでにpushした同一SHAのdeployment updateとSmoke Testまで完遂する。
+12. `clasp deploy --deploymentId` で既存deploymentを更新する。
+13. 本番Webアプリへ安全なHTTP Smoke Testを実行する。
+14. Smoke Test後に最新 `origin/develop` を再取得する。
+15. 本番反映したSHAが最新developと一致すればProduction Status Issueを `deployed` にする。
+16. source push後にdevelopが進んでいれば、本番反映工程が成功していてもProduction Status Issueは `not-deployed` にする。
+17. 途中で失敗した場合は `failed` にし、失敗ステージと失敗内容を保持する。
 
 ## required checks
 
@@ -226,6 +229,10 @@ markerがないIssueは絶対に上書きしません。
 `deployed` は、現在の本番commitが最新developと一致し、かつ最後の本番反映のsource push、deployment update、smoke testがすべて成功済みである状態だけを表します。
 `not-deployed` は、前回本番反映が成功していても、現在の本番commitが最新developと一致しない状態を表します。
 `failed` は本番反映処理が失敗した状態です。status syncでdevelopが進んでも、失敗ステージと失敗内容は消しません。
+Authenticated dry-runと本番deployでは、required checks、`npm ci`、validationより前にStatus Issueを読みます。
+このため、preflight中に失敗しても、現在の本番commit、最終成功deployment、最終本番反映workflow、前回工程結果は`unknown`で上書きせず保持します。
+Status Issue読込自体が失敗した場合は、無関係なIssueを更新せずに停止します。
+Static dry-runでは、Status Issueを読まず、本番Secretsも要求しません。
 
 初回Issue本文テンプレート:
 

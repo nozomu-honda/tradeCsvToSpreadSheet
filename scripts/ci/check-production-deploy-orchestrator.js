@@ -2,6 +2,9 @@
 'use strict';
 
 const assert = require('assert');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 
 const { runProductionDeploy } = require('./production-deploy-orchestrator');
 
@@ -110,9 +113,15 @@ function createAdapters(options = {}) {
     },
     runNpmCi() {
       calls.push('npm-ci');
+      if (options.failNpmCi) {
+        throw new Error('npm ci failed');
+      }
     },
     runValidationScript(script) {
       calls.push(`npm:${script}`);
+      if (options.failValidationScript === true || options.failValidationScript === script) {
+        throw new Error(`validation failed: ${script}`);
+      }
     },
     writeProductionClaspFiles() {
       calls.push('write-clasp');
@@ -183,6 +192,11 @@ function createAdapters(options = {}) {
         return { statuses: [] };
       }
       if (apiPath === '/repos/owner/repo/issues/123' && method === 'GET') {
+        if (options.statusIssueReadFails) {
+          throw new Error('status issue read failed');
+        }
+        const currentProductionSha = options.duplicateDeployed ? targetSha : previousSha;
+        const lastSuccessfulDeploymentSha = options.duplicateDeployed ? targetSha : previousSha;
         return {
           title: '本番反映ステータス',
           state: 'open',
@@ -192,12 +206,16 @@ function createAdapters(options = {}) {
               '# 本番反映ステータス',
               '',
               '- 状態: `deployed`',
-              `- 本番commit: \`${options.duplicateDeployed ? targetSha : previousSha}\``,
+              `- 本番commit: \`${currentProductionSha}\``,
               `- 最新develop: \`${targetSha}\``,
               '- developとの差分: `1 commits`',
-              `- 最終成功本番反映commit: \`${previousSha}\``,
+              '- 最終本番反映 source push: `success`',
+              '- 最終本番反映 deployment update: `success`',
+              '- 最終本番反映 smoke test: `success`',
+              `- 最終成功本番反映commit: \`${lastSuccessfulDeploymentSha}\``,
               '- 最終成功deployment日時: `2026-07-13T00:00:00.000Z`',
               '- 最終本番反映workflow: https://github.com/owner/repo/actions/runs/999',
+              '- 最終status同期workflow: https://github.com/owner/repo/actions/runs/888',
               '<!-- production-status:managed-by-github-actions -->',
             ].join('\n'),
         };
@@ -216,6 +234,26 @@ function createAdapters(options = {}) {
   adapters.calls = calls;
   adapters.state = state;
   return adapters;
+}
+
+function assertPreservedProductionInfo(body, {
+  currentSha = previousSha,
+  lastSuccessfulSha = currentSha,
+  lastFailureStage,
+} = {}) {
+  assert.ok(body.includes(`- 本番commit: \`${currentSha}\``), 'current production SHA should be preserved');
+  assert.ok(!body.includes('- 本番commit: `unknown`'), 'current production SHA must not become unknown');
+  assert.ok(body.includes(`- 最終成功本番反映commit: \`${lastSuccessfulSha}\``), 'last successful deployment SHA should be preserved');
+  assert.ok(!body.includes('- 最終成功本番反映commit: `unknown`'), 'last successful deployment SHA must not become unknown');
+  assert.ok(body.includes('- 最終成功deployment日時: `2026-07-13T00:00:00.000Z`'), 'last successful deployment timestamp should be preserved');
+  assert.ok(body.includes('- 最終本番反映workflow: https://github.com/owner/repo/actions/runs/999'), 'last deployment workflow URL should be preserved');
+  assert.ok(body.includes('- 最終status同期workflow: https://github.com/owner/repo/actions/runs/888'), 'last status sync workflow URL should be preserved');
+  assert.ok(body.includes('- 最終本番反映 source push: `success`'), 'last source push result should be preserved');
+  assert.ok(body.includes('- 最終本番反映 deployment update: `success`'), 'last deployment update result should be preserved');
+  assert.ok(body.includes('- 最終本番反映 smoke test: `success`'), 'last smoke test result should be preserved');
+  if (lastFailureStage) {
+    assert.ok(body.includes(`- 最終失敗ステージ: \`${lastFailureStage}\``), `failure stage should be ${lastFailureStage}`);
+  }
 }
 
 async function assertRejectsWith(fn, pattern) {
@@ -243,6 +281,7 @@ async function assertRejectsWith(fn, pattern) {
     assert.ok(!adapters.calls.includes('deployment-update'), 'static dry-run must not deploy');
     assert.ok(!adapters.calls.includes('smoke-test'), 'static dry-run must not smoke test');
     assert.ok(!adapters.calls.includes('status-issue-update'), 'static dry-run must not update status issue');
+    assert.ok(!adapters.calls.some((call) => call.includes('/issues/123')), 'static dry-run must not read the status issue');
     assert.strictEqual(adapters.state.cleanupCount, 1, 'cleanup should always run');
   }
 
@@ -252,6 +291,7 @@ async function assertRejectsWith(fn, pattern) {
       env: baseEnv({ DRY_RUN_MODE: 'authenticated', SOURCE_PR_NUMBER: '10' }),
       adapters,
     });
+    assert.ok(adapters.calls.indexOf('github:GET:/repos/owner/repo/issues/123') < adapters.calls.indexOf('github:GET:/repos/owner/repo/pulls/10'));
     assert.ok(adapters.calls.includes('write-clasp'));
     assert.ok(adapters.calls.includes('production-status'));
     assert.ok(!adapters.calls.includes('source-push'));
@@ -358,6 +398,71 @@ async function assertRejectsWith(fn, pattern) {
       adapters,
     }), /Required checks/);
     assert.ok(!adapters.calls.includes('write-clasp'));
+    assert.ok(!adapters.calls.some((call) => call.includes('/issues/123')), 'static dry-run required check failure must not read the status issue');
+  }
+
+  {
+    const adapters = createAdapters({ requiredCheckFails: true });
+    await assertRejectsWith(() => runProductionDeploy({
+      env: baseEnv({ DRY_RUN: 'false', SOURCE_PR_NUMBER: '10' }),
+      adapters,
+    }), /Required checks/);
+    assert.ok(!adapters.calls.includes('write-clasp'));
+    assert.ok(!adapters.calls.includes('npm-ci'));
+    assert.ok(!adapters.calls.includes('source-push'));
+    assert.ok(!adapters.calls.includes('deployment-update'));
+    assert.ok(!adapters.calls.includes('smoke-test'));
+    const finalBody = adapters.state.issuePatchBodies.at(-1);
+    assert.ok(finalBody.includes('- 状態: `failed`'));
+    assertPreservedProductionInfo(finalBody, { lastFailureStage: 'required-checks' });
+  }
+
+  {
+    const adapters = createAdapters({ failNpmCi: true });
+    await assertRejectsWith(() => runProductionDeploy({
+      env: baseEnv({ DRY_RUN: 'false', SOURCE_PR_NUMBER: '10' }),
+      adapters,
+    }), /npm ci failed/);
+    assert.ok(!adapters.calls.includes('write-clasp'));
+    assert.ok(!adapters.calls.includes('source-push'));
+    assert.ok(!adapters.calls.includes('deployment-update'));
+    assert.ok(!adapters.calls.includes('smoke-test'));
+    const finalBody = adapters.state.issuePatchBodies.at(-1);
+    assertPreservedProductionInfo(finalBody, { lastFailureStage: 'local-validation' });
+  }
+
+  {
+    const adapters = createAdapters({ failValidationScript: 'test:production-status-parser' });
+    await assertRejectsWith(() => runProductionDeploy({
+      env: baseEnv({ DRY_RUN: 'false', SOURCE_PR_NUMBER: '10' }),
+      adapters,
+    }), /validation failed: test:production-status-parser/);
+    assert.ok(!adapters.calls.includes('write-clasp'));
+    assert.ok(!adapters.calls.includes('source-push'));
+    assert.ok(!adapters.calls.includes('deployment-update'));
+    assert.ok(!adapters.calls.includes('smoke-test'));
+    const finalBody = adapters.state.issuePatchBodies.at(-1);
+    assertPreservedProductionInfo(finalBody, { lastFailureStage: 'local-validation' });
+  }
+
+  {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'production-ignore-missing-'));
+    try {
+      fs.writeFileSync(path.join(tmpDir, '.clasp.productionignore'), 'src/test/**\n');
+      const adapters = createAdapters();
+      await assertRejectsWith(() => runProductionDeploy({
+        env: baseEnv({ DRY_RUN: 'false', SOURCE_PR_NUMBER: '10' }),
+        adapters,
+        cwd: tmpDir,
+      }), /e2e_helpers/);
+      assert.ok(!adapters.calls.includes('npm-ci'));
+      assert.ok(!adapters.calls.includes('write-clasp'));
+      assert.ok(!adapters.calls.includes('source-push'));
+      const finalBody = adapters.state.issuePatchBodies.at(-1);
+      assertPreservedProductionInfo(finalBody, { lastFailureStage: 'local-validation' });
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
   }
 
   {
@@ -384,6 +489,9 @@ async function assertRejectsWith(fn, pattern) {
       env: baseEnv({ DRY_RUN_MODE: 'authenticated', SOURCE_PR_NUMBER: '10' }),
       adapters,
     }), /already recorded as deployed/);
+    assert.ok(!adapters.calls.includes('write-clasp'));
+    assert.ok(!adapters.calls.includes('npm-ci'));
+    assert.ok(!adapters.calls.includes('source-push'));
   }
 
   {
@@ -393,6 +501,41 @@ async function assertRejectsWith(fn, pattern) {
       adapters,
     });
     assert.ok(adapters.calls.includes('production-status'));
+  }
+
+  {
+    const adapters = createAdapters({ duplicateDeployed: true });
+    await assertRejectsWith(() => runProductionDeploy({
+      env: baseEnv({ DRY_RUN: 'false', SOURCE_PR_NUMBER: '10' }),
+      adapters,
+    }), /already recorded as deployed/);
+    assert.ok(!adapters.calls.includes('npm-ci'));
+    assert.ok(!adapters.calls.includes('write-clasp'));
+    assert.ok(!adapters.calls.includes('source-push'));
+    assert.ok(!adapters.calls.includes('deployment-update'));
+    assert.ok(!adapters.calls.includes('smoke-test'));
+    const finalBody = adapters.state.issuePatchBodies.at(-1);
+    assertPreservedProductionInfo(finalBody, {
+      currentSha: targetSha,
+      lastSuccessfulSha: targetSha,
+      lastFailureStage: 'status-issue-read',
+    });
+  }
+
+  {
+    const adapters = createAdapters({ statusIssueReadFails: true });
+    await assertRejectsWith(() => runProductionDeploy({
+      env: baseEnv({ DRY_RUN: 'false', SOURCE_PR_NUMBER: '10' }),
+      adapters,
+    }), /status issue read failed/);
+    assert.strictEqual(adapters.state.issuePatchBodies.length, 0, 'status issue read failure must not patch any issue');
+    assert.ok(!adapters.calls.includes('status-issue-update'));
+    assert.ok(!adapters.calls.includes('npm-ci'));
+    assert.ok(!adapters.calls.includes('write-clasp'));
+    assert.ok(!adapters.calls.includes('source-push'));
+    assert.ok(!adapters.calls.includes('deployment-update'));
+    assert.ok(!adapters.calls.includes('smoke-test'));
+    assert.strictEqual(adapters.state.cleanupCount, 1, 'cleanup should run even when status issue read fails');
   }
 
   {

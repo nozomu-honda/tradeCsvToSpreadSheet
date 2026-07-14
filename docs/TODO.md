@@ -45,13 +45,15 @@ Issue #83対応後の基本フロー:
 
 1. developへマージ済みPRへ `deploy-production-dry-run` ラベルを付け、Authenticated dry-runを実行する。
 2. default branch `main` 上のcontrol workflowがPRラベルを検証し、`Deploy production` workflowを `ref: develop` でdispatchする。
-3. deploy workflowで `HEAD == origin/develop == target_sha`、required checks、本番wrapper検証、本番bundle境界検証、`npm run gas:production:status -- --json`、重複反映ガードを確認する。
+3. deploy workflowで `HEAD == origin/develop == target_sha` を確認し、Production Status Issueを読んで既存本番情報をstateへ反映してから、重複反映ガード、required checks、本番wrapper検証、本番bundle境界検証、`npm run gas:production:status -- --json` を確認する。
 4. 問題がなければ、人間が `deploy-production` ラベルで本番反映を起動する。
 5. Production Status IssueとGitHub EnvironmentのDeployment履歴を確認する。
 6. developが進んだ場合は、metadata-onlyの `Update production status` workflowがProduction Status Issueを `not-deployed` へ更新する。
    - Status Issue番号未設定時は安全にskipする。
    - deploy workflowとstatus sync workflowは共通concurrency `production-state` で並行更新を避ける。
    - deploy中の `preflight` / `source-pushed` / `deployment-updated` / `verifying` はstatus syncが上書きしない。
+   - Authenticated dry-runと本番deployのpreflight失敗時も、現在の本番commit、最終成功deployment、前回工程結果を `unknown` で上書きしない。
+   - Static dry-runではProduction Status Issueを読まず、本番Secretsも要求しない。
 
 初回運用前に必要なこと:
 
