@@ -118,12 +118,14 @@ const parsed = parseProductionStatusIssue([
   `- 本番commit: \`${shaA}\``,
   `- 最新develop: \`${shaB}\``,
   '- developとの差分: `2 commits`',
+  '- 最終成功deployment日時: `2026-07-14T00:00:00.000Z`',
   '- 最終失敗ステージ: `none`',
 ].join('\n'));
 assert.strictEqual(parsed.productionStatus, 'deployed');
 assert.strictEqual(parsed.currentProductionSha, shaA);
 assert.strictEqual(parsed.latestDevelopSha, shaB);
 assert.strictEqual(parsed.commitsBehindDevelop, '2 commits');
+assert.strictEqual(parsed.lastSuccessfulDeploymentAt, '2026-07-14T00:00:00.000Z');
 
 assert.strictEqual(
   calculateBehindDevelop({

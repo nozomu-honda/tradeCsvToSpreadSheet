@@ -63,8 +63,17 @@ Web E2Eでは一時Webアプリdeploymentを作成しますが、テスト終了
 ## GitHub Actionsによる本番反映
 
 Issue #83以降の本番反映は、原則としてGitHub Actionsの `Deploy production` workflowで行います。
-ChatGPT側からは、マージ済みPRへの専用ラベル付与で起動します。
+ChatGPT側からは、developへマージ済みPRへの専用ラベル付与で起動します。
 `workflow_dispatch` は人間向けfallbackです。
+
+ラベル起動は2段構成です。
+
+- default branch `main` 上の `Production deploy control` workflowが、PRラベルを検証する。
+- 条件を満たした場合だけ、`Deploy production` workflowを `ref: develop` でdispatchする。
+- deploy workflowは `target_sha` と最新 `origin/develop` の一致を確認してから本番処理へ進む。
+
+PR #84をdevelopへマージしただけでは、default branch `main` 上のラベル起動経路はまだ有効になりません。
+正式運用前に、control workflowとdeploy workflow定義を `main` へ同期する後続対応が必要です。
 
 基本フロー:
 
@@ -74,6 +83,7 @@ ChatGPT側からは、マージ済みPRへの専用ラベル付与で起動し�
 4. 問題がなければ、人間が `deploy-production` ラベルで本番反映を起動する。
 5. workflowが本番Apps Scriptへpushし、既存Webアプリdeploymentを新バージョンへ更新する。
 6. Production Status IssueとGitHub EnvironmentのDeployment履歴を確認する。
+7. developが進んだ場合は、metadata-onlyの `Update production status` workflowがProduction Status Issueを `not-deployed` へ更新する。
 
 詳細は[`docs/production-deploy.md`](production-deploy.md)を確認します。
 

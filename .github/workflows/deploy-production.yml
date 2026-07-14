@@ -22,13 +22,15 @@ on:
         default: false
         type: boolean
       target_sha:
-        description: '空なら最新origin/develop。指定する場合も最新origin/developと一致する必要があります'
+        description: '反映対象の最新develop commit SHA。control workflowからdevelop refで渡す'
+        required: true
+        default: ''
+        type: string
+      source_pr_number:
+        description: '本番反映元PR番号。必須チェック検証に利用する'
         required: false
         default: ''
         type: string
-  issues:
-    types:
-      - labeled
 
 run-name: Production deploy
 
@@ -38,60 +40,22 @@ permissions:
   pull-requests: read
   checks: read
   statuses: read
-  actions: read
 
 concurrency:
   group: production-deploy
   cancel-in-progress: false
 
 jobs:
-  resolve-production-target:
-    name: Resolve production target
-    runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'issues' }}
-    outputs:
-      should_run: ${{ steps.resolve.outputs.should_run }}
-      dry_run: ${{ steps.resolve.outputs.dry_run }}
-      dry_run_mode: ${{ steps.resolve.outputs.dry_run_mode }}
-      force: ${{ steps.resolve.outputs.force }}
-      target_sha: ${{ steps.resolve.outputs.target_sha }}
-      source_pr_number: ${{ steps.resolve.outputs.source_pr_number }}
-      trigger_label: ${{ steps.resolve.outputs.trigger_label }}
-    env:
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      DISPATCH_DRY_RUN: ${{ inputs.dry_run }}
-      DISPATCH_DRY_RUN_MODE: ${{ inputs.dry_run_mode }}
-      DISPATCH_FORCE: ${{ inputs.force }}
-      DISPATCH_TARGET_SHA: ${{ inputs.target_sha }}
-    steps:
-      - name: Checkout trusted develop source
-        uses: actions/checkout@v4
-        with:
-          ref: develop
-          fetch-depth: 0
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: npm
-
-      - name: Resolve label or dispatch target
-        id: resolve
-        shell: bash
-        run: node scripts/ci/production-deploy-event.js
-
   static-dry-run:
     name: Production static dry-run
-    needs: resolve-production-target
     runs-on: ubuntu-latest
-    if: ${{ needs.resolve-production-target.outputs.should_run == 'true' && needs.resolve-production-target.outputs.dry_run == 'true' && needs.resolve-production-target.outputs.dry_run_mode == 'static' }}
+    if: ${{ inputs.dry_run == true && inputs.dry_run_mode == 'static' }}
     env:
       DRY_RUN: 'true'
       DRY_RUN_MODE: static
-      FORCE: ${{ needs.resolve-production-target.outputs.force }}
-      TARGET_SHA: ${{ needs.resolve-production-target.outputs.target_sha }}
-      SOURCE_PR_NUMBER: ${{ needs.resolve-production-target.outputs.source_pr_number }}
+      FORCE: ${{ inputs.force }}
+      TARGET_SHA: ${{ inputs.target_sha }}
+      SOURCE_PR_NUMBER: ${{ inputs.source_pr_number }}
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Checkout trusted develop source
@@ -117,18 +81,17 @@ jobs:
 
   deploy-production:
     name: Deploy production
-    needs: resolve-production-target
     runs-on: ubuntu-latest
-    if: ${{ needs.resolve-production-target.outputs.should_run == 'true' && (needs.resolve-production-target.outputs.dry_run != 'true' || needs.resolve-production-target.outputs.dry_run_mode == 'authenticated') }}
+    if: ${{ inputs.dry_run != true || inputs.dry_run_mode == 'authenticated' }}
     environment:
       name: production
       url: ${{ vars.PRODUCTION_WEB_APP_URL }}
     env:
-      DRY_RUN: ${{ needs.resolve-production-target.outputs.dry_run }}
-      DRY_RUN_MODE: ${{ needs.resolve-production-target.outputs.dry_run_mode }}
-      FORCE: ${{ needs.resolve-production-target.outputs.force }}
-      TARGET_SHA: ${{ needs.resolve-production-target.outputs.target_sha }}
-      SOURCE_PR_NUMBER: ${{ needs.resolve-production-target.outputs.source_pr_number }}
+      DRY_RUN: ${{ inputs.dry_run }}
+      DRY_RUN_MODE: ${{ inputs.dry_run_mode }}
+      FORCE: ${{ inputs.force }}
+      TARGET_SHA: ${{ inputs.target_sha }}
+      SOURCE_PR_NUMBER: ${{ inputs.source_pr_number }}
       CLASP_PRODUCTION_CREDENTIALS: ${{ secrets.CLASP_PRODUCTION_CREDENTIALS }}
       PRODUCTION_SCRIPT_ID: ${{ secrets.PRODUCTION_SCRIPT_ID }}
       PRODUCTION_DEPLOYMENT_ID: ${{ secrets.PRODUCTION_DEPLOYMENT_ID }}

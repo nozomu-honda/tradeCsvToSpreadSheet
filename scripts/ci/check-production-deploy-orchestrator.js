@@ -67,6 +67,9 @@ function createAdapters(options = {}) {
       'test:production-deploy-orchestrator',
       'test:production-status-parser',
       'test:production-smoke-test',
+      'test:production-deploy-control',
+      'test:production-status-sync',
+      'test:production-required-checks',
     ],
     addMasksFromEnv() {
       calls.push('mask');
@@ -204,6 +207,15 @@ async function assertRejectsWith(fn, pattern) {
 }
 
 (async () => {
+  {
+    const adapters = createAdapters();
+    await assertRejectsWith(() => runProductionDeploy({
+      env: baseEnv({ TARGET_SHA: '' }),
+      adapters,
+    }), /TARGET_SHA must be provided/);
+    assert.ok(!adapters.calls.includes('npm-ci'));
+  }
+
   {
     const adapters = createAdapters();
     await runProductionDeploy({

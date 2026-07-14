@@ -53,6 +53,10 @@
   - ラベル起動、dry-run、本番反映の違い
   - Production Status IssueとGitHub Environmentの設定
 
+- [`docs/production-deploy-control.md`](docs/production-deploy-control.md)
+  - default branch `main` へ同期が必要なcontrol workflowの役割
+  - PRラベル起動と本番SHA追跡の境界
+
 ---
 
 ## このリポジトリでのルール
@@ -113,7 +117,9 @@ bareな `clasp push` は使わない。CI用と本番用のApps Script project�
 CI用の反映はGitHub Actionsだけが行う。ローカルPCからテスト専用Apps Scriptプロジェクトへ手動pushしない。
 
 本番反映は、原則としてマージ済みPRへの専用ラベル付与でGitHub Actionsの `Deploy production` workflowを起動する。
+PRラベルはdefault branch `main` 上のcontrol workflowが受け、条件を満たした場合だけ `deploy-production.yml` を `ref: develop` でdispatchする。
 `workflow_dispatch` は人間向けfallbackとして残す。
+正式運用前に、control workflowとdeploy workflow定義を `main` へ同期する後続対応が必要。
 ローカル手動fallbackでは、本番専用設定を用意したうえで次のnpmコマンドだけを使う。
 
 ```bash

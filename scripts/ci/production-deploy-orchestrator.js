@@ -65,13 +65,14 @@ function requireConfig(env, options) {
 }
 
 function requiredCheckNames(env) {
-  if (!env.PRODUCTION_REQUIRED_CHECKS) {
-    return DEFAULT_REQUIRED_CHECKS;
-  }
-  return env.PRODUCTION_REQUIRED_CHECKS
-    .split(',')
+  const configuredChecks = String(env.PRODUCTION_REQUIRED_CHECKS || '')
+    .split(/[,\n]/)
     .map((name) => name.trim())
     .filter(Boolean);
+  return Array.from(new Set([
+    ...DEFAULT_REQUIRED_CHECKS,
+    ...configuredChecks,
+  ]));
 }
 
 function validateProductionIgnoreBoundary(cwd = process.cwd()) {
@@ -226,8 +227,11 @@ async function runProductionDeploy({ env, adapters, cwd = process.cwd() }) {
 
     adapters.fetchDevelop();
     const latestDevelopSha = adapters.getOriginDevelopSha();
+    if (!env.TARGET_SHA || !env.TARGET_SHA.trim()) {
+      throw new Error('TARGET_SHA must be provided by workflow_dispatch and match the latest origin/develop commit.');
+    }
     const targetSha = resolveTargetSha({
-      targetSha: env.TARGET_SHA || '',
+      targetSha: env.TARGET_SHA,
       latestDevelopSha,
     });
     const headSha = adapters.getHeadSha();
@@ -276,6 +280,7 @@ async function runProductionDeploy({ env, adapters, cwd = process.cwd() }) {
     const managedIssue = await readManagedProductionStatusIssue({ adapters, env });
     state.previousProductionSha = managedIssue.parsed.currentProductionSha;
     state.currentProductionSha = managedIssue.parsed.currentProductionSha;
+    state.lastSuccessfulDeploymentAt = managedIssue.parsed.lastSuccessfulDeploymentAt || 'unknown';
 
     const duplicate = shouldBlockDuplicateDeployment({
       currentProductionSha: managedIssue.parsed.currentProductionSha,

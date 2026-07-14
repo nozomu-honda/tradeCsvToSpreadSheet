@@ -23,6 +23,7 @@ function renderProductionStatusIssue(state) {
   const lastFailureStage = formatValue(state.lastFailureStage || 'none');
   const failureMessage = formatValue(state.failureMessage || 'none');
   const developAdvancedAfterSourcePush = state.developAdvancedAfterSourcePush ? 'true' : 'false';
+  const lastSuccessfulDeploymentAt = formatValue(state.lastSuccessfulDeploymentAt || 'unknown');
 
   return [
     '# 本番反映ステータス',
@@ -44,6 +45,7 @@ function renderProductionStatusIssue(state) {
     `- source push: \`${formatValue(state.sourcePush)}\``,
     `- deployment update: \`${formatValue(state.deploymentUpdate)}\``,
     `- smoke test: \`${formatValue(state.smokeTest)}\``,
+    `- 最終成功deployment日時: \`${lastSuccessfulDeploymentAt}\``,
     `- dry_run: \`${dryRun}\``,
     `- force: \`${force}\``,
     `- source push後にdevelop進行: \`${developAdvancedAfterSourcePush}\``,
@@ -55,12 +57,12 @@ function renderProductionStatusIssue(state) {
     '## 状態の意味',
     '',
     '- `unknown`: 本番状態をまだ特定していない。',
-    '- `not-deployed`: 本番反映履歴がまだない。',
+    '- `not-deployed`: 最新developが現在の本番commitへまだ反映されていない。',
     '- `preflight`: 事前確認中。',
     '- `source-pushed`: Apps Scriptソースpush済み。',
     '- `deployment-updated`: 既存Webアプリdeployment更新済み。',
     '- `verifying`: smoke確認中。',
-    '- `deployed`: 本番反映と確認が完了。',
+    '- `deployed`: 本番commitが最新developと一致し、smoke確認が成功済み。',
     '- `failed`: いずれかの段階で失敗。',
     '',
     '<!-- production-status:managed-by-github-actions -->',

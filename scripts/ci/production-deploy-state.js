@@ -59,6 +59,7 @@ function createInitialProductionDeployState({
   previousProductionSha = 'unknown',
   currentProductionSha = previousProductionSha,
   commitsBehindDevelop = 'unknown',
+  lastSuccessfulDeploymentAt = 'unknown',
   status = 'preflight',
 } = {}) {
   assertValidProductionState(status);
@@ -69,6 +70,7 @@ function createInitialProductionDeployState({
     previousProductionSha: previousProductionSha || 'unknown',
     currentProductionSha: currentProductionSha || 'unknown',
     commitsBehindDevelop,
+    lastSuccessfulDeploymentAt,
     dryRun: Boolean(dryRun),
     force: Boolean(force),
     workflowRunUrl,
@@ -101,6 +103,7 @@ function markProductionDeployState(state, status, patch = {}) {
   }
   if (status === 'deployed') {
     next.currentProductionSha = patch.currentProductionSha || state.targetSha || 'unknown';
+    next.lastSuccessfulDeploymentAt = patch.lastSuccessfulDeploymentAt || next.updatedAt;
     next.sourcePush = patch.sourcePush || 'success';
     next.deploymentUpdate = patch.deploymentUpdate || 'success';
     next.smokeTest = patch.smokeTest || 'success';
@@ -157,6 +160,11 @@ function parseProductionStatusIssue(body) {
     latestDevelopSha: 'unknown',
     commitsBehindDevelop: 'unknown',
     lastFailureStage: '',
+    sourcePush: 'not-started',
+    deploymentUpdate: 'not-started',
+    smokeTest: 'not-started',
+    failureMessage: '',
+    lastSuccessfulDeploymentAt: 'unknown',
   };
   if (!body) {
     return result;
@@ -168,6 +176,11 @@ function parseProductionStatusIssue(body) {
   const latestMatch = normalized.match(/^- 最新develop:\s*`?([0-9a-f]{40}|unknown)`?/im);
   const behindMatch = normalized.match(/^- developとの差分:\s*`?([^`\n]+)`?/m);
   const failureMatch = normalized.match(/^- 最終失敗ステージ:\s*`?([^`\n]*)`?/m);
+  const sourcePushMatch = normalized.match(/^- source push:\s*`?([^`\n]+)`?/m);
+  const deploymentUpdateMatch = normalized.match(/^- deployment update:\s*`?([^`\n]+)`?/m);
+  const smokeTestMatch = normalized.match(/^- smoke test:\s*`?([^`\n]+)`?/m);
+  const failureMessageMatch = normalized.match(/^- 失敗内容:\s*`?([^`\n]*)`?/m);
+  const lastSuccessfulDeploymentMatch = normalized.match(/^- 最終成功deployment日時:\s*`?([^`\n]*)`?/m);
 
   if (statusMatch && VALID_PRODUCTION_STATES.includes(statusMatch[1])) {
     result.productionStatus = statusMatch[1];
@@ -183,6 +196,21 @@ function parseProductionStatusIssue(body) {
   }
   if (failureMatch) {
     result.lastFailureStage = failureMatch[1].trim();
+  }
+  if (sourcePushMatch) {
+    result.sourcePush = sourcePushMatch[1].trim();
+  }
+  if (deploymentUpdateMatch) {
+    result.deploymentUpdate = deploymentUpdateMatch[1].trim();
+  }
+  if (smokeTestMatch) {
+    result.smokeTest = smokeTestMatch[1].trim();
+  }
+  if (failureMessageMatch) {
+    result.failureMessage = failureMessageMatch[1].trim();
+  }
+  if (lastSuccessfulDeploymentMatch) {
+    result.lastSuccessfulDeploymentAt = lastSuccessfulDeploymentMatch[1].trim();
   }
   return result;
 }

@@ -4,12 +4,23 @@ Issue #83で追加する本番反映workflowの運用手順です。
 本番Apps Scriptへのpush、既存Webアプリdeployment更新、本番状態追跡をGitHub Actionsへ寄せます。
 
 Codexはこのworkflowの実行、GitHub Environment作成、Secrets / Variables変更、本番Apps Script操作、本番Webアプリ再デプロイを行いません。
+default branch `main` へのcontrol workflow同期メモは [`docs/production-deploy-control.md`](production-deploy-control.md) を参照します。
 
 ## 起動経路
 
-workflow: `.github/workflows/deploy-production.yml`
+本番反映は2段構成です。
 
-正式経路は、マージ済みPRへのラベル付与です。
+- control workflow: `.github/workflows/production-deploy-control.yml`
+  - default branch `main` 上でPRラベルを受ける。
+  - `pull_request_target: labeled` で起動するが、PR headはcheckoutしない。
+  - 本番Secrets、production Environment、clasp操作は使わない。
+  - 条件を満たした場合だけ、`deploy-production.yml` を `ref: develop` でworkflow_dispatchする。
+- deploy workflow: `.github/workflows/deploy-production.yml`
+  - `workflow_dispatch` だけで起動する。
+  - 信頼済みの最新 `develop` をcheckoutする。
+  - `HEAD == origin/develop == target_sha` を満たす場合だけ、本番反映処理へ進む。
+
+正式経路は、developへマージ済みPRへのラベル付与です。
 
 | ラベル | 意味 |
 | --- | --- |
@@ -26,31 +37,35 @@ ChatGPT側は原則としてラベル付与で起動します。
 ## default branchについて
 
 このリポジトリのdefault branchは `main` です。
-`issues:labeled` はdefault branch上のworkflow定義で評価されます。
+PRラベルを契機にするworkflowは、default branch上のworkflow定義で評価されます。
 
-そのため、ラベル起動を正式運用するには、次のどちらかを人間が確認・実施する必要があります。
+そのため、PR #84をdevelopへマージしただけでは、ラベル起動経路はまだ有効になりません。
+正式運用するには、少なくとも次のworkflow定義をdefault branch `main` へ同期する後続対応が必要です。
 
-- workflow定義をdefault branch `main` にも同期する。
-- default branchを変更する必要があるかを判断する。
+- `.github/workflows/production-deploy-control.yml`
+- `.github/workflows/deploy-production.yml`
 
 このPRではdefault branch変更や `main` への直接pushは行いません。
-リリース元は引き続き `develop` です。workflowは常に信頼済みの最新 `develop` をcheckoutして実行します。
+リリース元は引き続き `develop` です。
+control workflowは `deploy-production.yml` を `ref: develop` でdispatchするため、GitHub Environment Deploymentの対象SHAはcontrol workflowが動く `main` のSHAではなく、実際の反映対象である `develop` のSHAになります。
 
 ## ラベル起動時の検証
 
-ラベルイベントはSecretsを使うproduction jobへ進む前に、Secretsなしの `resolve-production-target` jobで検証します。
+ラベルイベントは、Secretsを使うproduction jobへ進む前に、Secretsなしのcontrol workflowで検証します。
 
 検証内容:
 
-- 対象がPull Requestである。
+- eventが `pull_request_target:labeled` である。
 - 対象PRがmergedである。
 - base branchが `develop` である。
-- PRのmerge commit SHAが最新 `origin/develop` HEADと一致する。
 - same repository PRである。
 - fork PRではない。
+- PRのmerge commit SHAが40文字の完全SHAである。
+- PRのmerge commit SHAが最新 `develop` HEADと一致する。
 - ラベル名が許可された3種類のいずれかである。
 - PR番号とmerge commit SHAをGitHub APIから再取得する。
 - Issue本文やPR本文の値は信頼しない。
+- 起動ラベルを削除し、必要な場合は再ラベル付与で再実行できるようにする。
 
 不正なラベル、未マージPR、古いPR、fork PRではproduction jobへ進みません。
 
@@ -110,18 +125,19 @@ GitHub Environment `production` のSecrets / Variablesを使い、本番操作�
 
 実行順:
 
-1. ラベルまたはworkflow_dispatchの対象SHAを解決する。
-2. required checksが成功していることを確認する。
-3. `npm ci` とローカル検証を実行する。
-4. Production Status Issueのmarkerを確認する。
-5. `npm run gas:production:status -- --json` の実出力を解析する。
-6. 本番push直前に `HEAD == origin/develop == targetSha` を再確認する。
-7. `npm run gas:production:push` を実行する。
-8. 既存Webアプリdeployment更新直前にもdevelopを再確認する。
-9. source push後にdevelopが進んでいた場合は、すでにpushした同一SHAのdeployment updateとSmoke Testまで完遂し、Status Issueへ記録する。
-10. `clasp deploy --deploymentId` で既存deploymentを更新する。
-11. 本番Webアプリへ安全なHTTP Smoke Testを実行する。
-12. Production Status Issueを `deployed` または `failed` へ更新する。
+1. control workflowが、マージ済みPRのmerge commit SHAを `target_sha` として `deploy-production.yml` を `ref: develop` でdispatchする。
+2. deploy workflowが信頼済み `develop` をcheckoutし、`HEAD == origin/develop == target_sha` を確認する。
+3. required checksが成功していることを確認する。
+4. `npm ci` とローカル検証を実行する。
+5. Production Status Issueのmarkerを確認する。
+6. `npm run gas:production:status -- --json` の実出力を解析する。
+7. 本番push直前に `HEAD == origin/develop == target_sha` を再確認する。
+8. `npm run gas:production:push` を実行する。
+9. 既存Webアプリdeployment更新直前にもdevelopを再確認する。
+10. source push後にdevelopが進んでいた場合は、すでにpushした同一SHAのdeployment updateとSmoke Testまで完遂し、Status Issueへ記録する。
+11. `clasp deploy --deploymentId` で既存deploymentを更新する。
+12. 本番Webアプリへ安全なHTTP Smoke Testを実行する。
+13. Production Status Issueを `deployed` または `failed` へ更新する。
 
 ## required checks
 
@@ -134,7 +150,10 @@ Push test GAS project and run tests
 workflow_dispatchでは、target SHAに対応するmerged PRをGitHub APIから解決します。
 ラベル起動では、ラベルが付いたmerged PRを正本として使います。
 
-`PRODUCTION_REQUIRED_CHECKS` にカンマ区切りで追加check名を設定できます。
+`PRODUCTION_REQUIRED_CHECKS` にカンマ区切りまたは改行区切りで追加check名を設定できます。
+この変数は追加用であり、既定の `Push test GAS project and run tests` を置き換えません。
+実際に要求されるcheckは、既定checkと `PRODUCTION_REQUIRED_CHECKS` の和集合です。
+同じcheck名が重複しても1回だけ検証します。
 `neutral`、`queued`、`in_progress`、`failure`、`cancelled`、`timed_out`、`action_required` は成功扱いにしません。
 
 ## production status解析
@@ -181,6 +200,19 @@ Environmentにrequired reviewersを設定した場合、ChatGPTから承認そ�
 
 markerがないIssueは絶対に上書きしません。
 
+`.github/workflows/update-production-status.yml` は、`develop` push時にProduction Status Issueだけを更新するmetadata-only workflowです。
+本番Secrets、production Environment、clasp、本番Apps Script、本番Webアプリには触れません。
+
+この同期で行うこと:
+
+- 最新 `develop` SHAを取得する。
+- Production Status Issueの現在の本番commitを読む。
+- 本番commitと最新developが異なる場合は `not-deployed` として記録する。
+- 現在の本番commit、最新develop、developとの差分、最終成功deployment日時、最終workflow run、失敗情報を保持・更新する。
+- marker、Issue title、open状態、PRではないことを確認してから更新する。
+
+`deployed` は、現在の本番commitが最新developと一致し、かつsmoke testが成功済みである状態だけを表します。
+
 初回Issue本文テンプレート:
 
 ```markdown
@@ -194,6 +226,7 @@ markerがないIssueは絶対に上書きしません。
 - source push: `not-started`
 - deployment update: `not-started`
 - smoke test: `not-started`
+- 最終成功deployment日時: `unknown`
 - dry_run: `true`
 - force: `false`
 - source push後にdevelop進行: `false`
@@ -285,9 +318,10 @@ workflowではJSONのleaf値を個別にmaskし、複数行JSON全体をその�
    - 任意: `PRODUCTION_SMOKE_EXPECTED_MARKER`
    - 任意: `PRODUCTION_REQUIRED_CHECKS`
 5. Production Status Issueをテンプレートで作成する。
-6. default branch `main` でラベル起動workflowが有効になるか確認する。
-7. まずStatic dry-runを実行する。
-8. Secrets / Variables設定後にAuthenticated dry-runを実行する。
+6. default branch `main` へcontrol workflowとdeploy workflow定義を同期する後続対応を実施する。
+7. default branch `main` でPRラベル起動が有効になるか確認する。
+8. まずStatic dry-runを実行する。
+9. Secrets / Variables設定後にAuthenticated dry-runを実行する。
 
 ラベルが存在しない場合は、人間がGitHub上で作成します。
 
@@ -323,6 +357,9 @@ npm run test:production-deploy-state
 npm run test:production-deploy-orchestrator
 npm run test:production-status-parser
 npm run test:production-smoke-test
+npm run test:production-deploy-control
+npm run test:production-status-sync
+npm run test:production-required-checks
 git diff --check
 ```
 

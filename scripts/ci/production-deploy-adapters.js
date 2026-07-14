@@ -16,6 +16,9 @@ const DEFAULT_VALIDATION_SCRIPTS = [
   'test:production-deploy-orchestrator',
   'test:production-status-parser',
   'test:production-smoke-test',
+  'test:production-deploy-control',
+  'test:production-status-sync',
+  'test:production-required-checks',
 ];
 
 function npmCommand() {

@@ -28,6 +28,7 @@ assert.ok(preflightBody.includes(`- 最新develop: \`${shaB}\``));
 assert.ok(preflightBody.includes('- source push: `not-started`'));
 assert.ok(preflightBody.includes('- deployment update: `not-started`'));
 assert.ok(preflightBody.includes('- smoke test: `not-started`'));
+assert.ok(preflightBody.includes('- 最終成功deployment日時: `unknown`'));
 assert.ok(preflightBody.includes('<!-- production-status:managed-by-github-actions -->'));
 assert.ok(!preflightBody.includes('PRODUCTION_SCRIPT_ID'), 'status body must not expose config names as values');
 assert.ok(!preflightBody.includes('PRODUCTION_DEPLOYMENT_ID'), 'status body must not expose config names as values');
@@ -43,6 +44,7 @@ assert.ok(deployedBody.includes('- source push: `success`'));
 assert.ok(deployedBody.includes('- deployment update: `success`'));
 assert.ok(deployedBody.includes('- smoke test: `success`'));
 assert.ok(deployedBody.includes('- developとの差分: `0 commits`'));
+assert.ok(deployedBody.includes('- 最終成功deployment日時: `'));
 assert.ok(deployedBody.includes('- 最終失敗ステージ: `none`'));
 
 const dryRunSummary = renderDryRunSummary(preflight);

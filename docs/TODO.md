@@ -42,10 +42,12 @@ npm run gas:production:push
 
 Issue #83対応後の基本フロー:
 
-1. マージ済みPRへ `deploy-production-dry-run` ラベルを付け、Authenticated dry-runを実行する。
-2. dry-runでrequired checks、本番wrapper検証、本番bundle境界検証、`npm run gas:production:status -- --json`、重複反映ガードを確認する。
-3. 問題がなければ、人間が `deploy-production` ラベルで本番反映を起動する。
-4. Production Status IssueとGitHub EnvironmentのDeployment履歴を確認する。
+1. developへマージ済みPRへ `deploy-production-dry-run` ラベルを付け、Authenticated dry-runを実行する。
+2. default branch `main` 上のcontrol workflowがPRラベルを検証し、`Deploy production` workflowを `ref: develop` でdispatchする。
+3. deploy workflowで `HEAD == origin/develop == target_sha`、required checks、本番wrapper検証、本番bundle境界検証、`npm run gas:production:status -- --json`、重複反映ガードを確認する。
+4. 問題がなければ、人間が `deploy-production` ラベルで本番反映を起動する。
+5. Production Status IssueとGitHub EnvironmentのDeployment履歴を確認する。
+6. developが進んだ場合は、metadata-onlyの `Update production status` workflowがProduction Status Issueを `not-deployed` へ更新する。
 
 初回運用前に必要なこと:
 
@@ -54,7 +56,8 @@ Issue #83対応後の基本フロー:
 - Environment Variables `PRODUCTION_WEB_APP_URL`、`PRODUCTION_STATUS_ISSUE_NUMBER`、必要なら `PRODUCTION_SMOKE_EXPECTED_MARKER` を設定する。
 - 管理marker `<!-- production-status:managed-by-github-actions -->` を含むProduction Status Issueを作成し、実値を貼らずに状態追跡用として使う。
 - 起動ラベル `deploy-production-dry-run`、`deploy-production`、`deploy-production-force` を作成する。
-- default branch `main` で `issues:labeled` workflowが起動できるよう、workflow定義の同期要否を人間が確認する。
+- default branch `main` へcontrol workflowとdeploy workflow定義を同期する後続対応を行う。
+- default branch `main` でPRラベル起動workflowが起動できることを人間が確認する。
 - Static dry-runとAuthenticated dry-runが成功することを確認する。
 
 Codexは本番Apps Scriptへのpush、本番Webアプリdeployment更新、GitHub Secrets / Variables変更、GitHub Environment作成、production workflow実行を行わない。
@@ -206,6 +209,7 @@ rollbackの正常系は既存E2Eで使っているが、異常系の明示確認
 - Web App E2E詳細: `docs/gas-web-e2e.md`
 - clasp反映手順: `docs/clasp-operations.md`
 - 本番反映workflow: `docs/production-deploy.md`
+- 本番反映control workflow同期メモ: `docs/production-deploy-control.md`
 - 仕様: `docs/spec.md`
 - 取引ルール: `docs/trade-rules.md`
 - Codex依頼テンプレート: `docs/codex-prompts.md`
