@@ -8,7 +8,10 @@ const {
   FINAL_CI_LABEL,
   GAS_TESTS_CHECK_NAME,
   WEB_E2E_CHECK_NAME,
+  buildCheckRunRequest,
   decideCheckExecution,
+  determineWebE2eStatus,
+  getCheckConclusionForStatus,
   hasSuccessfulCheckRun,
   isSameRepositoryPullRequest,
 } = require('./final-ci');
@@ -16,6 +19,7 @@ const {
 const repoRoot = path.resolve(__dirname, '..', '..');
 const finalCiControllerWorkflow = read('.github/workflows/final-ci.yml');
 const finalCiRunWorkflow = read('.github/workflows/final-ci-run.yml');
+const finalCiHelper = read('scripts/ci/final-ci.js');
 const gasTestsWorkflow = read('.github/workflows/gas-tests.yml');
 const gasWebE2eWorkflow = read('.github/workflows/gas-web-e2e.yml');
 const packageJson = JSON.parse(read('package.json'));
@@ -45,7 +49,7 @@ assert.ok(!finalCiRunWorkflow.includes('workflow_dispatch:'), 'final CI body mus
 assert.ok(!finalCiRunWorkflow.includes('pull_request:'), 'final CI body must not run on ordinary PR labels by itself');
 assert.ok(!finalCiRunWorkflow.includes('pull_request_target'), 'final CI body must not use pull_request_target');
 assert.ok(finalCiRunWorkflow.includes('pull-requests: read'), 'final CI body must read current PR head state');
-assert.ok(finalCiRunWorkflow.includes('checks: write'), 'final CI body must publish the exact required GAS check name after reusable execution');
+assert.ok(finalCiRunWorkflow.includes('checks: write'), 'final CI body must publish exact head-SHA check runs after reusable execution');
 assert.ok(finalCiRunWorkflow.includes('gas-shared-test-project'), 'final CI body must use the shared test Apps Script concurrency group');
 assert.ok(finalCiRunWorkflow.includes('cancel-in-progress: false'), 'final CI body must not cancel in-progress GAS/Web runs');
 
@@ -60,8 +64,20 @@ assert.ok(finalCiRunWorkflow.includes('steps.gas_decision.outputs.execute == \'t
 assert.ok(finalCiRunWorkflow.includes('steps.web_e2e_decision.outputs.execute == \'true\''), 'Web E2E heavy step must be gated by the decision helper');
 assert.ok(finalCiRunWorkflow.includes("needs.final-ci-context.outputs.same_repository == 'true'"), 'secret-backed steps must require same-repository PRs');
 assert.ok(finalCiRunWorkflow.includes('Publish required GAS status check'), 'GAS job must publish the exact required check name even when heavy work is reused');
-assert.ok(finalCiRunWorkflow.includes('github.rest.checks.create'), 'GAS job must create an explicit required check run for the requested head SHA');
-assert.ok(finalCiRunWorkflow.includes('head_sha: process.env.TARGET_HEAD_SHA'), 'explicit required check must be attached to the requested PR head SHA');
+assert.ok(finalCiRunWorkflow.includes('CHECK_NAME: Push test GAS project and run tests'), 'GAS published check name must stay fixed');
+assert.ok(finalCiRunWorkflow.includes('TARGET_HEAD_SHA: ${{ needs.final-ci-context.outputs.head_sha }}'), 'published GAS check must be attached to the requested PR head SHA');
+assert.ok(finalCiRunWorkflow.includes('node scripts/ci/final-ci.js publish-check'), 'GAS job must use the shared check publisher');
+assert.ok(finalCiRunWorkflow.includes('Publish Web E2E status check'), 'Web E2E job must publish a head-SHA check run');
+assert.ok(finalCiRunWorkflow.includes('CHECK_NAME: Deploy test Web app and run Playwright E2E'), 'Web E2E published check name must stay fixed');
+assert.ok(finalCiRunWorkflow.includes('node scripts/ci/final-ci.js record-web-status'), 'Web E2E job must compute a final status before publishing its check');
+assert.ok(finalCiRunWorkflow.includes('id: cleanup_dynamic_webapp'), 'dynamic deployment cleanup step must expose its outcome');
+assert.ok(finalCiRunWorkflow.includes('CLEANUP_OUTCOME: ${{ steps.cleanup_dynamic_webapp.outcome }}'), 'Web E2E result must include cleanup outcome');
+assert.ok(finalCiRunWorkflow.includes('WEBAPP_PROBE: ${{ steps.deploy_webapp.outputs.webapp_probe }}'), 'Web E2E result must include protected/ready probe state');
+assert.ok(finalCiRunWorkflow.includes('id: web_e2e_head_guard'), 'Web E2E must expose the pre-heavy head guard outcome');
+assert.ok(finalCiRunWorkflow.includes('Fail Web E2E when status is not successful'), 'skipped or failed Web E2E status must fail the job after publishing a failure check');
+assert.ok(finalCiRunWorkflow.includes('WEB_E2E_STATUS'), 'Web E2E failure gate must read the recorded status');
+assert.ok(finalCiHelper.includes('currentHeadSha !== env.TARGET_HEAD_SHA'), 'check publisher must re-check PR head before creating a success or failure check run');
+assert.ok(finalCiHelper.includes("method: 'POST'"), 'check publisher must fail closed if Check Run creation fails');
 
 for (const secretName of ['CLASPRC_JSON', 'GAS_TEST_SCRIPT_ID', 'CI_E2E_TOKEN']) {
   assert.ok(finalCiRunWorkflow.includes(`secrets.${secretName}`), `final CI body must wire ${secretName} only in heavy same-repository steps`);
@@ -107,6 +123,44 @@ assert.strictEqual(
   false,
   'failed checks must not be reused',
 );
+assert.strictEqual(
+  hasSuccessfulCheckRun([{ name: WEB_E2E_CHECK_NAME, conclusion: 'neutral' }], WEB_E2E_CHECK_NAME),
+  false,
+  'neutral Web E2E checks must not be reused',
+);
+assert.strictEqual(
+  hasSuccessfulCheckRun([{ name: WEB_E2E_CHECK_NAME, conclusion: 'skipped' }], WEB_E2E_CHECK_NAME),
+  false,
+  'skipped Web E2E checks must not be reused',
+);
+assert.strictEqual(
+  hasSuccessfulCheckRun([{ name: 'other check', conclusion: 'success' }], WEB_E2E_CHECK_NAME),
+  false,
+  'different check names must not be reused',
+);
+
+assert.strictEqual(getCheckConclusionForStatus('executed'), 'success', 'executed status publishes success');
+assert.strictEqual(getCheckConclusionForStatus('reused'), 'success', 'reused status publishes success');
+assert.strictEqual(getCheckConclusionForStatus('failed'), 'failure', 'failed status publishes failure');
+assert.strictEqual(getCheckConclusionForStatus('skipped'), 'failure', 'skipped status publishes failure');
+assert.throws(
+  () => getCheckConclusionForStatus('neutral'),
+  /Unexpected final CI status/,
+  'unexpected statuses must not publish a silent success check',
+);
+
+const webCheckRequest = buildCheckRunRequest({
+  repository: 'nozomu-honda/tradeCsvToSpreadSheet',
+  checkName: WEB_E2E_CHECK_NAME,
+  targetHeadSha: 'head',
+  checkStatus: 'executed',
+  checkReason: 'Web E2E executed successfully',
+  checkDetailsUrl: 'https://example.invalid/actions/runs/1',
+});
+assert.strictEqual(webCheckRequest.path, '/repos/nozomu-honda/tradeCsvToSpreadSheet/check-runs', 'check run API path');
+assert.strictEqual(webCheckRequest.body.name, WEB_E2E_CHECK_NAME, 'Web E2E check run name');
+assert.strictEqual(webCheckRequest.body.head_sha, 'head', 'Web E2E check run head SHA');
+assert.strictEqual(webCheckRequest.body.conclusion, 'success', 'Web E2E check run success conclusion');
 
 assertPlan({
   name: 'both checks missing',
@@ -135,6 +189,105 @@ assertPlan({
   webRuns: [{ name: WEB_E2E_CHECK_NAME, conclusion: 'success' }],
   expectedGas: 'reuse',
   expectedWeb: 'reuse',
+});
+
+assertWebStatus({
+  name: 'Web E2E initial success',
+  input: {
+    decisionStatus: 'executed',
+    headGuardOutcome: 'success',
+    secretsOutcome: 'success',
+    installOutcome: 'success',
+    deployOutcome: 'success',
+    webappProbe: 'ready',
+    playwrightOutcome: 'success',
+    cleanupOutcome: 'success',
+    dynamicDeploymentId: 'dynamic-id',
+  },
+  expectedStatus: 'executed',
+});
+assertWebStatus({
+  name: 'Web E2E reused success',
+  input: {
+    decisionStatus: 'reused',
+    decisionReason: 'successful Web E2E check already exists for this head SHA',
+  },
+  expectedStatus: 'reused',
+});
+assertWebStatus({
+  name: 'Web deploy failure',
+  input: {
+    decisionStatus: 'executed',
+    headGuardOutcome: 'success',
+    secretsOutcome: 'success',
+    installOutcome: 'success',
+    deployOutcome: 'failure',
+  },
+  expectedStatus: 'failed',
+});
+assertWebStatus({
+  name: 'Playwright failure',
+  input: {
+    decisionStatus: 'executed',
+    headGuardOutcome: 'success',
+    secretsOutcome: 'success',
+    installOutcome: 'success',
+    deployOutcome: 'success',
+    webappProbe: 'ready',
+    playwrightOutcome: 'failure',
+    dynamicDeploymentId: 'dynamic-id',
+    cleanupOutcome: 'success',
+  },
+  expectedStatus: 'failed',
+});
+assertWebStatus({
+  name: 'cleanup failure',
+  input: {
+    decisionStatus: 'executed',
+    headGuardOutcome: 'success',
+    secretsOutcome: 'success',
+    installOutcome: 'success',
+    deployOutcome: 'success',
+    webappProbe: 'ready',
+    playwrightOutcome: 'success',
+    dynamicDeploymentId: 'dynamic-id',
+    cleanupOutcome: 'failure',
+  },
+  expectedStatus: 'failed',
+});
+assertWebStatus({
+  name: 'protected Web app skip',
+  input: {
+    decisionStatus: 'executed',
+    headGuardOutcome: 'success',
+    secretsOutcome: 'success',
+    installOutcome: 'success',
+    deployOutcome: 'success',
+    webappProbe: 'protected',
+  },
+  expectedStatus: 'skipped',
+});
+assertWebStatus({
+  name: 'protected Web app with cleanup failure',
+  input: {
+    decisionStatus: 'executed',
+    headGuardOutcome: 'success',
+    secretsOutcome: 'success',
+    installOutcome: 'success',
+    deployOutcome: 'success',
+    webappProbe: 'protected',
+    dynamicDeploymentId: 'dynamic-id',
+    cleanupOutcome: 'failure',
+  },
+  expectedStatus: 'failed',
+});
+assertWebStatus({
+  name: 'head guard failure',
+  input: {
+    decisionStatus: 'executed',
+    headGuardOutcome: 'failure',
+  },
+  expectedStatus: 'failed',
 });
 
 assert.strictEqual(
@@ -210,6 +363,18 @@ function assertPlan({ name, gasRuns, webRuns, expectedGas, expectedWeb }) {
 
   assert.strictEqual(gasDecision.action, expectedGas, `${name}: GAS decision`);
   assert.strictEqual(webDecision.action, expectedWeb, `${name}: Web E2E decision`);
+}
+
+function assertWebStatus({ name, input, expectedStatus }) {
+  const result = determineWebE2eStatus(input);
+  assert.strictEqual(result.status, expectedStatus, `${name}: status`);
+  if (expectedStatus === 'skipped') {
+    assert.strictEqual(
+      getCheckConclusionForStatus(result.status),
+      'failure',
+      `${name}: skipped status must not publish reusable success`,
+    );
+  }
 }
 
 function read(relativePath) {

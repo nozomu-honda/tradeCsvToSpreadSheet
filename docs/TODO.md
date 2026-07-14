@@ -199,7 +199,8 @@ rollbackの正常系は既存E2Eで使っているが、異常系の明示確認
   - `run-final-ci` ラベルを付ける。
   - `Push test GAS project and run tests` の成功を確認する。
   - 続けて `Deploy test Web app and run Playwright E2E` の成功を確認する。
-  - 同じhead SHAで成功済みの重い処理は再実行せず、jobだけ成功checkを残す。
+  - 同じhead SHAで成功済みの重い処理は再実行せず、head SHA上の成功Check Runを正本として再利用する。
+  - Web E2Eの403 skip、cleanup失敗、Check Run発行失敗は成功扱いにしない。
   - 追加コミットでhead SHAが変わった場合は、`run-final-ci` ラベルを外して再付与する。
 
 ## 完了済みとして未完了一覧へ戻さない項目

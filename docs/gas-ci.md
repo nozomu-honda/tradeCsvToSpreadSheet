@@ -19,6 +19,8 @@ CI用バッチ関数は `runGasTestBatch01` から `runGasTestBatch09` までで
 - 最終レビュー後に `run-final-ci` ラベルを付けた時だけ、GAS TestsとWeb E2Eの最終CIを起動する。
 - 同じhead SHAで `Push test GAS project and run tests` が成功済みの場合は、jobを成功させつつ重いGAS実行をスキップする。
 - 同じhead SHAで `Deploy test Web app and run Playwright E2E` が成功済みの場合は、Web E2Eの重い処理をスキップする。
+- GAS Tests / Web E2Eはいずれも、対象head SHAへ明示発行した成功Check Runだけを再利用対象にする。
+- Web E2EのHTTP 403 skip、Playwright未実行、動的deployment cleanup失敗、Check Run発行失敗は成功扱いにしない。
 - `clasp run` が実行権限エラーで使えない場合は、CI上では `clasp run unavailable` として記録し、`clasp push` とソース検証が通っていればrequired checkは成功させる。
 - テスト失敗、例外、実行時間超過は認証不能fallbackと混同せず、required checkを失敗させる。
 - コード変更PRでは、必要に応じて Apps Script エディタでCI用バッチ関数を手動実行し、結果をPR本文へ残す。
@@ -46,7 +48,7 @@ GAS Tests と GAS Web App E2E は同じテスト専用 Apps Script プロジェ�
 
 `run-final-ci` ラベルを受ける `.github/workflows/final-ci.yml` は軽量controllerです。PR codeをcheckoutせず、同一リポジトリPRだけに対して `.github/workflows/final-ci-run.yml` をreusable workflowとして呼び出します。必須check名のjobは `final-ci-run.yml` 側にだけ置くため、通常ラベルでは `Push test GAS project and run tests` checkを作りません。
 
-reusable workflowの表示名差異でRulesetのrequired checkが見えなくなることを避けるため、GAS Tests jobの最後に同じhead SHAへ `Push test GAS project and run tests` というCheck Runを明示的に完了状態で発行します。GAS Testsの実行または再利用判定が失敗した場合、このCheck Runも失敗にします。
+reusable workflowの表示名差異やPR merge commit側のcheckだけではhead SHA再利用判定ができない問題を避けるため、GAS Tests jobの最後に同じhead SHAへ `Push test GAS project and run tests`、Web E2E jobの最後に同じhead SHAへ `Deploy test Web app and run Playwright E2E` というCheck Runを明示的に完了状態で発行します。実行または再利用判定が失敗した場合、このCheck Runも失敗にします。Check Run発行前にもPR head SHAを再確認し、headが変わっていた場合やCheck Run発行に失敗した場合はFinal CIを失敗させます。
 
 ## 推奨マージフロー
 
@@ -88,6 +90,8 @@ required check 名は次のまま維持します。
 
 - `Push test GAS project and run tests` 成功済み: GAS Tests jobは成功checkを残し、`clasp push` とGAS実行を省略する。
 - `Deploy test Web app and run Playwright E2E` 成功済み: Web E2E jobは成功checkを残し、一時deployment作成とPlaywright実行を省略する。
+- Web E2EがHTTP 403でPlaywright未実行になった場合: 未検証のため成功Check Runは発行せず、再利用対象外にする。
+- 動的Web app deploymentのcleanupに失敗した場合: Playwrightが成功していてもWeb E2E全体を失敗にする。
 - head SHAが変わった場合: 古いheadの成功結果は再利用しない。
 
 ## セキュリティ

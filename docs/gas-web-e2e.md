@@ -12,7 +12,8 @@
 - `pull_request_target` は使わない。
 - fork / external PR では Google Secrets を使う step へ進ませない。
 - GAS Tests と GAS Web App E2E は同じテスト専用 Apps Script プロジェクトと Script Properties を共有するため、`Final CI` workflow内で GAS Tests -> Web E2E の順に直列実行する。workflow-level concurrency groupはPR番号を含まない `gas-shared-test-project` とし、同時には共有テストprojectへ触らない。
-- 同じhead SHAで `Deploy test Web app and run Playwright E2E` が成功済みの場合、Final CIのWeb E2E jobは成功checkを残しつつ、一時deployment作成とPlaywright実行を再利用扱いで省略する。
+- 同じhead SHAで `Deploy test Web app and run Playwright E2E` の成功Check Runが存在する場合、Final CIのWeb E2E jobは一時deployment作成とPlaywright実行を再利用扱いで省略する。Web E2E jobは実行・再利用・失敗・skipの最終結果を対象head SHAへ同名Check Runとして明示発行する。
+- WebアプリURLがHTTP 403でPlaywright未実行になった場合は未検証として扱い、成功Check Runを発行しない。次回の同一head再実行でも再利用対象にしない。
 - CI用のclasp project設定は `${RUNNER_TEMP}` 配下へ生成し、すべてのclasp呼び出しで `--project <CI専用設定ファイル>` と `--ignore <repo .claspignore>` を明示する。リポジトリ直下の `.clasp.json` は生成・利用しない。設定ファイルは一時領域に置くが、`rootDir` は `GITHUB_WORKSPACE` の絶対パスへ正規化し、push対象は常にリポジトリルート配下にする。`.claspignore` もリポジトリ直下のファイルを使い、CI用NodeスクリプトやdocsをGAS push対象にしない。
 - E2E CIでは従来どおり `.claspignore` を使い、テスト専用 Apps Script プロジェクトへテストコードもpushできる。本番反映では `.clasp.productionignore` を使い、`src/test/**` を本番Apps Scriptへpushしない。
 - workflow 内では、テスト専用 Apps Script プロジェクトへ push する直前の `appsscript.json` にだけ `webapp.access = ANYONE_ANONYMOUS` / `webapp.executeAs = USER_DEPLOYING` を注入する。リポジトリ上の manifest は通常運用向けのままにする。
@@ -25,9 +26,9 @@
 - PR #63 時点では、検査helperがデフォルト25行 / 40列、最大100行 / 80列の `getDisplayValues()` 結果をクライアントへ返し、Playwright側で列検索していた。この方式は、test DBに有効レコードが残る、fixture明細が増える、出力列が増える、といった場合に正しい出力でも期待値が取得範囲外になり得る。
 - 現在は条件検索方式とし、Playwrightは `requiredSheets` / `absentSheets` / `checks` / `rowChecks` だけをpayloadに渡す。GAS側は許可済みシートの1行目から `headerName` を完全一致で探し、`checks` では見つけた列の実最終行まで `expectedValue` を完全一致検索する。`rowChecks` ではアンカー列・値で候補行を探し、その同じ行にある複数列を完全一致で検査する。クライアントへは存在判定、検出可否、列番号、行番号など最小限の結果だけを返し、セル全体の二次元配列は返さない。
 - `checks` は後方互換用の単独列検索であり、複数列が同じ明細行にあることまでは保証しない。行の整合性が必要な検査、特に元本払戻金のように買付行と払戻行が同じファンド名で並ぶケースでは `rowChecks` を使う。
-- Playwright 実行後は、一時 Web アプリ deployment を削除する。削除に失敗した場合は、公開URLが残る可能性があるため workflow を失敗させる。
+- Playwright 実行後は、一時 Web アプリ deployment を削除する。削除に失敗した場合は、公開URLが残る可能性があるため workflow を失敗させ、Web E2EのCheck Runもfailureにする。
 - 固定 `/exec` URL を使う `fixed-url` モードを使う場合は、`GAS_TEST_WEBAPP_DEPLOYMENT_ID` が同じテスト Apps Script プロジェクトに属していること、かつその Web アプリ URL が GitHub Actions から対話的な Google ログインなしで開けることを確認する。
-- Web アプリ URL が GitHub Actions から HTTP 403 を返す場合、ソース push と deployment 試行までは確認し、Playwright E2E は明示的に skip する。`dynamic-public` モードでも 403 が続く場合は、Google Workspace / OAuth / アカウント側の公開制限を確認する。
+- Web アプリ URL が GitHub Actions から HTTP 403 を返す場合、ソース push と deployment 試行までは確認し、Playwright E2E は明示的に skip する。このskipは成功扱いにせず、Final CIでは再利用対象外のfailureとして扱う。`dynamic-public` モードでも 403 が続く場合は、Google Workspace / OAuth / アカウント側の公開制限を確認する。
 
 ## 対象ケース
 
@@ -121,6 +122,7 @@ workflow summary には次を残す。
   - `DB_CONFIG.DB_FOLDER_ID`、`nomura_test` の固定DB ID、固定 TEST_OUTPUT IDを空にしたこと
   - `nomura_corp_a` / `nomura_corp_b` の固定IDを維持したこと
 - 一時 Web アプリ deployment の削除結果
+- head SHA上へ発行したWeb E2E Check Runのstatus / conclusion
 
 ## ローカル確認
 

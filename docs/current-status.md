@@ -74,7 +74,8 @@
 - CI用clasp project設定はrunner一時領域へ生成し、すべてのCI側clasp操作で `--project <CI専用設定ファイル>` と `--ignore <repo .claspignore>` を明示する。
 - CI用project設定の `rootDir` はリポジトリルートの絶対パスへ正規化し、`CLASP_PROJECT_JSON` の相対 `srcDir` はCIでは使わない。
 - `run-final-ci` ではGAS Tests -> GAS Web App E2Eの順で直列実行する。
-- 同じhead SHAで成功済みのGAS Tests / Web E2Eは、jobの成功checkを残しつつ重い処理だけ再利用する。
+- 同じhead SHAで成功済みのGAS Tests / Web E2Eは、head SHA上の成功Check Runを正本として重い処理だけ再利用する。
+- Web E2EのHTTP 403 skip、Playwright未実行、動的deployment cleanup失敗、Check Run発行失敗は成功扱いにしない。
 - 旧ラベルの `run-gas-tests` / `gas-web-e2e` は最終CIの起動には使わない。
 - GAS Tests と GAS Web App E2E の実runは、共通の `gas-shared-test-project` concurrency groupで直列化する。
 - CI用と本番用のclasp操作は分離済み。
@@ -233,6 +234,7 @@ GitHub Actions経由では、`clasp deploy --deploymentId` で既存deployment�
 - CIではApps Scriptの実行時間上限を避けるため、`runAllTests()` 相当の一覧を `runGasTestBatch01` から `runGasTestBatch09` までに分割して実行する。
 - PRの最終確認は `run-final-ci` ラベルで起動する。
 - Final CIでは `Push test GAS project and run tests` の後に `Deploy test Web app and run Playwright E2E` を実行する。
+- Final CIの再利用判定はhead SHA上の成功Check Runだけを対象にする。Web E2Eの403 skipやcleanup失敗は再利用対象外。
 - 追加コミットでhead SHAが変わった場合は、`run-final-ci` ラベルを外して再付与する。
 
 ## Codexへの伝え方
