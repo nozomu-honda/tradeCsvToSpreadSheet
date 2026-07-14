@@ -8,6 +8,14 @@ on:
         required: true
         default: true
         type: boolean
+      dry_run_mode:
+        description: 'staticは本番Secrets不要、authenticatedは本番認証とstatusを確認'
+        required: true
+        default: static
+        type: choice
+        options:
+          - static
+          - authenticated
       force:
         description: '同じcommitの再反映を許可する場合だけtrue'
         required: true
@@ -18,13 +26,18 @@ on:
         required: false
         default: ''
         type: string
+  issues:
+    types:
+      - labeled
 
-run-name: Production deploy dry_run=${{ inputs.dry_run }} force=${{ inputs.force }}
+run-name: Production deploy
 
 permissions:
   contents: read
-  deployments: write
   issues: write
+  pull-requests: read
+  checks: read
+  statuses: read
   actions: read
 
 concurrency:
@@ -32,25 +45,101 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  resolve-production-target:
+    name: Resolve production target
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'issues' }}
+    outputs:
+      should_run: ${{ steps.resolve.outputs.should_run }}
+      dry_run: ${{ steps.resolve.outputs.dry_run }}
+      dry_run_mode: ${{ steps.resolve.outputs.dry_run_mode }}
+      force: ${{ steps.resolve.outputs.force }}
+      target_sha: ${{ steps.resolve.outputs.target_sha }}
+      source_pr_number: ${{ steps.resolve.outputs.source_pr_number }}
+      trigger_label: ${{ steps.resolve.outputs.trigger_label }}
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      DISPATCH_DRY_RUN: ${{ inputs.dry_run }}
+      DISPATCH_DRY_RUN_MODE: ${{ inputs.dry_run_mode }}
+      DISPATCH_FORCE: ${{ inputs.force }}
+      DISPATCH_TARGET_SHA: ${{ inputs.target_sha }}
+    steps:
+      - name: Checkout trusted develop source
+        uses: actions/checkout@v4
+        with:
+          ref: develop
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Resolve label or dispatch target
+        id: resolve
+        shell: bash
+        run: node scripts/ci/production-deploy-event.js
+
+  static-dry-run:
+    name: Production static dry-run
+    needs: resolve-production-target
+    runs-on: ubuntu-latest
+    if: ${{ needs.resolve-production-target.outputs.should_run == 'true' && needs.resolve-production-target.outputs.dry_run == 'true' && needs.resolve-production-target.outputs.dry_run_mode == 'static' }}
+    env:
+      DRY_RUN: 'true'
+      DRY_RUN_MODE: static
+      FORCE: ${{ needs.resolve-production-target.outputs.force }}
+      TARGET_SHA: ${{ needs.resolve-production-target.outputs.target_sha }}
+      SOURCE_PR_NUMBER: ${{ needs.resolve-production-target.outputs.source_pr_number }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout trusted develop source
+        uses: actions/checkout@v4
+        with:
+          ref: develop
+          fetch-depth: 0
+
+      - name: Pin local branch to origin/develop
+        run: |
+          git fetch --no-tags origin develop
+          git checkout -B develop origin/develop
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Run static production dry-run
+        shell: bash
+        run: node scripts/ci/run-production-deploy.js
+
   deploy-production:
     name: Deploy production
+    needs: resolve-production-target
     runs-on: ubuntu-latest
+    if: ${{ needs.resolve-production-target.outputs.should_run == 'true' && (needs.resolve-production-target.outputs.dry_run != 'true' || needs.resolve-production-target.outputs.dry_run_mode == 'authenticated') }}
     environment:
       name: production
       url: ${{ vars.PRODUCTION_WEB_APP_URL }}
     env:
-      DRY_RUN: ${{ inputs.dry_run }}
-      FORCE: ${{ inputs.force }}
-      TARGET_SHA: ${{ inputs.target_sha }}
+      DRY_RUN: ${{ needs.resolve-production-target.outputs.dry_run }}
+      DRY_RUN_MODE: ${{ needs.resolve-production-target.outputs.dry_run_mode }}
+      FORCE: ${{ needs.resolve-production-target.outputs.force }}
+      TARGET_SHA: ${{ needs.resolve-production-target.outputs.target_sha }}
+      SOURCE_PR_NUMBER: ${{ needs.resolve-production-target.outputs.source_pr_number }}
       CLASP_PRODUCTION_CREDENTIALS: ${{ secrets.CLASP_PRODUCTION_CREDENTIALS }}
       PRODUCTION_SCRIPT_ID: ${{ secrets.PRODUCTION_SCRIPT_ID }}
       PRODUCTION_DEPLOYMENT_ID: ${{ secrets.PRODUCTION_DEPLOYMENT_ID }}
       PRODUCTION_WEB_APP_URL: ${{ vars.PRODUCTION_WEB_APP_URL }}
+      PRODUCTION_SMOKE_EXPECTED_MARKER: ${{ vars.PRODUCTION_SMOKE_EXPECTED_MARKER }}
       PRODUCTION_STATUS_ISSUE_NUMBER: ${{ vars.PRODUCTION_STATUS_ISSUE_NUMBER }}
+      PRODUCTION_REQUIRED_CHECKS: ${{ vars.PRODUCTION_REQUIRED_CHECKS }}
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
-      - name: Checkout latest develop
+      - name: Checkout trusted develop source
         uses: actions/checkout@v4
         with:
           ref: develop

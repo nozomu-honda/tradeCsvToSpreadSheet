@@ -22,6 +22,7 @@ function renderProductionStatusIssue(state) {
   const updatedAt = formatValue(state.updatedAt);
   const lastFailureStage = formatValue(state.lastFailureStage || 'none');
   const failureMessage = formatValue(state.failureMessage || 'none');
+  const developAdvancedAfterSourcePush = state.developAdvancedAfterSourcePush ? 'true' : 'false';
 
   return [
     '# 本番反映ステータス',
@@ -45,6 +46,7 @@ function renderProductionStatusIssue(state) {
     `- smoke test: \`${formatValue(state.smokeTest)}\``,
     `- dry_run: \`${dryRun}\``,
     `- force: \`${force}\``,
+    `- source push後にdevelop進行: \`${developAdvancedAfterSourcePush}\``,
     `- 最終失敗ステージ: \`${lastFailureStage}\``,
     `- 失敗内容: \`${failureMessage}\``,
     `- 更新日時: \`${updatedAt}\``,

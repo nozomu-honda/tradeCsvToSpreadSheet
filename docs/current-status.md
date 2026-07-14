@@ -83,10 +83,13 @@
 - 本番用project設定は `.clasp.production.json`、本番用ignoreは `.clasp.productionignore`、認証はclasp named user `production` を使う。
 - 本番用 `.clasp.productionignore` では `src/test/**` と `src/app/e2e_helpers.gs` をpush対象から除外する。
 - 本番用ラッパーは、`src/test/**` または `src/app/e2e_helpers.gs` の除外設定が欠けている場合、`status` / `open` / `push` を安全側で停止する。
-- Issue #83で、本番反映をGitHub Actionsの手動workflow `Deploy production` へ移す対応を進めている。
-  - `workflow_dispatch` のみで起動する。
-  - `dry_run=true` を既定値にする。
+- Issue #83で、本番反映をGitHub Actionsの `Deploy production` workflowへ移す対応を進めている。
+  - 正式経路は、マージ済みPRへの `deploy-production-dry-run` / `deploy-production` / `deploy-production-force` ラベル付与。
+  - `workflow_dispatch` は人間向けfallbackとして残す。
+  - default branchが `main` のため、ラベル起動workflowをdefault branchへ同期する必要があるか人間が確認する。
+  - Static dry-runは本番Secretsなし、Authenticated dry-runは本番認証と `gas:production:status` まで確認する。
   - GitHub Environment `production` とProduction Status Issueで本番状態を追跡する。
+  - GitHub DeploymentはEnvironment側を正本にし、スクリプトから追加作成しない。
   - 本番push、既存Webアプリdeployment更新、Status Issue更新は `dry_run=false` の時だけ行う。
 - clasp反映手順は `docs/clasp-operations.md` に整理済み。
 
@@ -136,8 +139,8 @@
 - 本番Webアプリの既存deployment更新もまだ実施していない。
 - 現在の本番Webアプリには、Issue #81修正前のbundleが反映されている可能性がある。
 - 本番復旧には、最新 `develop` を本番Apps Scriptへ再反映し、既存Webアプリdeploymentを新バージョンへ更新する必要がある。
-- Issue #83対応後は、原則としてGitHub Actionsの `Deploy production` workflowでdry-run確認後に本番反映する。
-- 初回運用前に、人間がGitHub Environment `production`、必要なSecrets / Variables、Production Status Issueを設定する必要がある。
+- Issue #83対応後は、原則としてマージ済みPRへのラベル付与で `Deploy production` workflowを起動し、dry-run確認後に本番反映する。
+- 初回運用前に、人間がGitHub Environment `production`、必要なSecrets / Variables、Production Status Issue、起動ラベル、default branch上のworkflow有効化を確認する必要がある。
 
 手動fallbackの基本手順:
 
@@ -168,8 +171,10 @@ GitHub Actions経由では、`clasp deploy --deploymentId` で既存deployment�
 - 本番Webアプリの主要画面確認。
 - GitHub Environment `production` の作成。
 - 本番反映workflow用Secrets / Variablesの登録。
-- Production Status Issueの作成と `PRODUCTION_STATUS_ISSUE_NUMBER` 設定。
-- `Deploy production` workflowのdry-run確認。
+- 管理marker付きProduction Status Issueの作成と `PRODUCTION_STATUS_ISSUE_NUMBER` 設定。
+- 起動ラベル `deploy-production-dry-run` / `deploy-production` / `deploy-production-force` の作成。
+- default branch `main` でラベル起動workflowが有効になるかの確認。
+- `Deploy production` workflowのStatic dry-run / Authenticated dry-run確認。
 - dry-run成功後の本番反映実行。
 - Issue #76 / Issue #81 は実装対応済みだが、GitHub Issue自体はOPENの場合があるため、必要なら人間がクローズ確認する。
 - 別ユーザーでのDrive OAuth承認、DBフォルダ編集権限、Webアプリ実行確認。

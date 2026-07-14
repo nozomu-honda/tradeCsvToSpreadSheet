@@ -56,6 +56,27 @@ const failed = failProductionDeployState(state, 'smoke-test', new Error('safe fa
 assert.strictEqual(failed.status, 'failed');
 assert.strictEqual(failed.lastFailureStage, 'smoke-test');
 assert.match(failed.failureMessage, /safe failure/);
+assert.strictEqual(failed.sourcePush, 'success');
+assert.strictEqual(failed.deploymentUpdate, 'success');
+assert.strictEqual(failed.smokeTest, 'failed');
+
+const deploymentFailed = failProductionDeployState(
+  markProductionDeployState(createInitialProductionDeployState({ targetSha: shaA }), 'source-pushed'),
+  'deployment-update',
+  new Error('deploy failed'),
+);
+assert.strictEqual(deploymentFailed.sourcePush, 'success');
+assert.strictEqual(deploymentFailed.deploymentUpdate, 'failed');
+assert.strictEqual(deploymentFailed.smokeTest, 'not-started');
+
+const sourceFailed = failProductionDeployState(
+  createInitialProductionDeployState({ targetSha: shaA }),
+  'source-push',
+  new Error('push failed'),
+);
+assert.strictEqual(sourceFailed.sourcePush, 'failed');
+assert.strictEqual(sourceFailed.deploymentUpdate, 'not-started');
+assert.strictEqual(sourceFailed.smokeTest, 'not-started');
 
 assert.deepStrictEqual(
   shouldBlockDuplicateDeployment({

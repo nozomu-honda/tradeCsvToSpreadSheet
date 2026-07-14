@@ -50,7 +50,7 @@
 
 - [`docs/production-deploy.md`](docs/production-deploy.md)
   - 本番反映GitHub Actionsの運用手順
-  - dry-runと本番反映の違い
+  - ラベル起動、dry-run、本番反映の違い
   - Production Status IssueとGitHub Environmentの設定
 
 ---
@@ -112,7 +112,8 @@ bareな `clasp push` は使わない。CI用と本番用のApps Script project�
 
 CI用の反映はGitHub Actionsだけが行う。ローカルPCからテスト専用Apps Scriptプロジェクトへ手動pushしない。
 
-本番反映は、原則としてGitHub Actionsの `Deploy production` workflowを使う。
+本番反映は、原則としてマージ済みPRへの専用ラベル付与でGitHub Actionsの `Deploy production` workflowを起動する。
+`workflow_dispatch` は人間向けfallbackとして残す。
 ローカル手動fallbackでは、本番専用設定を用意したうえで次のnpmコマンドだけを使う。
 
 ```bash

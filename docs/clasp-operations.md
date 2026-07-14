@@ -8,8 +8,8 @@
 | --- | --- | --- | --- |
 | PRのGASテスト | テスト専用Apps Script | GitHub Actions | PRへ `run-gas-tests` ラベルを付ける |
 | PRのWeb E2E | テスト専用Apps Script | GitHub Actions | PRへ `gas-web-e2e` ラベルを付ける |
-| 本番反映dry-run | 本番Apps Script / 本番Webアプリ | GitHub Actions | `Deploy production` を `dry_run=true` で実行 |
-| 本番反映 | 本番Apps Script / 本番Webアプリ | GitHub Actions | `Deploy production` を `dry_run=false` で実行 |
+| 本番反映dry-run | 本番Apps Script / 本番Webアプリ | GitHub Actions | マージ済みPRへ `deploy-production-dry-run` ラベルを付ける |
+| 本番反映 | 本番Apps Script / 本番Webアプリ | GitHub Actions | マージ済みPRへ `deploy-production` ラベルを付ける |
 | 本番ソースの確認 | 本番Apps Script | ローカルPC | `npm run gas:production:status` |
 | 本番ソースの手動反映 | 本番Apps Script | ローカルPC | `npm run gas:production:push` |
 | 本番エディタを開く | 本番Apps Script | ローカルPC | `npm run gas:production:open` |
@@ -63,19 +63,21 @@ Web E2Eでは一時Webアプリdeploymentを作成しますが、テスト終了
 ## GitHub Actionsによる本番反映
 
 Issue #83以降の本番反映は、原則としてGitHub Actionsの `Deploy production` workflowで行います。
+ChatGPT側からは、マージ済みPRへの専用ラベル付与で起動します。
+`workflow_dispatch` は人間向けfallbackです。
 
 基本フロー:
 
 1. 最新 `develop` を確認する。
-2. Actionsから `Deploy production` を `dry_run=true` で実行する。
-3. dry-runで `npm ci`、本番wrapper検証、本番bundle境界検証、`npm run gas:production:status`、重複反映ガードを確認する。
-4. 問題がなければ、人間が `dry_run=false` で同じworkflowを実行する。
+2. マージ済みPRへ `deploy-production-dry-run` ラベルを付ける。
+3. dry-runでrequired checks、`npm ci`、本番wrapper検証、本番bundle境界検証、`npm run gas:production:status -- --json`、重複反映ガードを確認する。
+4. 問題がなければ、人間が `deploy-production` ラベルで本番反映を起動する。
 5. workflowが本番Apps Scriptへpushし、既存Webアプリdeploymentを新バージョンへ更新する。
-6. Production Status IssueとGitHub Deploymentsを確認する。
+6. Production Status IssueとGitHub EnvironmentのDeployment履歴を確認する。
 
 詳細は[`docs/production-deploy.md`](production-deploy.md)を確認します。
 
-Codexはこのworkflowの実行、GitHub Environment作成、Secrets / Variables変更、本番push、本番deployment更新を行いません。
+Codexはこのworkflowの実行、起動ラベル付与、GitHub Environment作成、Secrets / Variables変更、本番push、本番deployment更新を行いません。
 
 ## ローカルPCからの本番Apps Script確認 / 手動fallback
 

@@ -112,13 +112,29 @@ function markProductionDeployState(state, status, patch = {}) {
 
 function failProductionDeployState(state, stage, error) {
   const failureMessage = error instanceof Error ? error.message : String(error || 'Unknown failure');
-  return {
+  const next = {
     ...state,
     status: 'failed',
     lastFailureStage: stage || 'unknown',
     failureMessage,
     updatedAt: new Date().toISOString(),
   };
+  if (stage === 'source-push') {
+    next.sourcePush = 'failed';
+    next.deploymentUpdate = next.deploymentUpdate || 'not-started';
+    next.smokeTest = next.smokeTest || 'not-started';
+  }
+  if (stage === 'deployment-update') {
+    next.sourcePush = next.sourcePush === 'not-started' ? 'success' : next.sourcePush;
+    next.deploymentUpdate = 'failed';
+    next.smokeTest = next.smokeTest === 'running' ? 'not-started' : next.smokeTest;
+  }
+  if (stage === 'smoke-test') {
+    next.sourcePush = next.sourcePush === 'not-started' ? 'success' : next.sourcePush;
+    next.deploymentUpdate = next.deploymentUpdate === 'not-started' ? 'success' : next.deploymentUpdate;
+    next.smokeTest = 'failed';
+  }
+  return next;
 }
 
 function shouldBlockDuplicateDeployment({ currentProductionSha, productionStatus, targetSha, force = false }) {

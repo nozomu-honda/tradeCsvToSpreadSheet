@@ -42,18 +42,20 @@ npm run gas:production:push
 
 Issue #83対応後の基本フロー:
 
-1. GitHub Actionsの `Deploy production` を `dry_run=true` で実行する。
-2. dry-runで本番wrapper検証、本番bundle境界検証、`npm run gas:production:status`、重複反映ガードを確認する。
-3. 問題がなければ、人間が `dry_run=false` で本番反映を実行する。
-4. Production Status IssueとGitHub Deploymentsを確認する。
+1. マージ済みPRへ `deploy-production-dry-run` ラベルを付け、Authenticated dry-runを実行する。
+2. dry-runでrequired checks、本番wrapper検証、本番bundle境界検証、`npm run gas:production:status -- --json`、重複反映ガードを確認する。
+3. 問題がなければ、人間が `deploy-production` ラベルで本番反映を起動する。
+4. Production Status IssueとGitHub EnvironmentのDeployment履歴を確認する。
 
 初回運用前に必要なこと:
 
 - GitHub Environment `production` を作成する。
 - Environment Secrets `CLASP_PRODUCTION_CREDENTIALS`、`PRODUCTION_SCRIPT_ID`、`PRODUCTION_DEPLOYMENT_ID` を設定する。
-- Environment Variables `PRODUCTION_WEB_APP_URL`、`PRODUCTION_STATUS_ISSUE_NUMBER` を設定する。
-- Production Status Issueを作成し、実値を貼らずに状態追跡用として使う。
-- `dry_run=true` で成功することを確認する。
+- Environment Variables `PRODUCTION_WEB_APP_URL`、`PRODUCTION_STATUS_ISSUE_NUMBER`、必要なら `PRODUCTION_SMOKE_EXPECTED_MARKER` を設定する。
+- 管理marker `<!-- production-status:managed-by-github-actions -->` を含むProduction Status Issueを作成し、実値を貼らずに状態追跡用として使う。
+- 起動ラベル `deploy-production-dry-run`、`deploy-production`、`deploy-production-force` を作成する。
+- default branch `main` で `issues:labeled` workflowが起動できるよう、workflow定義の同期要否を人間が確認する。
+- Static dry-runとAuthenticated dry-runが成功することを確認する。
 
 Codexは本番Apps Scriptへのpush、本番Webアプリdeployment更新、GitHub Secrets / Variables変更、GitHub Environment作成、production workflow実行を行わない。
 
@@ -153,8 +155,10 @@ rollbackの正常系は既存E2Eで使っているが、異常系の明示確認
 - 本番Webアプリの主要画面確認。
 - GitHub Environment `production` の初回設定。
 - 本番反映workflow用Secrets / Variablesの初回設定。
-- Production Status Issueの初回作成。
-- `Deploy production` workflowのdry-run確認。
+- 管理marker付きProduction Status Issueの初回作成。
+- 本番反映起動ラベルの初回作成。
+- default branch `main` 上でラベル起動workflowが有効になるかの確認。
+- `Deploy production` workflowのStatic dry-run / Authenticated dry-run確認。
 - `Deploy production` workflowによる本番反映。
 - Issue #76 / Issue #81 は実装対応済みだが、GitHub Issue自体はOPENの場合があるため、必要なら人間がクローズ確認する。
 - 別ユーザーでのDrive OAuth承認確認。
