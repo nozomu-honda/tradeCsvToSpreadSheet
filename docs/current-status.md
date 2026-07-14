@@ -107,7 +107,7 @@
   - GitHub Environment `production` とProduction Status Issueで本番状態を追跡する。
   - GitHub DeploymentはEnvironment側を正本にし、スクリプトから追加作成しない。Environment履歴は実本番mutationを開始したrunだけを記録する。
   - 本番workflow用の `CLASP_PRODUCTION_CREDENTIALS`、`PRODUCTION_SCRIPT_ID`、`PRODUCTION_DEPLOYMENT_ID` はRepository Secretsへ置かず、`production-preflight` と `production` の各Environment Secretsへ登録する前提。
-  - `PRODUCTION_WEB_APP_URL`、任意の `PRODUCTION_SMOKE_EXPECTED_MARKER` / `PRODUCTION_REQUIRED_CHECKS` はRepository Variablesへ置き、Environment側に同名Variableを置く場合は値を一致させる。
+  - `PRODUCTION_WEB_APP_URL`、任意の `PRODUCTION_SMOKE_EXPECTED_MARKER` / `PRODUCTION_REQUIRED_CHECKS` はRepository Variablesへ置かず、`production-preflight` と `production` の各Environment Variablesへ登録する前提。
   - 本番push、既存Webアプリdeployment更新、Status Issue更新は `dry_run=false` の時だけ行う。
 - clasp反映手順は `docs/clasp-operations.md` に整理済み。
 
@@ -159,7 +159,7 @@
 - 現在の本番Webアプリには、Issue #81修正前のbundleが反映されている可能性がある。
 - 本番復旧には、最新 `develop` を本番Apps Scriptへ再反映し、既存Webアプリdeploymentを新バージョンへ更新する必要がある。
 - Issue #83対応後は、原則としてマージ済みPRへのラベル付与で `Deploy production` workflowを起動し、dry-run確認後に本番反映する。
-- 初回運用前に、人間がGitHub Environment `production-preflight` / `production`、Environment Secrets、Repository Variables、Production Status Issue、起動ラベル、default branch `main` へのcontrol/deploy workflow同期を確認する必要がある。
+- 初回運用前に、人間がGitHub Environment `production-preflight` / `production`、Environment Secrets / Variables、Repository Variable `PRODUCTION_STATUS_ISSUE_NUMBER`、Production Status Issue、起動ラベル、default branch `main` へのcontrol/deploy workflow同期を確認する必要がある。
 
 手動fallbackの基本手順:
 
@@ -189,7 +189,7 @@ GitHub Actions経由では、`clasp deploy --deploymentId` で既存deployment�
 - 本番Webアプリの既存deployment更新。
 - 本番Webアプリの主要画面確認。
 - GitHub Environment `production-preflight` / `production` の作成。
-- 本番反映workflow用Environment Secrets / Repository Variablesの登録。
+- 本番反映workflow用Environment Secrets / VariablesとRepository Variable `PRODUCTION_STATUS_ISSUE_NUMBER` の登録。
 - 管理marker付きProduction Status Issueの作成とRepository Variable `PRODUCTION_STATUS_ISSUE_NUMBER` 設定。
 - 起動ラベル `deploy-production-dry-run` / `deploy-production` / `deploy-production-force` の作成。
 - default branch `main` へcontrol workflowとdeploy workflow定義を同期する後続対応。

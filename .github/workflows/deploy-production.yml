@@ -72,7 +72,7 @@ jobs:
       current_production_sha: ${{ steps.preflight.outputs.current_production_sha }}
       production_status_issue_number: ${{ steps.preflight.outputs.production_status_issue_number }}
       required_checks_verified: ${{ steps.preflight.outputs.required_checks_verified }}
-      bundle_boundary_verified: ${{ steps.preflight.outputs.bundle_boundary_verified }}
+      static_boundary_verified: ${{ steps.preflight.outputs.static_boundary_verified }}
     env:
       PRODUCTION_DEPLOY_PHASE: preflight
       DRY_RUN: ${{ inputs.dry_run }}
@@ -80,10 +80,7 @@ jobs:
       FORCE: ${{ inputs.force }}
       TARGET_SHA: ${{ inputs.target_sha }}
       SOURCE_PR_NUMBER: ${{ inputs.source_pr_number }}
-      PRODUCTION_WEB_APP_URL: ${{ vars.PRODUCTION_WEB_APP_URL }}
-      PRODUCTION_SMOKE_EXPECTED_MARKER: ${{ vars.PRODUCTION_SMOKE_EXPECTED_MARKER }}
       PRODUCTION_STATUS_ISSUE_NUMBER: ${{ needs.resolve-production-status-config.outputs.production_status_issue_number }}
-      PRODUCTION_REQUIRED_CHECKS: ${{ vars.PRODUCTION_REQUIRED_CHECKS }}
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Checkout trusted develop source
@@ -135,7 +132,6 @@ jobs:
       }}
     environment:
       name: production-preflight
-      url: ${{ vars.PRODUCTION_WEB_APP_URL }}
     env:
       PRODUCTION_DEPLOY_PHASE: authenticated-dry-run
       DRY_RUN: ${{ inputs.dry_run }}
@@ -150,7 +146,7 @@ jobs:
       PREFLIGHT_CURRENT_PRODUCTION_SHA: ${{ needs.production-preflight.outputs.current_production_sha }}
       PREFLIGHT_PRODUCTION_STATUS_ISSUE_NUMBER: ${{ needs.production-preflight.outputs.production_status_issue_number }}
       PREFLIGHT_REQUIRED_CHECKS_VERIFIED: ${{ needs.production-preflight.outputs.required_checks_verified }}
-      PREFLIGHT_BUNDLE_BOUNDARY_VERIFIED: ${{ needs.production-preflight.outputs.bundle_boundary_verified }}
+      PREFLIGHT_STATIC_BOUNDARY_VERIFIED: ${{ needs.production-preflight.outputs.static_boundary_verified }}
       CLASP_PRODUCTION_CREDENTIALS: ${{ secrets.CLASP_PRODUCTION_CREDENTIALS }}
       PRODUCTION_SCRIPT_ID: ${{ secrets.PRODUCTION_SCRIPT_ID }}
       PRODUCTION_DEPLOYMENT_ID: ${{ secrets.PRODUCTION_DEPLOYMENT_ID }}
@@ -221,7 +217,7 @@ jobs:
       PREFLIGHT_CURRENT_PRODUCTION_SHA: ${{ needs.production-preflight.outputs.current_production_sha }}
       PREFLIGHT_PRODUCTION_STATUS_ISSUE_NUMBER: ${{ needs.production-preflight.outputs.production_status_issue_number }}
       PREFLIGHT_REQUIRED_CHECKS_VERIFIED: ${{ needs.production-preflight.outputs.required_checks_verified }}
-      PREFLIGHT_BUNDLE_BOUNDARY_VERIFIED: ${{ needs.production-preflight.outputs.bundle_boundary_verified }}
+      PREFLIGHT_STATIC_BOUNDARY_VERIFIED: ${{ needs.production-preflight.outputs.static_boundary_verified }}
       CLASP_PRODUCTION_CREDENTIALS: ${{ secrets.CLASP_PRODUCTION_CREDENTIALS }}
       PRODUCTION_SCRIPT_ID: ${{ secrets.PRODUCTION_SCRIPT_ID }}
       PRODUCTION_DEPLOYMENT_ID: ${{ secrets.PRODUCTION_DEPLOYMENT_ID }}

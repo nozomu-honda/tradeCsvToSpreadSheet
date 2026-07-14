@@ -71,8 +71,12 @@ assert.ok(!preflightJob.includes('environment:'), 'production-preflight must not
 assert.ok(!preflightJob.includes('secrets.CLASP_PRODUCTION_CREDENTIALS'), 'Environment-free preflight must not read production credentials');
 assert.ok(!preflightJob.includes('secrets.PRODUCTION_SCRIPT_ID'), 'Environment-free preflight must not read production Script ID');
 assert.ok(!preflightJob.includes('secrets.PRODUCTION_DEPLOYMENT_ID'), 'Environment-free preflight must not read production Deployment ID');
+assert.ok(!preflightJob.includes('PRODUCTION_WEB_APP_URL'), 'Environment-free preflight must not read production Web App URL');
+assert.ok(!preflightJob.includes('PRODUCTION_SMOKE_EXPECTED_MARKER'), 'Environment-free preflight must not read production smoke marker');
+assert.ok(!preflightJob.includes('PRODUCTION_REQUIRED_CHECKS'), 'Environment-free preflight must not read Environment-scoped required checks');
 includes(authenticatedDryRunJob, 'environment:', 'authenticated dry-run must use a protected Environment');
 includes(authenticatedDryRunJob, 'name: production-preflight', 'authenticated dry-run Environment name must be production-preflight');
+assert.ok(!authenticatedDryRunJob.includes('url: ${{ vars.PRODUCTION_WEB_APP_URL }}'), 'authenticated dry-run must not publish the production Web App URL as an Environment URL');
 includes(authenticatedDryRunJob, 'PRODUCTION_DEPLOY_PHASE: authenticated-dry-run', 'authenticated dry-run job must run the authenticated-dry-run phase');
 includes(authenticatedDryRunJob, 'inputs.dry_run == true', 'authenticated dry-run job must run only for dry_run=true');
 includes(authenticatedDryRunJob, "inputs.dry_run_mode == 'authenticated'", 'authenticated dry-run job must require authenticated mode');
@@ -85,6 +89,12 @@ assert.ok(!authenticatedDryRunJob.includes('deployment-update'), 'authenticated 
 assert.ok(!authenticatedDryRunJob.includes('smoke-test'), 'authenticated dry-run job must not run smoke test steps');
 includes(deployJob, 'environment:', 'production mutation job must use the production Environment');
 includes(deployJob, 'name: production', 'workflow Environment name must be production');
+includes(deployJob, 'url: ${{ vars.PRODUCTION_WEB_APP_URL }}', 'only the production mutation Environment may publish the production Web App URL');
+assert.strictEqual(
+  (workflow.match(/url: \$\{\{ vars\.PRODUCTION_WEB_APP_URL \}\}/g) || []).length,
+  1,
+  'only deploy-production may use PRODUCTION_WEB_APP_URL as an Environment URL',
+);
 assert.strictEqual((workflow.match(/\n    environment:\n/g) || []).length, 2, 'only authenticated dry-run and production mutation jobs may enter protected Environments');
 includes(preflightJob, 'PRODUCTION_DEPLOY_PHASE: preflight', 'preflight job must run the preflight phase');
 includes(deployJob, 'PRODUCTION_DEPLOY_PHASE: mutation', 'deploy job must run the mutation phase');
@@ -99,7 +109,8 @@ includes(workflow, 'SOURCE_PR_NUMBER: ${{ inputs.source_pr_number }}', 'deploy j
 includes(workflow, 'node scripts/ci/run-production-deploy.js', 'workflow must call the production deploy orchestrator');
 includes(workflow, 'PREFLIGHT_TARGET_SHA: ${{ needs.production-preflight.outputs.target_sha }}', 'deploy job must receive target_sha from preflight outputs');
 includes(workflow, 'PREFLIGHT_REQUIRED_CHECKS_VERIFIED: ${{ needs.production-preflight.outputs.required_checks_verified }}', 'deploy job must receive required-check verification from preflight outputs');
-includes(workflow, 'PREFLIGHT_BUNDLE_BOUNDARY_VERIFIED: ${{ needs.production-preflight.outputs.bundle_boundary_verified }}', 'deploy job must receive bundle-boundary verification from preflight outputs');
+includes(workflow, 'static_boundary_verified: ${{ steps.preflight.outputs.static_boundary_verified }}', 'preflight job must expose static boundary verification');
+includes(workflow, 'PREFLIGHT_STATIC_BOUNDARY_VERIFIED: ${{ needs.production-preflight.outputs.static_boundary_verified }}', 'Environment jobs must receive static-boundary verification from preflight outputs');
 includes(preflightJob, 'tar -czf production-node-modules.tgz node_modules', 'preflight job must package validated dependencies outside the production Environment');
 includes(preflightJob, 'actions/upload-artifact@v4', 'preflight job must upload validated dependencies for the production mutation job');
 includes(authenticatedDryRunJob, 'actions/download-artifact@v4', 'authenticated dry-run job must restore dependencies from the preflight artifact');
@@ -116,6 +127,18 @@ assert.ok(!deployJob.includes('npm ci'), 'production Environment job must not ru
 ].forEach((name) => {
   assert.strictEqual(
     (workflow.match(new RegExp(`${name}: \\\$\\{\\{ secrets\\.${name} \\}\\}`, 'g')) || []).length,
+    2,
+    `${name} must be read only by authenticated dry-run and production mutation Environment jobs`,
+  );
+});
+
+[
+  'PRODUCTION_WEB_APP_URL',
+  'PRODUCTION_SMOKE_EXPECTED_MARKER',
+  'PRODUCTION_REQUIRED_CHECKS',
+].forEach((name) => {
+  assert.strictEqual(
+    (workflow.match(new RegExp(`${name}: \\\$\\{\\{ vars\\.${name} \\}\\}`, 'g')) || []).length,
     2,
     `${name} must be read only by authenticated dry-run and production mutation Environment jobs`,
   );

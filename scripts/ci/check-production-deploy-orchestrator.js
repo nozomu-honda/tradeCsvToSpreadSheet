@@ -64,7 +64,7 @@ function mutationEnv(overrides = {}) {
     PREFLIGHT_CURRENT_PRODUCTION_SHA: previousSha,
     PREFLIGHT_PRODUCTION_STATUS_ISSUE_NUMBER: '123',
     PREFLIGHT_REQUIRED_CHECKS_VERIFIED: 'true',
-    PREFLIGHT_BUNDLE_BOUNDARY_VERIFIED: 'true',
+    PREFLIGHT_STATIC_BOUNDARY_VERIFIED: 'true',
     ...overrides,
   });
 }
@@ -82,7 +82,7 @@ function authenticatedDryRunEnv(overrides = {}) {
     PREFLIGHT_CURRENT_PRODUCTION_SHA: previousSha,
     PREFLIGHT_PRODUCTION_STATUS_ISSUE_NUMBER: '123',
     PREFLIGHT_REQUIRED_CHECKS_VERIFIED: 'true',
-    PREFLIGHT_BUNDLE_BOUNDARY_VERIFIED: 'true',
+    PREFLIGHT_STATIC_BOUNDARY_VERIFIED: 'true',
     ...overrides,
   });
 }
@@ -92,6 +92,14 @@ function withoutProductionCredentials(env) {
   delete copy.CLASP_PRODUCTION_CREDENTIALS;
   delete copy.PRODUCTION_SCRIPT_ID;
   delete copy.PRODUCTION_DEPLOYMENT_ID;
+  return copy;
+}
+
+function withoutProductionEnvironmentConfig(env) {
+  const copy = withoutProductionCredentials(env);
+  delete copy.PRODUCTION_WEB_APP_URL;
+  delete copy.PRODUCTION_SMOKE_EXPECTED_MARKER;
+  delete copy.PRODUCTION_REQUIRED_CHECKS;
   return copy;
 }
 
@@ -355,14 +363,14 @@ async function assertRejectsWith(fn, pattern) {
   {
     const adapters = createAdapters();
     const result = await runProductionDeploy({
-      env: withoutProductionCredentials(baseEnv({ DRY_RUN_MODE: 'authenticated', PRODUCTION_DEPLOY_PHASE: 'preflight', SOURCE_PR_NUMBER: '10' })),
+      env: withoutProductionEnvironmentConfig(baseEnv({ DRY_RUN_MODE: 'authenticated', PRODUCTION_DEPLOY_PHASE: 'preflight', SOURCE_PR_NUMBER: '10' })),
       adapters,
     });
     assert.strictEqual(result.phase, 'preflight');
     assert.strictEqual(result.outputs.should_deploy, 'false');
     assert.strictEqual(result.outputs.preflight_passed, 'true');
     assert.strictEqual(result.outputs.required_checks_verified, 'true');
-    assert.strictEqual(result.outputs.bundle_boundary_verified, 'true');
+    assert.strictEqual(result.outputs.static_boundary_verified, 'true');
     assert.ok(!adapters.calls.includes('write-clasp'), 'Environment-free preflight must not write clasp config');
     assert.ok(!adapters.calls.includes('production-status'), 'Environment-free preflight must not run clasp status');
     assert.ok(!adapters.calls.includes('source-push'));
@@ -375,7 +383,7 @@ async function assertRejectsWith(fn, pattern) {
   {
     const adapters = createAdapters();
     const result = await runProductionDeploy({
-      env: withoutProductionCredentials(baseEnv({ DRY_RUN: 'false', PRODUCTION_DEPLOY_PHASE: 'preflight', SOURCE_PR_NUMBER: '10' })),
+      env: withoutProductionEnvironmentConfig(baseEnv({ DRY_RUN: 'false', PRODUCTION_DEPLOY_PHASE: 'preflight', SOURCE_PR_NUMBER: '10' })),
       adapters,
     });
     assert.strictEqual(result.phase, 'preflight');

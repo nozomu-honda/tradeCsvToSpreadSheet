@@ -244,6 +244,13 @@ function renderExpectedRejectionSummary({ state, error }) {
 
 function validateProductionSmokeConfig(env) {
   assertAllowedHttpsUrl(env.PRODUCTION_WEB_APP_URL);
+  const marker = env.PRODUCTION_SMOKE_EXPECTED_MARKER;
+  if (marker && /[\u0000-\u0008\u000B-\u001F\u007F]/.test(String(marker))) {
+    throw new Error('PRODUCTION_SMOKE_EXPECTED_MARKER must not contain control characters.');
+  }
+  if (marker && String(marker).length > 500) {
+    throw new Error('PRODUCTION_SMOKE_EXPECTED_MARKER must be 500 characters or fewer.');
+  }
 }
 
 function createPreflightOutputs({
@@ -251,7 +258,7 @@ function createPreflightOutputs({
   state,
   shouldDeploy,
   requiredChecksVerified,
-  bundleBoundaryVerified,
+  staticBoundaryVerified,
 }) {
   return {
     target_sha: state.targetSha || '',
@@ -261,7 +268,7 @@ function createPreflightOutputs({
     current_production_sha: state.currentProductionSha || 'unknown',
     production_status_issue_number: env.PRODUCTION_STATUS_ISSUE_NUMBER || '',
     required_checks_verified: requiredChecksVerified ? 'true' : 'false',
-    bundle_boundary_verified: bundleBoundaryVerified ? 'true' : 'false',
+    static_boundary_verified: staticBoundaryVerified ? 'true' : 'false',
   };
 }
 
@@ -275,7 +282,7 @@ function assertTrustedPreflightOutputs({ env, targetSha, expectedShouldDeploy })
     ['PREFLIGHT_SOURCE_PR_NUMBER', env.PREFLIGHT_SOURCE_PR_NUMBER || '', expectedSourcePrNumber],
     ['PREFLIGHT_PRODUCTION_STATUS_ISSUE_NUMBER', env.PREFLIGHT_PRODUCTION_STATUS_ISSUE_NUMBER || '', expectedIssueNumber],
     ['PREFLIGHT_REQUIRED_CHECKS_VERIFIED', env.PREFLIGHT_REQUIRED_CHECKS_VERIFIED, 'true'],
-    ['PREFLIGHT_BUNDLE_BOUNDARY_VERIFIED', env.PREFLIGHT_BUNDLE_BOUNDARY_VERIFIED, 'true'],
+    ['PREFLIGHT_STATIC_BOUNDARY_VERIFIED', env.PREFLIGHT_STATIC_BOUNDARY_VERIFIED, 'true'],
   ];
 
   for (const [name, actual, expected] of checks) {
@@ -549,7 +556,7 @@ async function runProductionPreflight({ env, adapters, cwd = process.cwd() }) {
   let state;
   let currentStage = 'preflight';
   let requiredChecksVerified = false;
-  let bundleBoundaryVerified = false;
+  let staticBoundaryVerified = false;
 
   try {
     adapters.addMasksFromEnv();
@@ -558,7 +565,7 @@ async function runProductionPreflight({ env, adapters, cwd = process.cwd() }) {
       dryRunMode,
       productionCredentials: false,
       statusIssue: !staticDryRun,
-      smokeConfig: !staticDryRun,
+      smokeConfig: false,
     });
 
     adapters.fetchDevelop();
@@ -617,7 +624,7 @@ async function runProductionPreflight({ env, adapters, cwd = process.cwd() }) {
     for (const script of adapters.validationScripts) {
       adapters.runValidationScript(script);
     }
-    bundleBoundaryVerified = true;
+    staticBoundaryVerified = true;
 
     if (staticDryRun) {
       state.duplicateGuard = 'skipped-static-dry-run';
@@ -636,13 +643,10 @@ async function runProductionPreflight({ env, adapters, cwd = process.cwd() }) {
           state,
           shouldDeploy: false,
           requiredChecksVerified,
-          bundleBoundaryVerified,
+          staticBoundaryVerified,
         }),
       };
     }
-
-    currentStage = 'smoke-config';
-    validateProductionSmokeConfig(env);
 
     adapters.writeStepSummary([
       renderDryRunSummary(state),
@@ -651,6 +655,7 @@ async function runProductionPreflight({ env, adapters, cwd = process.cwd() }) {
       `- required checks SHA: \`${requiredCheckResult.checkedSha}\``,
       `- dry_run_mode: \`${dryRunMode}\``,
       '- production credentials: `not requested in this job`',
+      '- production Environment variables: `not requested in this job`',
       '- production status check: `deferred to Environment job`',
       `- production mutation job: \`${dryRun ? 'skipped by dry_run' : 'ready after Environment approval'}\``,
     ].join('\n'));
@@ -667,7 +672,7 @@ async function runProductionPreflight({ env, adapters, cwd = process.cwd() }) {
         state,
         shouldDeploy: !dryRun,
         requiredChecksVerified,
-        bundleBoundaryVerified,
+        staticBoundaryVerified,
       }),
     };
   } catch (error) {
@@ -745,6 +750,15 @@ async function runAuthenticatedProductionDryRun({ env, adapters }) {
     if (sourcePrNumber !== (env.PREFLIGHT_SOURCE_PR_NUMBER || '')) {
       throw new Error('SOURCE_PR_NUMBER did not match the trusted preflight output.');
     }
+
+    currentStage = 'required-checks';
+    await validateRequiredChecks({
+      adapters,
+      repo: env.GITHUB_REPOSITORY,
+      targetSha,
+      sourcePrNumber,
+      requiredChecks: requiredCheckNames(env),
+    });
 
     currentStage = 'production-status';
     validateProductionSmokeConfig(env);
@@ -847,6 +861,15 @@ async function runProductionMutation({ env, adapters, cwd = process.cwd() }) {
     if (sourcePrNumber !== (env.PREFLIGHT_SOURCE_PR_NUMBER || '')) {
       throw new Error('SOURCE_PR_NUMBER did not match the trusted preflight output.');
     }
+
+    currentStage = 'required-checks';
+    await validateRequiredChecks({
+      adapters,
+      repo: env.GITHUB_REPOSITORY,
+      targetSha,
+      sourcePrNumber,
+      requiredChecks: requiredCheckNames(env),
+    });
 
     currentStage = 'production-status';
     validateProductionSmokeConfig(env);

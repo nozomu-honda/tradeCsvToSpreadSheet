@@ -37,8 +37,8 @@ GitHub ActionsのPRラベル起動は、default branch上のworkflow定義で評
 条件を満たした場合だけ、`deploy-production.yml` を `ref: develop` でworkflow_dispatchする。
 これにより、GitHub Environment Deploymentの対象SHAは `main` 側control workflowのSHAではなく、実際の反映対象である最新 `develop` のSHAになる。
 
-`deploy-production.yml` 内では、Environmentなしの `production-preflight` jobがduplicate guard、required checks、ローカル検証、Smoke Test設定値の形式確認を行う。
-authenticated dry-runは `production-preflight` Environment付きの `authenticated-production-dry-run` jobで本番credentialとclasp status境界だけを確認する。
+`deploy-production.yml` 内では、Environmentなしの `production-preflight` jobがduplicate guard、既定required checks、ローカル検証、安全なpreflight outputs作成までを行う。
+authenticated dry-runは `production-preflight` Environment付きの `authenticated-production-dry-run` jobで本番credential、Environment Variables、clasp status境界だけを確認する。
 production Environment付きの `deploy-production` jobは、`dry_run=false` かつpreflight成功かつ `should_deploy=true` の場合だけ起動する。
 このため、duplicate拒否やEnvironmentなしpreflight失敗ではEnvironment Deployment履歴を作らない。
 
@@ -54,11 +54,12 @@ PR #84マージ後、次の内容だけを扱う小さな後続Issueを作る。
 
 ### GitHub EnvironmentとProduction Status Issueを初期設定しdry-runする
 
-- Production Status Issue、Environment、Environment Secrets、Repository Variables、起動ラベルは人間が設定する。
+- Production Status Issue、Environment、Environment Secrets / Variables、Repository Variable、起動ラベルは人間が設定する。
 - `CLASP_PRODUCTION_CREDENTIALS`、`PRODUCTION_SCRIPT_ID`、`PRODUCTION_DEPLOYMENT_ID` はRepository Secretsへ置かず、`production-preflight` と `production` の各Environment Secretsへ置く。
-- `PRODUCTION_WEB_APP_URL`、任意の `PRODUCTION_SMOKE_EXPECTED_MARKER` / `PRODUCTION_REQUIRED_CHECKS` はRepository Variablesに置く。Environment側にも同名Variableを置く場合は値を一致させる。
+- `PRODUCTION_WEB_APP_URL`、任意の `PRODUCTION_SMOKE_EXPECTED_MARKER` / `PRODUCTION_REQUIRED_CHECKS` はRepository Variablesへ置かず、`production-preflight` と `production` の各Environment Variablesへ置く。
 - Status Issue番号はRepository Variable `PRODUCTION_STATUS_ISSUE_NUMBER` だけを正本にする。
 - Environment側には同名Variableを作らない。
-- `production-preflight` Environmentはauthenticated dry-run、`production` Environmentは実本番mutationの履歴、required reviewers、deployment protection rules、本番URL表示に使う。
+- `production-preflight` Environmentはauthenticated dry-runの履歴、required reviewers、deployment protection rulesに使う。
+- `production` Environmentは実本番mutationの履歴、required reviewers、deployment protection rules、本番URL表示に使う。
 - main同期後にauthenticated dry-runを実行する。
 - dry-run成功後に初回本番反映を判断する。

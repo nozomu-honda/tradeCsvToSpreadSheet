@@ -45,7 +45,7 @@ Issue #83対応後の基本フロー:
 
 1. developへマージ済みPRへ `deploy-production-dry-run` ラベルを付け、Authenticated dry-runを実行する。
 2. default branch `main` 上のcontrol workflowがPRラベルを検証し、`Deploy production` workflowを `ref: develop` でdispatchする。
-3. Environmentなしのpreflight jobで `HEAD == origin/develop == target_sha` を確認し、Production Status Issueを読んで既存本番情報をstateへ反映してから、重複反映ガード、required checks、本番wrapper検証、本番bundle境界検証、Smoke Test設定値の形式確認を行う。このjobでは本番credentialとclasp statusを使わない。
+3. Environmentなしのpreflight jobで `HEAD == origin/develop == target_sha` を確認し、Production Status Issueを読んで既存本番情報をstateへ反映してから、重複反映ガード、required checks、本番wrapper検証、本番bundle境界検証を行う。このjobでは本番credential、Environment Variables、clasp statusを使わない。
 4. Authenticated dry-runは、`production-preflight` Environment承認後に本番credentialを使い、`npm run gas:production:status -- --json` とTracked / Untracked境界まで確認する。本番push、deployment更新、Smoke Test、Status Issue PATCHは行わない。
 5. 問題がなければ、人間が `deploy-production` ラベルで本番反映を起動する。
 6. `dry_run=false` かつpreflight成功かつ `should_deploy=true` の場合だけ、`production` Environment付きの本番mutation jobが起動する。
@@ -64,10 +64,11 @@ Issue #83対応後の基本フロー:
 - GitHub Environment `production-preflight` と `production` を作成する。
 - `production-preflight` と `production` の各Environment Secretsへ `CLASP_PRODUCTION_CREDENTIALS`、`PRODUCTION_SCRIPT_ID`、`PRODUCTION_DEPLOYMENT_ID` を設定する。
 - Repository Secretsには上記3つの本番credentialを置かない。
-- Repository Variablesへ `PRODUCTION_WEB_APP_URL`、必要なら `PRODUCTION_SMOKE_EXPECTED_MARKER` / `PRODUCTION_REQUIRED_CHECKS` を設定する。
-- 必要なら `production-preflight` / `production` Environment Variablesにも同名Variableを置き、Repository Variablesと値を一致させる。
+- `production-preflight` と `production` の各Environment Variablesへ `PRODUCTION_WEB_APP_URL`、必要なら `PRODUCTION_SMOKE_EXPECTED_MARKER` / `PRODUCTION_REQUIRED_CHECKS` を設定する。
+- Repository Variablesには `PRODUCTION_STATUS_ISSUE_NUMBER` 以外を置かない。
 - Repository Variable `PRODUCTION_STATUS_ISSUE_NUMBER` を設定する。
-- `production-preflight` Environmentはauthenticated dry-run、`production` Environmentは実本番mutationのDeployment履歴、required reviewers、deployment protection rules、本番URL表示に使う。
+- `production-preflight` Environmentはauthenticated dry-runのDeployment履歴、required reviewers、deployment protection rulesに使う。
+- `production` Environmentは実本番mutationのDeployment履歴、required reviewers、deployment protection rules、本番URL表示に使う。
 - Environment側には `PRODUCTION_STATUS_ISSUE_NUMBER` と同名Variableを作らない。
 - 管理marker `<!-- production-status:managed-by-github-actions -->` を含むProduction Status Issueを作成し、実値を貼らずに状態追跡用として使う。
 - 起動ラベル `deploy-production-dry-run`、`deploy-production`、`deploy-production-force` を作成する。

@@ -123,7 +123,7 @@ PRラベルはdefault branch `main` 上のcontrol workflowが受け、条件を�
 Production Status Issue番号はRepository Variable `PRODUCTION_STATUS_ISSUE_NUMBER` だけを正本にし、未設定時のstatus syncは安全にskipする。
 本番workflowはEnvironmentなしpreflight、`production-preflight` Environment付きauthenticated dry-run、`production` Environment付き本番mutationを分ける。
 本番workflow用の `CLASP_PRODUCTION_CREDENTIALS`、`PRODUCTION_SCRIPT_ID`、`PRODUCTION_DEPLOYMENT_ID` はRepository Secretsへ置かず、`production-preflight` と `production` の各Environment Secretsへ置く。
-`PRODUCTION_WEB_APP_URL` などの非Secret値はRepository Variablesへ置き、Environment側にも同名Variableを置く場合は値を一致させる。
+`PRODUCTION_WEB_APP_URL` などの非Secret値は `production-preflight` と `production` の各Environment Variablesへ置く。
 production Environmentは、実本番mutationを開始したrunの履歴、required reviewers、deployment protection rules、本番URL表示に使う。
 ローカル手動fallbackでは、本番専用設定を用意したうえで次のnpmコマンドだけを使う。
 
