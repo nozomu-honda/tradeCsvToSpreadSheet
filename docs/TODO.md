@@ -8,41 +8,62 @@
 - 最新 `develop` では、Issue #71 / PR #72 のclasp分離対応は完了済み。
 - 最新 `develop` では、Issue #73 / PR #74 のclasp運用ガイド整理は完了済み。
 - 最新 `develop` では、Issue #79 / PR #80 の本番push対象からE2E専用helperを除外する対応は完了済み。
+- 最新 `develop` では、Issue #76 / PR #78 の野村日本株Web E2E追加は完了済み。
+- 最新 `develop` では、Issue #81 / PR #82 の本番bundle参照切れ修正は完了済み。
 - 楽天DBの専用ヘッダー対応、楽天DBから共通計算モデルへの変換、楽天配当金の手入力列対応は完了済み。
 - Web UIの6シート表記、外債件数表示、タブ順固定、`runStagingSheetFromWebApp` の重複整理は完了済み。
 - `runSmokeTests()` と `runAllTests()` は未実装タスクではなく、既存の手動テスト入口として扱う。
-- 本番Apps Scriptへのpushと本番Webアプリ再デプロイは未実施。
-- 本番反映前は、最新 `develop` で `npm run gas:production:status` を再確認し、`src/test/**` と `src/app/e2e_helpers.gs` が本番push対象に含まれないことを確認する。
+- Web App E2Eは、野村1ケース + 楽天7ケースの合計8ケースまで完了済み。
+- 本番Apps Scriptへのpushと本番Webアプリ再デプロイは、PR #82マージ後まだ未実施。
+- 現在の本番Webアプリには、Issue #81修正前のbundleが反映されている可能性がある。
+
+## 本番反映前の確認
+
+本番復旧には、最新 `develop` を本番Apps Scriptへ再反映し、Apps Script管理画面で既存Webアプリdeploymentを新バージョンへ更新する必要がある。
+
+基本手順:
+
+```bash
+git switch develop
+git pull
+npm ci
+npm run gas:production:status
+npm run gas:production:push
+```
+
+`npm run gas:production:status` で確認すること:
+
+- Tracked filesに `src/test/**` が含まれない。
+- Tracked filesに `src/app/e2e_helpers.gs` が含まれない。
+- `src/test/**` と `src/app/e2e_helpers.gs` はUntrackedである。
+- 本番対象に `src/app/e2e_runtime_support.gs` が含まれる。
+- 実Script ID、Deployment ID、Web App URL、Spreadsheet URL、Drive folder ID、OAuth token、GitHub Secrets実値をログやdocsへ残さない。
+
+Codexは本番Apps Scriptへのpush、本番Webアプリdeployment更新、GitHub Secrets変更を実行しない。
 
 ## 次の開発候補
 
-### 1. 野村共通CSV Web E2E
+### 1. 外債Web E2E
 
-Issue #76 / PR #78で対応中。Draft PRが未マージのため、完了済み扱いにはしない。
+最優先候補。まだIssue未作成。
+
+野村日本株Web E2Eの次の自然な拡張として、外債CSV取込から外債シート出力までをWeb UI経由で確認する。
 
 確認したいこと:
 
-- Web UIから野村共通CSVをアップロードできる。
+- Web UIから外債を含む野村CSVをアップロードできる。
 - `nomura_test` へ保存される。
-- 楽天DBへ誤ルーティングされない。
-- 6シート出力が作成される。
-- 出力リンクから主要シートと主要セルを検査できる。
+- 外債行が `外債` シートへ出力される。
+- 外債行が `米国株` へ混ざらない。
+- 実行結果に `外債件数` が出る。
+- 外債の主要列、為替レート、簿価、金銭残高への影響を確認できる。
+- 出力リンクから外債シートと主要セルを検査できる。
 - cleanup / rollback が成功する。
+- ケース開始前のE2E出力Spreadsheet初期化を維持する。
+- 楽天既存7ケースと野村日本株ケースを壊さない。
 - 実URL、Spreadsheet ID、Drive folder ID、tokenをログやfixtureへ出さない。
 
-### 2. 外債Web E2E
-
-PR #78の完了後に、外債を含むWeb App E2Eの追加を検討する。PR #78が未マージの間は、次の確定着手対象として前倒ししない。
-
-確認したいこと:
-
-- 外債行が `外債` シートへ出力される。
-- `米国株` へ混ざらない。
-- 実行結果に `外債件数` が出る。
-- タブ順が崩れない。
-- 外債の主要列、為替レート、簿価、金銭残高への影響を確認できる。
-
-### 3. 大容量CSV Web E2E
+### 2. 大容量CSV Web E2E
 
 代表的な大容量CSVで、Web UIからのアップロード、取込、出力、cleanupが現実的な時間内に終わることを確認する。
 
@@ -53,7 +74,7 @@ PR #78の完了後に、外債を含むWeb App E2Eの追加を検討する。PR 
 - 重複判定や件数表示が大きい入力でも崩れない。
 - fixtureやログに実運用データを含めない。
 
-### 4. 入力異常系Web E2E
+### 3. 入力異常系Web E2E
 
 header不足、不正CSV、重複importなどの異常系をWeb UI経由で確認する。
 
@@ -67,7 +88,7 @@ header不足、不正CSV、重複importなどの異常系をWeb UI経由で確�
 - 一部重複を含むCSVで `insertedCount > 0` / `skippedCount > 0`。
 - 赤セル必須入力と `test DB` のバリデーションスキップ境界。
 
-### 5. rollback異常系Web E2E
+### 4. rollback異常系Web E2E
 
 rollbackの正常系は既存E2Eで使っているが、異常系の明示確認は残っている。
 
@@ -79,7 +100,7 @@ rollbackの正常系は既存E2Eで使っているが、異常系の明示確認
 - 楽天入力後に実際の追加先DBへrollback対象が合うこと。
 - cleanup helperの失敗時にworkflowが失敗すること。
 
-### 6. 楽天の実運用データ確認
+### 5. 楽天の実運用データ確認
 
 代表fixtureではなく、実運用に近いデータで確認する。
 
@@ -97,7 +118,7 @@ rollbackの正常系は既存E2Eで使っているが、異常系の明示確認
 - 実Spreadsheet ID、Drive folder ID、口座情報、個人情報をIssue/PR/docsへ貼らない。
 - 必要なら匿名化したfixtureを別PRで追加する。
 
-### 7. 楽天の残りの専用出力対応
+### 6. 楽天の残りの専用出力対応
 
 楽天配当金・分配金・元本払戻金は、既存楽天タブと金銭残高への代表値反映まで進んでいる。
 ただし、Driveの最終見た目に近い全列・全ケースの専用出力再現は残っている。
@@ -111,12 +132,10 @@ rollbackの正常系は既存E2Eで使っているが、異常系の明示確認
 
 ## 運用上の未完了事項
 
-- 本番反映前に、最新 `develop` を取得して `npm run gas:production:status` を再確認する。
-- 本番push対象のTracked filesに `src/test/**` が含まれないことを確認する。
-- 本番push対象のTracked filesに `src/app/e2e_helpers.gs` が含まれないことを確認する。
 - 本番Apps Scriptへの `npm run gas:production:push`。
-- 本番Webアプリの新バージョン再デプロイ。
+- 本番Webアプリの既存deployment更新。
 - 本番Webアプリの主要画面確認。
+- Issue #76 / Issue #81 は実装対応済みだが、GitHub Issue自体はOPENの場合があるため、必要なら人間がクローズ確認する。
 - 別ユーザーでのDrive OAuth承認確認。
 - 別ユーザーでのDBフォルダ編集権限確認。
 - 楽天専用ロールバックUIの実運用表示確認。
@@ -137,7 +156,7 @@ rollbackの正常系は既存E2Eで使っているが、異常系の明示確認
   - `Push test GAS project and run tests` の成功を確認する。
 - PRのWeb App E2E確認
   - `gas-web-e2e` ラベルまたは `workflow_dispatch` で起動する。
-  - `Deploy test Web app and run Rakuten Playwright E2E` の成功を確認する。
+  - `Deploy test Web app and run Playwright E2E` の成功を確認する。
 
 ## 完了済みとして未完了一覧へ戻さない項目
 
@@ -152,6 +171,8 @@ rollbackの正常系は既存E2Eで使っているが、異常系の明示確認
 - CI用と本番用のclasp設定分離。
 - clasp反映手順の `docs/clasp-operations.md` への整理。
 - 本番push対象からの `src/test/**` と `src/app/e2e_helpers.gs` の除外。
+- 本番bundle参照切れを防ぐ `src/app/e2e_runtime_support.gs` の本番bundle対象化。
+- 野村日本株Web E2Eと楽天7ケースの合計8ケース。
 
 ## 関連ドキュメント
 

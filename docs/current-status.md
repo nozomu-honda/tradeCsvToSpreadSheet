@@ -1,23 +1,21 @@
 # Current Status
 
-最終更新: 2026-07-13
+最終更新: 2026-07-14
 
 このファイルは、最新 `develop` とGitHub上のIssue/PR状態を前提に、次の作業判断に必要な現状だけをまとめる。
-長い履歴や完了済みの古い推測は `docs/TODO.md` ではなく、このファイルの完了事項として整理する。
+長い履歴や古い推測は残さず、完了済み・未反映・次候補が分かる状態を維持する。
 
 ## 現在のGitHub状態
 
-- Issue #71「CI用と本番反映用のclasp設定・操作を完全分離する」は完了済み。
-- PR #72「CI用と本番反映用のclasp操作を分離する」は `develop` にマージ済み。
-- Issue #73「CI用と本番用のclasp反映手順を分かりやすく整理する」は完了済み。
-- PR #74「CI用と本番用のclasp反映手順を整理する」は `develop` にマージ済み。
-- Issue #79「本番Apps Scriptへの反映からE2E専用helperを除外する」は完了済み。
-- PR #80「本番反映からE2E専用helperを除外する」は `develop` にマージ済み。
-- Issue #76「野村共通CSVのWeb E2E基盤と日本株1ケースを追加する」は対応中。
-- PR #78「野村日本株のGAS Web App E2Eを追加」はDraftのまま未マージ。
 - Issue #75「現状ドキュメントを最新developの状態へ整理する」はPR #77で対応中。
-- PR #77「現状ドキュメントを最新developに合わせて整理する」はDraftのまま未マージ。
-- 2026-07-13時点で、本番Apps Scriptへのpushと本番Webアプリ再デプロイは未実施。
+- PR #77「現状ドキュメントを最新developに合わせて整理する」はDraftのまま更新中。
+- Issue #76「野村共通CSVのWeb E2E基盤と日本株1ケースを追加する」はPR #78で実装完了。
+  - 2026-07-14時点のGitHub APIではIssue自体はOPENのため、必要なら人間がクローズ確認する。
+- PR #78「野村日本株のGAS Web App E2Eを追加」は `develop` にSquash Merge済み。
+- Issue #81「本番bundleからE2E helper除外後のWeb/DB参照切れを修正する」はPR #82で実装完了。
+  - 2026-07-14時点のGitHub APIではIssue自体はOPENのため、必要なら人間がクローズ確認する。
+- PR #82「本番bundleからE2E helper除外後の参照切れを修正」は `develop` にSquash Merge済み。
+- 本番Apps Scriptへの再pushと本番Webアプリの既存deployment更新は、PR #82マージ後まだ未実施。
 
 ## 完了済みの主な範囲
 
@@ -88,9 +86,9 @@
 
 ### Web App E2E
 
-- GAS Web App E2Eは、テスト専用Apps Scriptプロジェクトへpushし、一時Webアプリdeploymentを作成してからPlaywrightで確認する。
-- 一時Webアプリdeploymentはテスト後に削除する。
-- Web App E2Eは楽天系の代表7ケースまで拡張済み。
+- PR #78で野村日本株Web App E2Eを追加済み。
+- Web App E2Eは、野村1ケース + 楽天7ケースの合計8ケース。
+  - 野村日本株
   - 楽天日本株
   - 楽天米国株
   - 楽天投資信託
@@ -98,9 +96,25 @@
   - 楽天米国株配当
   - 楽天投信分配金
   - 楽天元本払戻金
+- PR #78の最新headで `Push test GAS project and run tests` と `Deploy test Web app and run Playwright E2E` は成功済み。
+- GAS Web App E2Eは、テスト専用Apps Scriptプロジェクトへpushし、一時Webアプリdeploymentを作成してからPlaywrightで確認する。
+- 一時Webアプリdeploymentはテスト後に削除する。
 - 出力Spreadsheet検査は `checks` と `rowChecks` に対応済み。
 - `rowChecks` により、同じ行の複数列を検査できる。
 - 楽天元本払戻金E2Eでは、買付行と払戻行の取り違えを避けるため、払戻行そのものを `rowChecks` で確認する。
+- E2E出力Spreadsheetはケース開始前に初期化し、前ケースの出力シートが残って次ケースに影響しないようにした。
+- CIローカルソース上だけで `nomura_test.spreadsheetId` を空にし、CI実行アカウントがテスト専用DBを作成・再利用できるようにした。
+- リポジトリ上の本番設定や実IDは変更していない。
+
+### 本番bundle境界
+
+- PR #80で、本番push対象から `src/test/**` と `src/app/e2e_helpers.gs` を除外する安全対策を追加済み。
+- PR #82で、本番bundleから `src/app/e2e_helpers.gs` を除外したまま、通常Web/DB処理の参照切れを解消済み。
+- 通常Web/DB処理から参照されるruntime supportは `src/app/e2e_runtime_support.gs` へ移動済み。
+- 公開E2E helperである `src/app/e2e_helpers.gs` は引き続き本番bundleから除外する。
+- `src/app/e2e_runtime_support.gs` と `src/app/e2e_helpers.gs` の二重定義は避けている。
+- 本番bundle境界テストを追加済み。
+- PR #82の最新headで `Push test GAS project and run tests` と `Deploy test Web app and run Playwright E2E` は成功済み。
 
 ### ドキュメント / 運用ルール
 
@@ -109,26 +123,66 @@
 - `docs/gas-web-e2e.md` にWeb App E2Eの対象、Secrets、セキュリティ境界、workflow summaryを整理済み。
 - `docs/clasp-operations.md` にCI用と本番用の反映手順を整理済み。
 
+## 本番反映の現状
+
+- PR #82マージ後の最新 `develop` は、本番Apps Scriptへまだ再pushしていない。
+- 本番Webアプリの既存deployment更新もまだ実施していない。
+- 現在の本番Webアプリには、Issue #81修正前のbundleが反映されている可能性がある。
+- 本番復旧には、最新 `develop` を本番Apps Scriptへ再反映し、Apps Script管理画面で既存Webアプリdeploymentを新バージョンへ更新する必要がある。
+
+本番反映の基本手順:
+
+```bash
+git switch develop
+git pull
+npm ci
+npm run gas:production:status
+npm run gas:production:push
+```
+
+その後、人間がApps Script管理画面で既存Webアプリdeploymentを新バージョンへ更新する。
+
+本番push前の確認:
+
+- `npm run gas:production:status` のTracked filesに次が含まれないこと。
+  - `src/test/**`
+  - `src/app/e2e_helpers.gs`
+- 上記2つはUntrackedとして扱われること。
+- 本番対象に `src/app/e2e_runtime_support.gs` が含まれること。
+- 実Script ID、Deployment ID、Web App URL、Spreadsheet URL、Drive folder ID、OAuth token、GitHub Secrets実値をログやdocsへ残さないこと。
+
 ## 未完了 / 確認待ち
 
-- 本番Apps Scriptへの `npm run gas:production:push` は未実施。
-- 本番Webアプリの新バージョン再デプロイは未実施。
-- 本番Webアプリの主要画面確認は未実施。
-- 別ユーザーでのDrive OAuth承認、DBフォルダ編集権限、Webアプリ実行確認は未完了。
-- 楽天米国株・楽天投資信託・楽天金銭残高・配当金/分配金/元本払戻金は、代表fixtureの自動テストが進んでいるが、実運用データでの最終確認は未完了。
-- 楽天専用ロールバックUI分離は初期対応済みだが、実運用でのWeb UI表示確認は未完了。
-- 楽天配当金・分配金・元本払戻金の専用出力は代表値反映まで進んでいるが、全列・全ケースを楽天専用出力として完全再現する対応は残っている。
-- Web App E2Eは楽天主要ケースを優先して整備済み。野村共通CSVはIssue #76 / PR #78で対応中。外債、大容量CSV、異常系、rollback異常系は未整備。
+- 本番Apps Scriptへの `npm run gas:production:push`。
+- 本番Webアプリの既存deployment更新。
+- 本番Webアプリの主要画面確認。
+- Issue #76 / Issue #81 は実装対応済みだが、GitHub Issue自体はOPENの場合があるため、必要なら人間がクローズ確認する。
+- 別ユーザーでのDrive OAuth承認、DBフォルダ編集権限、Webアプリ実行確認。
+- 楽天米国株・楽天投資信託・楽天金銭残高・配当金/分配金/元本払戻金の実運用データでの最終確認。
+- 楽天専用ロールバックUI分離の実運用Web UI表示確認。
+- 楽天配当金・分配金・元本払戻金の全列・全ケースを、Driveの最終見た目に近い楽天専用出力として完全再現する対応。
+- 外債、大容量CSV、入力異常系、rollback異常系のWeb App E2E。
 
 ## 次の開発優先順位
 
-1. Issue #76 / PR #78で、野村共通CSV Web E2Eを完了させる。
-2. PR #78の完了後に、外債Web E2Eの追加を検討する。
-3. 大容量CSV Web E2Eを追加する。
-4. header不足、不正CSV、重複importなどの異常系Web E2Eを追加する。
-5. rollback異常系Web E2Eを追加する。
-6. 楽天の実運用データ確認を進める。
-7. 楽天の残りの専用出力対応を進める。
+1. 外債Web E2Eを追加する。
+2. 大容量CSV Web E2Eを追加する。
+3. header不足、不正CSV、重複importなどの異常系Web E2Eを追加する。
+4. rollback異常系Web E2Eを追加する。
+5. 楽天の実運用データ確認を進める。
+6. 楽天の残りの専用出力対応を進める。
+
+## 外債Web E2Eの想定
+
+- まだIssue未作成。
+- 野村日本株Web E2Eの次の自然な拡張候補。
+- 外債CSV取込をWeb UI経由で確認する。
+- 外債行が `外債` シートへ出力され、`米国株` へ混ざらないことを確認する。
+- 出力リンクから外債シートと主要セルを検査する。
+- cleanup / rollback を確認する。
+- ケース開始前のE2E出力Spreadsheet初期化を維持する。
+- 楽天既存7ケースと野村日本株ケースを壊さない。
+- 実URL、Spreadsheet ID、Drive folder ID、tokenをログやfixtureへ出さない。
 
 ## テスト運用
 
@@ -155,7 +209,6 @@ AutoHotkeyショートカットの説明は `docs/codex-shortcuts.md` を参照�
 - 実際のScript ID、Deployment ID、Web App URL、Spreadsheet URL、Drive folder ID、OAuth token、GitHub Secrets実値はコミットしない。
 - 人・Codexともに、リポジトリ直下でbareな `clasp push` を実行しない。
 - CI操作はGitHub Actionsだけに任せ、本番反映は人間が本番専用npmコマンドで行う。
-- 本番反映前は、最新 `develop` へ更新して `npm run gas:production:status` を確認し、`src/test/**` と `src/app/e2e_helpers.gs` が本番push対象に含まれないことを人間が確認する。
 - Codexは本番反映、GitHub Secrets変更、本番GAS・本番DB・本番Drive操作を実行しない。
 - `appsscript.json` のOAuth scope変更後は、Webアプリの新バージョン再デプロイが必要。
 - Webアプリを「アクセスしているユーザー」として実行する場合、利用者ごとにDrive権限承認とDBフォルダ編集権限が必要。
