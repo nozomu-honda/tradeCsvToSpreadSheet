@@ -1,0 +1,129 @@
+name: Production deploy control
+
+on:
+  pull_request_target:
+    types:
+      - labeled
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: write
+  actions: write
+
+jobs:
+  dispatch-production-deploy:
+    name: Dispatch production deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate PR label and dispatch trusted develop workflow
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const allowedLabels = {
+              'deploy-production-dry-run': { dry_run: 'true', dry_run_mode: 'authenticated', force: 'false' },
+              'deploy-production': { dry_run: 'false', dry_run_mode: 'authenticated', force: 'false' },
+              'deploy-production-force': { dry_run: 'false', dry_run_mode: 'authenticated', force: 'true' },
+            };
+
+            const labelName = context.payload.label && context.payload.label.name;
+            const prFromEvent = context.payload.pull_request;
+            const summary = core.summary.addHeading('本番反映control');
+
+            if (!Object.prototype.hasOwnProperty.call(allowedLabels, labelName || '')) {
+              await summary.addRaw(`対象外ラベルのため無視しました: ${labelName || 'none'}`).write();
+              return;
+            }
+
+            async function removeTriggerLabel() {
+              try {
+                await github.rest.issues.removeLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: prFromEvent.number,
+                  name: labelName,
+                });
+              } catch (error) {
+                core.warning(`Failed to remove trigger label ${labelName}: ${error.message}`);
+              }
+            }
+
+            async function fail(reason) {
+              await summary.addRaw(`拒否: ${reason}`).write();
+              core.setFailed(reason);
+            }
+
+            try {
+              if (context.eventName !== 'pull_request_target' || context.payload.action !== 'labeled') {
+                await fail('event must be pull_request_target:labeled');
+                return;
+              }
+              if (!prFromEvent || !prFromEvent.number) {
+                await fail('payload did not contain a pull request');
+                return;
+              }
+
+              await removeTriggerLabel();
+
+              const { data: pr } = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: prFromEvent.number,
+              });
+              const { data: develop } = await github.rest.repos.getBranch({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                branch: 'develop',
+              });
+
+              if (!pr.merged) {
+                await fail('pull request is not merged');
+                return;
+              }
+              if (pr.base.ref !== 'develop') {
+                await fail('pull request base is not develop');
+                return;
+              }
+              if (!pr.head.repo || pr.head.repo.full_name !== pr.base.repo.full_name) {
+                await fail('pull request is not from the same repository');
+                return;
+              }
+              if (!pr.merge_commit_sha || !/^[0-9a-f]{40}$/i.test(pr.merge_commit_sha)) {
+                await fail('pull request merge commit SHA is missing or invalid');
+                return;
+              }
+              if (pr.merge_commit_sha !== develop.commit.sha) {
+                await fail('pull request merge commit is not the latest develop HEAD');
+                return;
+              }
+
+              const config = allowedLabels[labelName];
+              await github.rest.actions.createWorkflowDispatch({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                workflow_id: 'deploy-production.yml',
+                ref: 'develop',
+                inputs: {
+                  dry_run: config.dry_run,
+                  dry_run_mode: config.dry_run_mode,
+                  force: config.force,
+                  target_sha: pr.merge_commit_sha,
+                  source_pr_number: String(pr.number),
+                },
+              });
+
+              await summary
+                .addRaw(`deploy-production.yml を ref develop で起動しました。PR #${pr.number}`)
+                .addBreak()
+                .addRaw(`target_sha: ${pr.merge_commit_sha}`)
+                .write();
+            } catch (error) {
+              try {
+                if (prFromEvent && prFromEvent.number) {
+                  await removeTriggerLabel();
+                }
+              } catch (labelError) {
+                core.warning(`Failed to remove trigger label after error: ${labelError.message}`);
+              }
+              await fail(error.message);
+            }

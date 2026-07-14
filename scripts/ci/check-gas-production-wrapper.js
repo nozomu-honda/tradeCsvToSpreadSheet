@@ -48,6 +48,32 @@ try {
     fail(`expected exactly 2 fake clasp calls, got ${calls.length}`);
   }
 
+  const jsonStatusWorkspace = createWorkspace('status-json', [
+    'src/test/**',
+    'src/app/e2e_helpers.gs',
+  ]);
+  const jsonStatusResult = runWrapper(jsonStatusWorkspace, 'status', ['--json']);
+  if (jsonStatusResult.status !== 0) {
+    process.stderr.write(jsonStatusResult.stdout || '');
+    process.stderr.write(jsonStatusResult.stderr || '');
+    fail('gas-production status --json wrapper failed');
+  }
+  const jsonStatusCalls = readFakeClaspCalls(jsonStatusWorkspace.fakeLogPath);
+  assertDeepEqual(
+    jsonStatusCalls[1],
+    [
+      '--user',
+      'production',
+      '--project',
+      '.clasp.production.json',
+      '--ignore',
+      '.clasp.productionignore',
+      'show-file-status',
+      '--json',
+    ],
+    'production status --json args'
+  );
+
   for (const command of ['status', 'open', 'push']) {
     assertMissingIgnorePatternFails(command, 'src/test/**');
     assertMissingIgnorePatternFails(command, 'src/app/e2e_helpers.gs');
@@ -95,11 +121,11 @@ function createWorkspace(name, productionIgnoreLines) {
   };
 }
 
-function runWrapper(workspace, command) {
+function runWrapper(workspace, command, extraArgs = []) {
   const childEnv = withPrependedPath(process.env, workspace.fakeBinDir);
   return spawnSync(
     process.execPath,
-    [path.join(workspace.workspaceRoot, 'scripts', 'gas-production.js'), command],
+    [path.join(workspace.workspaceRoot, 'scripts', 'gas-production.js'), command, ...extraArgs],
     {
       cwd: workspace.workspaceRoot,
       encoding: 'utf8',
@@ -148,11 +174,12 @@ const fs = require('fs');
 const args = process.argv.slice(2);
 fs.appendFileSync(process.env.FAKE_CLASP_LOG, JSON.stringify(args) + '\\n');
 const command = args[args.length - 1];
+const hasCommand = (name) => args.includes(name);
 if (command === 'show-authorized-user') {
   console.log('production@example.invalid');
   process.exit(0);
 }
-if (command === 'show-file-status') {
+if (hasCommand('show-file-status')) {
   console.log('fake file status');
   process.exit(0);
 }

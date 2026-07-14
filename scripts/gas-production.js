@@ -21,8 +21,12 @@ const CLASP_COMMANDS = {
 };
 
 const command = process.argv[2];
+const extraArgs = process.argv.slice(3);
 if (!['open', 'status', 'push'].includes(command)) {
   fail('Usage: node scripts/gas-production.js <open|status|push>');
+}
+if (extraArgs.length > 0 && !(command === 'status' && extraArgs.length === 1 && extraArgs[0] === '--json')) {
+  fail('status では --json のみ追加指定できます。open / push に追加引数は指定できません。');
 }
 
 main().catch((error) => {
@@ -162,6 +166,7 @@ function runClasp(claspCommand) {
     '--ignore',
     PRODUCTION_IGNORE,
     CLASP_COMMANDS[claspCommand],
+    ...extraArgs,
   ];
 
   const result = run('clasp', args, { stdio: 'inherit' });

@@ -48,6 +48,15 @@
   - 本番Webアプリの再デプロイ手順
   - CI用と本番用の設定・認証・ignoreの違い
 
+- [`docs/production-deploy.md`](docs/production-deploy.md)
+  - 本番反映GitHub Actionsの運用手順
+  - ラベル起動、dry-run、本番反映の違い
+  - Production Status IssueとGitHub Environmentの設定
+
+- [`docs/production-deploy-control.md`](docs/production-deploy-control.md)
+  - default branch `main` へ同期が必要なcontrol workflowの役割
+  - PRラベル起動と本番SHA追跡の境界
+
 ---
 
 ## このリポジトリでのルール
@@ -107,7 +116,16 @@ bareな `clasp push` は使わない。CI用と本番用のApps Script project�
 
 CI用の反映はGitHub Actionsだけが行う。ローカルPCからテスト専用Apps Scriptプロジェクトへ手動pushしない。
 
-本番反映は、本番専用設定を用意したうえで次のnpmコマンドだけを使う。
+本番反映は、原則としてマージ済みPRへの専用ラベル付与でGitHub Actionsの `Deploy production` workflowを起動する。
+PRラベルはdefault branch `main` 上のcontrol workflowが受け、条件を満たした場合だけ `deploy-production.yml` を `ref: develop` でdispatchする。
+`workflow_dispatch` は人間向けfallbackとして残す。
+正式運用前に、control workflowとdeploy workflow定義を `main` へ同期する後続対応が必要。
+Production Status Issue番号はRepository Variable `PRODUCTION_STATUS_ISSUE_NUMBER` だけを正本にし、未設定時のstatus syncは安全にskipする。
+本番workflowはEnvironmentなしpreflight、`production-preflight` Environment付きauthenticated dry-run、`production` Environment付き本番mutationを分ける。
+本番workflow用の `CLASP_PRODUCTION_CREDENTIALS`、`PRODUCTION_SCRIPT_ID`、`PRODUCTION_DEPLOYMENT_ID` はRepository Secretsへ置かず、`production-preflight` と `production` の各Environment Secretsへ置く。
+`PRODUCTION_WEB_APP_URL` などの非Secret値は `production-preflight` と `production` の各Environment Variablesへ置く。
+production Environmentは、実本番mutationを開始したrunの履歴、required reviewers、deployment protection rules、本番URL表示に使う。
+ローカル手動fallbackでは、本番専用設定を用意したうえで次のnpmコマンドだけを使う。
 
 ```bash
 npm run gas:production:status

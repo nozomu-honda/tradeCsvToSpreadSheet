@@ -8,15 +8,17 @@
 | --- | --- | --- | --- |
 | PRのGASテスト | テスト専用Apps Script | GitHub Actions | PRへ `run-gas-tests` ラベルを付ける |
 | PRのWeb E2E | テスト専用Apps Script | GitHub Actions | PRへ `gas-web-e2e` ラベルを付ける |
+| 本番反映dry-run | 本番Apps Script / 本番Webアプリ | GitHub Actions | マージ済みPRへ `deploy-production-dry-run` ラベルを付ける |
+| 本番反映 | 本番Apps Script / 本番Webアプリ | GitHub Actions | マージ済みPRへ `deploy-production` ラベルを付ける |
 | 本番ソースの確認 | 本番Apps Script | ローカルPC | `npm run gas:production:status` |
-| 本番ソースの反映 | 本番Apps Script | ローカルPC | `npm run gas:production:push` |
+| 本番ソースの手動反映 | 本番Apps Script | ローカルPC | `npm run gas:production:push` |
 | 本番エディタを開く | 本番Apps Script | ローカルPC | `npm run gas:production:open` |
 | 公開中Webアプリの更新 | 本番Webアプリ | Apps Script画面 | 新バージョンを作成して再デプロイ |
 
 迷った場合は、次の2点だけ先に確認してください。
 
 - CI用へ反映する場合、ローカルPCでは何もpushしません。GitHub Actionsだけを使います。
-- 本番用へ反映する場合、CI用の設定やコマンドは使いません。本番専用npmコマンドだけを使います。
+- 本番用へ反映する場合、CI用の設定やコマンドは使いません。原則として `Deploy production` workflowを使い、ローカル手動反映はfallbackとして扱います。
 
 ## CI用Apps Scriptへの反映
 
@@ -58,7 +60,48 @@ Web E2Eでは一時Webアプリdeploymentを作成しますが、テスト終了
 
 これらの実値をローカルファイルへコピーしたり、コミットしたりしません。
 
-## 本番Apps Scriptへの反映
+## GitHub Actionsによる本番反映
+
+Issue #83以降の本番反映は、原則としてGitHub Actionsの `Deploy production` workflowで行います。
+ChatGPT側からは、developへマージ済みPRへの専用ラベル付与で起動します。
+`workflow_dispatch` は人間向けfallbackです。
+
+ラベル起動は2段構成です。
+
+- default branch `main` 上の `Production deploy control` workflowが、PRラベルを検証する。
+- 条件を満たした場合だけ、`Deploy production` workflowを `ref: develop` でdispatchする。
+- deploy workflowは `target_sha` と最新 `origin/develop` の一致を確認してから本番処理へ進む。
+
+PR #84をdevelopへマージしただけでは、default branch `main` 上のラベル起動経路はまだ有効になりません。
+正式運用前に、control workflowとdeploy workflow定義を `main` へ同期する後続対応が必要です。
+
+基本フロー:
+
+1. 最新 `develop` を確認する。
+2. マージ済みPRへ `deploy-production-dry-run` ラベルを付ける。
+3. Environmentなしのpreflight jobで、required checks、`npm ci`、本番wrapper検証、本番bundle境界検証、重複反映ガードを確認する。このjobは本番credential、Environment Variables、clasp statusを使わない。
+4. Authenticated dry-runでは、`production-preflight` Environment承認後に本番credentialを使って `npm run gas:production:status -- --json` とTracked / Untracked境界を確認する。本番push、deployment更新、Smoke Test、Status Issue PATCHは行わない。
+5. 問題がなければ、人間が `deploy-production` ラベルで本番反映を起動する。
+6. preflight成功後、`production` Environment付きの本番mutation jobだけが本番Apps Scriptへpushし、既存Webアプリdeploymentを新バージョンへ更新する。
+7. Production Status IssueとGitHub EnvironmentのDeployment履歴を確認する。
+8. developが進んだ場合は、metadata-onlyの `Update production status` workflowがProduction Status Issueを `not-deployed` へ更新する。
+
+`Update production status` workflowは、Repository Variable `PRODUCTION_STATUS_ISSUE_NUMBER` が未設定または空文字の場合は安全にskipし、Actionsを失敗させません。
+設定済みなのに不正な値、PR、closed Issue、title不一致、markerなしの場合は失敗します。
+
+Production Status Issue番号はRepository Variableだけを正本にします。
+Environment側には同名の `PRODUCTION_STATUS_ISSUE_NUMBER` Variableを作りません。
+本番workflow用の `CLASP_PRODUCTION_CREDENTIALS`、`PRODUCTION_SCRIPT_ID`、`PRODUCTION_DEPLOYMENT_ID` はRepository Secretsへ置かず、`production-preflight` と `production` の各Environment Secretsへ設定します。
+`PRODUCTION_WEB_APP_URL`、任意の `PRODUCTION_SMOKE_EXPECTED_MARKER` / `PRODUCTION_REQUIRED_CHECKS` はRepository Variablesへ置かず、`production-preflight` と `production` の各Environment Variablesへ設定します。
+Repository Variableとして使うのは `PRODUCTION_STATUS_ISSUE_NUMBER` だけです。
+`production-preflight` Environmentはauthenticated dry-runを開始したrunの履歴、required reviewers、deployment protection rulesに使います。
+`production` Environmentは実本番mutationを開始したrunの履歴、required reviewers、deployment protection rules、本番URL表示に使います。
+
+詳細は[`docs/production-deploy.md`](production-deploy.md)を確認します。
+
+Codexはこのworkflowの実行、起動ラベル付与、GitHub Environment作成、Secrets / Variables変更、本番push、本番deployment更新を行いません。
+
+## ローカルPCからの本番Apps Script確認 / 手動fallback
 
 ### 初回だけ行う準備
 
@@ -162,7 +205,7 @@ npm run gas:production:open
 
 新しいdeploymentを追加するのではなく、通常は現在の本番deploymentを新バージョンへ更新します。これにより既存のWebアプリURLを維持できます。
 
-本番へのpushと再デプロイは人が実行します。Codexは実行しません。
+本番へのpushと再デプロイは、人間がGitHub Actionsまたは手動fallbackで実行します。Codexは実行しません。
 
 ## 本番用で使われる設定
 
@@ -224,4 +267,5 @@ git pull --ff-only origin develop
 
 - GAS Testsの詳細は[`docs/gas-ci.md`](gas-ci.md)を確認する。
 - Web E2Eの詳細は[`docs/gas-web-e2e.md`](gas-web-e2e.md)を確認する。
+- 本番反映workflowの詳細は[`docs/production-deploy.md`](production-deploy.md)を確認する。
 - CI用設定を直すためにローカルからCI用Apps Scriptへpushしない。

@@ -10,6 +10,8 @@
 - 最新 `develop` では、Issue #79 / PR #80 の本番push対象からE2E専用helperを除外する対応は完了済み。
 - 最新 `develop` では、Issue #76 / PR #78 の野村日本株Web E2E追加は完了済み。
 - 最新 `develop` では、Issue #81 / PR #82 の本番bundle参照切れ修正は完了済み。
+- Issue #83で、本番反映をGitHub Actions化し、Production Status Issueで本番状態を追跡する対応を進めている。
+  - PR #84は一部対応であり、Issue #83はmain同期・初回設定・dry-run・初回本番反映・状態追跡の実動作確認が終わるまでopenのままにする。
 - 楽天DBの専用ヘッダー対応、楽天DBから共通計算モデルへの変換、楽天配当金の手入力列対応は完了済み。
 - Web UIの6シート表記、外債件数表示、タブ順固定、`runStagingSheetFromWebApp` の重複整理は完了済み。
 - `runSmokeTests()` と `runAllTests()` は未実装タスクではなく、既存の手動テスト入口として扱う。
@@ -39,7 +41,42 @@ npm run gas:production:push
 - 本番対象に `src/app/e2e_runtime_support.gs` が含まれる。
 - 実Script ID、Deployment ID、Web App URL、Spreadsheet URL、Drive folder ID、OAuth token、GitHub Secrets実値をログやdocsへ残さない。
 
-Codexは本番Apps Scriptへのpush、本番Webアプリdeployment更新、GitHub Secrets変更を実行しない。
+Issue #83対応後の基本フロー:
+
+1. developへマージ済みPRへ `deploy-production-dry-run` ラベルを付け、Authenticated dry-runを実行する。
+2. default branch `main` 上のcontrol workflowがPRラベルを検証し、`Deploy production` workflowを `ref: develop` でdispatchする。
+3. Environmentなしのpreflight jobで `HEAD == origin/develop == target_sha` を確認し、Production Status Issueを読んで既存本番情報をstateへ反映してから、重複反映ガード、required checks、本番wrapper検証、本番bundle境界検証を行う。このjobでは本番credential、Environment Variables、clasp statusを使わない。
+4. Authenticated dry-runは、`production-preflight` Environment承認後に本番credentialを使い、`npm run gas:production:status -- --json` とTracked / Untracked境界まで確認する。本番push、deployment更新、Smoke Test、Status Issue PATCHは行わない。
+5. 問題がなければ、人間が `deploy-production` ラベルで本番反映を起動する。
+6. `dry_run=false` かつpreflight成功かつ `should_deploy=true` の場合だけ、`production` Environment付きの本番mutation jobが起動する。
+7. Production Status IssueとGitHub EnvironmentのDeployment履歴を確認する。
+8. developが進んだ場合は、metadata-onlyの `Update production status` workflowがProduction Status Issueを `not-deployed` へ更新する。
+   - Status Issue番号未設定時は安全にskipする。
+   - deploy workflowとstatus sync workflowは共通concurrency `production-state` で並行更新を避ける。
+   - deploy中の `preflight` / `source-pushed` / `deployment-updated` / `verifying` はstatus syncが上書きしない。
+   - Authenticated dry-runと本番deployのpreflight失敗時も、現在の本番commit、最終成功deployment、前回工程結果を `unknown` で上書きしない。
+   - Authenticated dry-runは `production-preflight` Environment履歴に残る可能性がある。
+   - duplicate拒否、Environmentなしpreflight失敗ではEnvironment Deployment履歴を作らない。
+   - Static dry-runではProduction Status Issueを読まず、本番Secretsも要求しない。
+
+初回運用前に必要なこと:
+
+- GitHub Environment `production-preflight` と `production` を作成する。
+- `production-preflight` と `production` の各Environment Secretsへ `CLASP_PRODUCTION_CREDENTIALS`、`PRODUCTION_SCRIPT_ID`、`PRODUCTION_DEPLOYMENT_ID` を設定する。
+- Repository Secretsには上記3つの本番credentialを置かない。
+- `production-preflight` と `production` の各Environment Variablesへ `PRODUCTION_WEB_APP_URL`、必要なら `PRODUCTION_SMOKE_EXPECTED_MARKER` / `PRODUCTION_REQUIRED_CHECKS` を設定する。
+- Repository Variablesには `PRODUCTION_STATUS_ISSUE_NUMBER` 以外を置かない。
+- Repository Variable `PRODUCTION_STATUS_ISSUE_NUMBER` を設定する。
+- `production-preflight` Environmentはauthenticated dry-runのDeployment履歴、required reviewers、deployment protection rulesに使う。
+- `production` Environmentは実本番mutationのDeployment履歴、required reviewers、deployment protection rules、本番URL表示に使う。
+- Environment側には `PRODUCTION_STATUS_ISSUE_NUMBER` と同名Variableを作らない。
+- 管理marker `<!-- production-status:managed-by-github-actions -->` を含むProduction Status Issueを作成し、実値を貼らずに状態追跡用として使う。
+- 起動ラベル `deploy-production-dry-run`、`deploy-production`、`deploy-production-force` を作成する。
+- default branch `main` へcontrol workflowとdeploy workflow定義を同期する後続対応を行う。
+- default branch `main` でPRラベル起動workflowが起動できることを人間が確認する。
+- Static dry-runとAuthenticated dry-runが成功することを確認する。
+
+Codexは本番Apps Scriptへのpush、本番Webアプリdeployment更新、GitHub Secrets / Variables変更、GitHub Environment作成、production workflow実行を行わない。
 
 ## 次の開発候補
 
@@ -135,6 +172,13 @@ rollbackの正常系は既存E2Eで使っているが、異常系の明示確認
 - 本番Apps Scriptへの `npm run gas:production:push`。
 - 本番Webアプリの既存deployment更新。
 - 本番Webアプリの主要画面確認。
+- GitHub Environment `production` の初回設定。
+- 本番反映workflow用Secrets / Variablesの初回設定。
+- 管理marker付きProduction Status Issueの初回作成。
+- 本番反映起動ラベルの初回作成。
+- default branch `main` 上でラベル起動workflowが有効になるかの確認。
+- `Deploy production` workflowのStatic dry-run / Authenticated dry-run確認。
+- `Deploy production` workflowによる本番反映。
 - Issue #76 / Issue #81 は実装対応済みだが、GitHub Issue自体はOPENの場合があるため、必要なら人間がクローズ確認する。
 - 別ユーザーでのDrive OAuth承認確認。
 - 別ユーザーでのDBフォルダ編集権限確認。
@@ -180,6 +224,8 @@ rollbackの正常系は既存E2Eで使っているが、異常系の明示確認
 - GAS CI詳細: `docs/gas-ci.md`
 - Web App E2E詳細: `docs/gas-web-e2e.md`
 - clasp反映手順: `docs/clasp-operations.md`
+- 本番反映workflow: `docs/production-deploy.md`
+- 本番反映control workflow同期メモ: `docs/production-deploy-control.md`
 - 仕様: `docs/spec.md`
 - 取引ルール: `docs/trade-rules.md`
 - Codex依頼テンプレート: `docs/codex-prompts.md`

@@ -7,14 +7,15 @@
 
 ## 現在のGitHub状態
 
-- Issue #75「現状ドキュメントを最新developの状態へ整理する」はPR #77で対応中。
-- PR #77「現状ドキュメントを最新developに合わせて整理する」はDraftのまま更新中。
+- Issue #75「現状ドキュメントを最新developの状態へ整理する」はPR #77で対応完了。
+- PR #77「現状ドキュメントを最新developに合わせて整理する」は `develop` にSquash Merge済み。
 - Issue #76「野村共通CSVのWeb E2E基盤と日本株1ケースを追加する」はPR #78で実装完了。
   - 2026-07-14時点のGitHub APIではIssue自体はOPENのため、必要なら人間がクローズ確認する。
 - PR #78「野村日本株のGAS Web App E2Eを追加」は `develop` にSquash Merge済み。
 - Issue #81「本番bundleからE2E helper除外後のWeb/DB参照切れを修正する」はPR #82で実装完了。
   - 2026-07-14時点のGitHub APIではIssue自体はOPENのため、必要なら人間がクローズ確認する。
 - PR #82「本番bundleからE2E helper除外後の参照切れを修正」は `develop` にSquash Merge済み。
+- Issue #83「本番反映のGitHub Actions化と本番状態追跡を実装する」は対応中。
 - 本番Apps Scriptへの再pushと本番Webアプリの既存deployment更新は、PR #82マージ後まだ未実施。
 
 ## 完了済みの主な範囲
@@ -82,6 +83,32 @@
 - 本番用project設定は `.clasp.production.json`、本番用ignoreは `.clasp.productionignore`、認証はclasp named user `production` を使う。
 - 本番用 `.clasp.productionignore` では `src/test/**` と `src/app/e2e_helpers.gs` をpush対象から除外する。
 - 本番用ラッパーは、`src/test/**` または `src/app/e2e_helpers.gs` の除外設定が欠けている場合、`status` / `open` / `push` を安全側で停止する。
+- Issue #83で、本番反映をGitHub Actionsの `Deploy production` workflowへ移す対応を進めている。
+  - PR #84はIssue #83の一部対応であり、Issue #83は後続作業完了までopenのままにする。
+  - 正式経路は、developへマージ済みPRへの `deploy-production-dry-run` / `deploy-production` / `deploy-production-force` ラベル付与。
+  - default branch `main` 上のcontrol workflowがPRラベルを検証し、`deploy-production.yml` を `ref: develop` でdispatchする。
+  - deploy workflow本体は `workflow_dispatch` のみで起動し、`HEAD == origin/develop == target_sha` を確認してから進む。
+  - PR #84をdevelopへマージしただけでは、default branch `main` 上のラベル起動経路はまだ有効にならない。
+  - 正式運用前に、control workflowとdeploy workflow定義を `main` へ同期する後続対応が必要。
+  - `Deploy production` workflow内では、Environmentなしの `production-preflight` job、`production-preflight` Environment付きの authenticated dry-run job、`production` Environment付きの `deploy-production` mutation jobを分離する。
+  - Static dry-runは本番Secretsなし、Authenticated dry-runは `production-preflight` Environment承認後に本番認証と `gas:production:status` まで確認する。
+  - duplicate拒否、required checks / `npm ci` / validation / bundle境界 / Status Issue読込のEnvironmentなしpreflight失敗では、Environment Deployment履歴を作らない。
+  - develop push時のmetadata-only workflowで、Production Status Issueを `not-deployed` へ更新する。
+  - Production Status Issue番号はRepository Variable `PRODUCTION_STATUS_ISSUE_NUMBER` だけを正本にし、Environment側に同名Variableを置かない。
+  - Status Issue番号未設定時はmetadata syncを安全にskipする。
+  - deploy workflowとstatus sync workflowは共通concurrency `production-state` でStatus Issueの並行更新を避ける。
+  - Authenticated dry-runと `dry_run=false` の本番deployでは、required checks / `npm ci` / validationより前にProduction Status Issueを読み、現在の本番commitと最終成功deployment情報をstateへ反映する。
+  - preflight失敗時も、既存の本番SHA、最終成功deployment日時、最終本番反映workflow、前回工程結果を `unknown` で上書きしない。
+  - 同一SHAがすでに `deployed` の場合、`force=false` の通常再実行は安全に拒否し、Production Status Issueを `failed` へ変更しない。
+  - Static dry-runはProduction Status Issueを読まず、本番Secretsも要求しない。
+  - source push後にdevelopが進んだ場合は、本番反映工程が成功してもStatus Issueは `not-deployed` にする。
+  - Status Issueでは最新developの反映状態と、最後に成功した本番反映の工程結果・workflow URLを分けて表示する。
+  - GitHub Environment `production-preflight` はauthenticated dry-run用、`production` は実本番mutation用として分ける。
+  - GitHub Environment `production` とProduction Status Issueで本番状態を追跡する。
+  - GitHub DeploymentはEnvironment側を正本にし、スクリプトから追加作成しない。Environment履歴は実本番mutationを開始したrunだけを記録する。
+  - 本番workflow用の `CLASP_PRODUCTION_CREDENTIALS`、`PRODUCTION_SCRIPT_ID`、`PRODUCTION_DEPLOYMENT_ID` はRepository Secretsへ置かず、`production-preflight` と `production` の各Environment Secretsへ登録する前提。
+  - `PRODUCTION_WEB_APP_URL`、任意の `PRODUCTION_SMOKE_EXPECTED_MARKER` / `PRODUCTION_REQUIRED_CHECKS` はRepository Variablesへ置かず、`production-preflight` と `production` の各Environment Variablesへ登録する前提。
+  - 本番push、既存Webアプリdeployment更新、Status Issue更新は `dry_run=false` の時だけ行う。
 - clasp反映手順は `docs/clasp-operations.md` に整理済み。
 
 ### Web App E2E
@@ -122,15 +149,19 @@
 - `docs/gas-ci.md` にGAS CIの実行条件、Secrets、失敗判定、clasp run fallbackを整理済み。
 - `docs/gas-web-e2e.md` にWeb App E2Eの対象、Secrets、セキュリティ境界、workflow summaryを整理済み。
 - `docs/clasp-operations.md` にCI用と本番用の反映手順を整理済み。
+- `docs/production-deploy.md` に本番反映workflow、dry-run、Secrets / Variables、Production Status Issue、失敗時の扱いを整理済み。
+- `docs/production-deploy-control.md` にdefault branch `main` へ同期が必要なcontrol workflowの境界を整理済み。
 
 ## 本番反映の現状
 
 - PR #82マージ後の最新 `develop` は、本番Apps Scriptへまだ再pushしていない。
 - 本番Webアプリの既存deployment更新もまだ実施していない。
 - 現在の本番Webアプリには、Issue #81修正前のbundleが反映されている可能性がある。
-- 本番復旧には、最新 `develop` を本番Apps Scriptへ再反映し、Apps Script管理画面で既存Webアプリdeploymentを新バージョンへ更新する必要がある。
+- 本番復旧には、最新 `develop` を本番Apps Scriptへ再反映し、既存Webアプリdeploymentを新バージョンへ更新する必要がある。
+- Issue #83対応後は、原則としてマージ済みPRへのラベル付与で `Deploy production` workflowを起動し、dry-run確認後に本番反映する。
+- 初回運用前に、人間がGitHub Environment `production-preflight` / `production`、Environment Secrets / Variables、Repository Variable `PRODUCTION_STATUS_ISSUE_NUMBER`、Production Status Issue、起動ラベル、default branch `main` へのcontrol/deploy workflow同期を確認する必要がある。
 
-本番反映の基本手順:
+手動fallbackの基本手順:
 
 ```bash
 git switch develop
@@ -141,6 +172,7 @@ npm run gas:production:push
 ```
 
 その後、人間がApps Script管理画面で既存Webアプリdeploymentを新バージョンへ更新する。
+GitHub Actions経由では、`clasp deploy --deploymentId` で既存deploymentを更新し、既存WebアプリURLを維持する。
 
 本番push前の確認:
 
@@ -156,6 +188,14 @@ npm run gas:production:push
 - 本番Apps Scriptへの `npm run gas:production:push`。
 - 本番Webアプリの既存deployment更新。
 - 本番Webアプリの主要画面確認。
+- GitHub Environment `production-preflight` / `production` の作成。
+- 本番反映workflow用Environment Secrets / VariablesとRepository Variable `PRODUCTION_STATUS_ISSUE_NUMBER` の登録。
+- 管理marker付きProduction Status Issueの作成とRepository Variable `PRODUCTION_STATUS_ISSUE_NUMBER` 設定。
+- 起動ラベル `deploy-production-dry-run` / `deploy-production` / `deploy-production-force` の作成。
+- default branch `main` へcontrol workflowとdeploy workflow定義を同期する後続対応。
+- default branch `main` でPRラベル起動workflowが有効になるかの確認。
+- `Deploy production` workflowのStatic dry-run / Authenticated dry-run確認。
+- dry-run成功後の本番反映実行。
 - Issue #76 / Issue #81 は実装対応済みだが、GitHub Issue自体はOPENの場合があるため、必要なら人間がクローズ確認する。
 - 別ユーザーでのDrive OAuth承認、DBフォルダ編集権限、Webアプリ実行確認。
 - 楽天米国株・楽天投資信託・楽天金銭残高・配当金/分配金/元本払戻金の実運用データでの最終確認。
@@ -208,7 +248,7 @@ AutoHotkeyショートカットの説明は `docs/codex-shortcuts.md` を参照�
 
 - 実際のScript ID、Deployment ID、Web App URL、Spreadsheet URL、Drive folder ID、OAuth token、GitHub Secrets実値はコミットしない。
 - 人・Codexともに、リポジトリ直下でbareな `clasp push` を実行しない。
-- CI操作はGitHub Actionsだけに任せ、本番反映は人間が本番専用npmコマンドで行う。
+- CI操作はGitHub Actionsだけに任せ、本番反映は人間が `Deploy production` workflowまたは手動fallbackで行う。
 - Codexは本番反映、GitHub Secrets変更、本番GAS・本番DB・本番Drive操作を実行しない。
 - `appsscript.json` のOAuth scope変更後は、Webアプリの新バージョン再デプロイが必要。
 - Webアプリを「アクセスしているユーザー」として実行する場合、利用者ごとにDrive権限承認とDBフォルダ編集権限が必要。
