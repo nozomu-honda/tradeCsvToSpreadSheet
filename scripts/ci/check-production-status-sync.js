@@ -6,6 +6,7 @@ const assert = require('assert');
 const { createInitialProductionDeployState, markProductionDeployState } = require('./production-deploy-state');
 const { renderProductionStatusIssue } = require('./production-status-renderer');
 const {
+  resolveStatusIssueNumber,
   resolveNextStatus,
   runProductionStatusSync,
 } = require('./production-status-sync');
@@ -45,10 +46,15 @@ function deployedIssueBody({ currentSha = shaA, latestSha = shaA } = {}) {
     currentProductionSha: currentSha,
     previousProductionSha: currentSha,
     commitsBehindDevelop: currentSha === latestSha ? '0 commits' : '1 commits',
+    lastSuccessfulDeploymentSha: currentSha,
     lastSuccessfulDeploymentAt: '2026-07-14T00:00:00.000Z',
+    lastDeploymentWorkflowUrl: 'https://github.com/owner/repo/actions/runs/100',
+    lastStatusSyncWorkflowUrl: 'https://github.com/owner/repo/actions/runs/99',
   }), 'deployed', {
     currentProductionSha: currentSha,
+    lastSuccessfulDeploymentSha: currentSha,
     lastSuccessfulDeploymentAt: '2026-07-14T00:00:00.000Z',
+    lastDeploymentWorkflowUrl: 'https://github.com/owner/repo/actions/runs/100',
   }));
 }
 
@@ -59,7 +65,10 @@ function failedIssueBody() {
     currentProductionSha: shaA,
     commitsBehindDevelop: '0 commits',
     status: 'failed',
+    lastSuccessfulDeploymentSha: shaA,
     lastSuccessfulDeploymentAt: '2026-07-13T00:00:00.000Z',
+    lastDeploymentWorkflowUrl: 'https://github.com/owner/repo/actions/runs/90',
+    lastStatusSyncWorkflowUrl: 'https://github.com/owner/repo/actions/runs/91',
   });
   state.sourcePush = 'success';
   state.deploymentUpdate = 'failed';
@@ -73,6 +82,7 @@ function createAdapters(options = {}) {
   const calls = [];
   const state = {
     patchedBody: '',
+    getIssueCount: 0,
   };
   const adapters = {
     calls,
@@ -94,7 +104,10 @@ function createAdapters(options = {}) {
     async githubRequest(method, apiPath, body) {
       calls.push(`github:${method}:${apiPath}`);
       if (method === 'GET' && apiPath === '/repos/owner/repo/issues/44') {
-        return issueWithBody(options.body || deployedIssueBody({ currentSha: shaA, latestSha: shaA }), options.issueOverrides);
+        const bodies = options.bodies || [options.body || deployedIssueBody({ currentSha: shaA, latestSha: shaA })];
+        const body = bodies[Math.min(state.getIssueCount, bodies.length - 1)];
+        state.getIssueCount += 1;
+        return issueWithBody(body, options.issueOverrides);
       }
       if (method === 'PATCH' && apiPath === '/repos/owner/repo/issues/44') {
         state.patchedBody = body.body;
@@ -119,7 +132,7 @@ function createAdapters(options = {}) {
 }
 
 assert.strictEqual(resolveNextStatus({
-  parsed: { currentProductionSha: shaA, productionStatus: 'deployed', smokeTest: 'success' },
+  parsed: { currentProductionSha: shaA, productionStatus: 'deployed', sourcePush: 'success', deploymentUpdate: 'success', smokeTest: 'success' },
   latestDevelopSha: shaA,
 }), 'deployed');
 assert.strictEqual(resolveNextStatus({
@@ -142,7 +155,10 @@ assert.strictEqual(resolveNextStatus({
     assert.strictEqual(result.status, 'deployed');
     assert.ok(adapters.state.patchedBody.includes('- 状態: `deployed`'));
     assert.ok(adapters.state.patchedBody.includes('- developとの差分: `0 commits`'));
+    assert.ok(adapters.state.patchedBody.includes('- 最新develop反映: `deployed`'));
     assert.ok(adapters.state.patchedBody.includes('- 最終成功deployment日時: `2026-07-14T00:00:00.000Z`'));
+    assert.ok(adapters.state.patchedBody.includes('- 最終本番反映workflow: https://github.com/owner/repo/actions/runs/100'));
+    assert.ok(adapters.state.patchedBody.includes('- 最終status同期workflow: https://github.com/owner/repo/actions/runs/123'));
   }
 
   {
@@ -153,6 +169,8 @@ assert.strictEqual(resolveNextStatus({
     assert.ok(adapters.state.patchedBody.includes(`- 本番commit: \`${shaA}\``));
     assert.ok(adapters.state.patchedBody.includes(`- 最新develop: \`${shaB}\``));
     assert.ok(adapters.state.patchedBody.includes('- developとの差分: `1 commits`'));
+    assert.ok(adapters.state.patchedBody.includes('- 最新develop反映: `pending`'));
+    assert.ok(adapters.state.patchedBody.includes('- 最終本番反映 source push: `success`'));
   }
 
   {
@@ -178,6 +196,40 @@ assert.strictEqual(resolveNextStatus({
     assert.strictEqual(result.status, 'failed');
     assert.ok(adapters.state.patchedBody.includes('- 最終失敗ステージ: `deployment-update`'));
     assert.ok(adapters.state.patchedBody.includes('- 失敗内容: `safe failure`'));
+    assert.ok(adapters.state.patchedBody.includes('- 最新develop反映: `failed`'));
+    assert.ok(adapters.state.patchedBody.includes('- 最終本番反映workflow: https://github.com/owner/repo/actions/runs/90'));
+  }
+
+  for (const inProgressStatus of ['preflight', 'source-pushed', 'deployment-updated', 'verifying']) {
+    const inProgressBody = bodyFor(createInitialProductionDeployState({
+      targetSha: shaB,
+      latestDevelopSha: shaB,
+      currentProductionSha: shaA,
+      status: inProgressStatus,
+    }));
+    const adapters = createAdapters({ body: inProgressBody });
+    const result = await runProductionStatusSync({ env: baseEnv(), adapters });
+    assert.strictEqual(result.skipped, true);
+    assert.strictEqual(result.reason, 'deploy-in-progress');
+    assert.ok(!adapters.calls.some((call) => call.startsWith('github:PATCH')), `${inProgressStatus} deploy must not be overwritten`);
+  }
+
+  {
+    const adapters = createAdapters({
+      bodies: [
+        deployedIssueBody({ currentSha: shaA, latestSha: shaA }),
+        bodyFor(createInitialProductionDeployState({
+          targetSha: shaB,
+          latestDevelopSha: shaB,
+          currentProductionSha: shaA,
+          status: 'verifying',
+        })),
+      ],
+    });
+    const result = await runProductionStatusSync({ env: baseEnv(), adapters });
+    assert.strictEqual(result.skipped, true);
+    assert.strictEqual(result.reason, 'deploy-in-progress');
+    assert.ok(!adapters.calls.some((call) => call.startsWith('github:PATCH')), 'second read in-progress state must not be overwritten');
   }
 
   {
@@ -213,6 +265,32 @@ assert.strictEqual(resolveNextStatus({
     () => require('./production-status-sync').requireStatusSyncConfig({}),
     /Missing required production status sync configuration/,
   );
+  assert.deepStrictEqual(
+    resolveStatusIssueNumber({}),
+    {
+      configured: false,
+      reason: 'PRODUCTION_STATUS_ISSUE_NUMBER is not configured',
+    },
+  );
+  assert.throws(
+    () => resolveStatusIssueNumber({ PRODUCTION_STATUS_ISSUE_NUMBER: 'abc' }),
+    /positive issue number/,
+  );
+  assert.throws(
+    () => resolveStatusIssueNumber({ PRODUCTION_STATUS_ISSUE_NUMBER: '0' }),
+    /positive issue number/,
+  );
+
+  {
+    const adapters = createAdapters();
+    const result = await runProductionStatusSync({
+      env: { ...baseEnv(), PRODUCTION_STATUS_ISSUE_NUMBER: '' },
+      adapters,
+    });
+    assert.strictEqual(result.skipped, true);
+    assert.strictEqual(result.reason, 'PRODUCTION_STATUS_ISSUE_NUMBER is not configured');
+    assert.ok(!adapters.calls.some((call) => call.startsWith('github:GET')), 'unconfigured status issue must not call GitHub');
+  }
 
   console.log('production status sync checks passed');
 })().catch((error) => {

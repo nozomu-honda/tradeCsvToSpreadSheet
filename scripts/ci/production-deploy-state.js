@@ -56,9 +56,12 @@ function createInitialProductionDeployState({
   dryRun = true,
   force = false,
   workflowRunUrl = '',
+  lastDeploymentWorkflowUrl = 'unknown',
+  lastStatusSyncWorkflowUrl = 'unknown',
   previousProductionSha = 'unknown',
   currentProductionSha = previousProductionSha,
   commitsBehindDevelop = 'unknown',
+  lastSuccessfulDeploymentSha = 'unknown',
   lastSuccessfulDeploymentAt = 'unknown',
   status = 'preflight',
 } = {}) {
@@ -70,10 +73,13 @@ function createInitialProductionDeployState({
     previousProductionSha: previousProductionSha || 'unknown',
     currentProductionSha: currentProductionSha || 'unknown',
     commitsBehindDevelop,
+    lastSuccessfulDeploymentSha,
     lastSuccessfulDeploymentAt,
     dryRun: Boolean(dryRun),
     force: Boolean(force),
     workflowRunUrl,
+    lastDeploymentWorkflowUrl,
+    lastStatusSyncWorkflowUrl,
     sourcePush: 'not-started',
     deploymentUpdate: 'not-started',
     smokeTest: 'not-started',
@@ -103,12 +109,17 @@ function markProductionDeployState(state, status, patch = {}) {
   }
   if (status === 'deployed') {
     next.currentProductionSha = patch.currentProductionSha || state.targetSha || 'unknown';
+    next.lastSuccessfulDeploymentSha = patch.lastSuccessfulDeploymentSha || next.currentProductionSha;
     next.lastSuccessfulDeploymentAt = patch.lastSuccessfulDeploymentAt || next.updatedAt;
+    next.lastDeploymentWorkflowUrl = patch.lastDeploymentWorkflowUrl || state.workflowRunUrl || state.lastDeploymentWorkflowUrl || 'unknown';
     next.sourcePush = patch.sourcePush || 'success';
     next.deploymentUpdate = patch.deploymentUpdate || 'success';
     next.smokeTest = patch.smokeTest || 'success';
     next.lastFailureStage = '';
     next.failureMessage = '';
+  }
+  if (status === 'not-deployed' && patch.lastSuccessfulDeploymentSha) {
+    next.lastSuccessfulDeploymentSha = patch.lastSuccessfulDeploymentSha;
   }
   return next;
 }
@@ -164,7 +175,10 @@ function parseProductionStatusIssue(body) {
     deploymentUpdate: 'not-started',
     smokeTest: 'not-started',
     failureMessage: '',
+    lastSuccessfulDeploymentSha: 'unknown',
     lastSuccessfulDeploymentAt: 'unknown',
+    lastDeploymentWorkflowUrl: 'unknown',
+    lastStatusSyncWorkflowUrl: 'unknown',
   };
   if (!body) {
     return result;
@@ -180,7 +194,13 @@ function parseProductionStatusIssue(body) {
   const deploymentUpdateMatch = normalized.match(/^- deployment update:\s*`?([^`\n]+)`?/m);
   const smokeTestMatch = normalized.match(/^- smoke test:\s*`?([^`\n]+)`?/m);
   const failureMessageMatch = normalized.match(/^- 失敗内容:\s*`?([^`\n]*)`?/m);
+  const lastSuccessfulDeploymentShaMatch = normalized.match(/^- 最終成功本番反映commit:\s*`?([0-9a-f]{40}|unknown)`?/im);
   const lastSuccessfulDeploymentMatch = normalized.match(/^- 最終成功deployment日時:\s*`?([^`\n]*)`?/m);
+  const lastDeploymentWorkflowMatch = normalized.match(/^- 最終本番反映workflow:\s*(.+)$/m);
+  const lastStatusSyncWorkflowMatch = normalized.match(/^- 最終status同期workflow:\s*(.+)$/m);
+  const lastDeploymentSourcePushMatch = normalized.match(/^- 最終本番反映 source push:\s*`?([^`\n]+)`?/m);
+  const lastDeploymentUpdateMatch = normalized.match(/^- 最終本番反映 deployment update:\s*`?([^`\n]+)`?/m);
+  const lastDeploymentSmokeMatch = normalized.match(/^- 最終本番反映 smoke test:\s*`?([^`\n]+)`?/m);
 
   if (statusMatch && VALID_PRODUCTION_STATES.includes(statusMatch[1])) {
     result.productionStatus = statusMatch[1];
@@ -197,20 +217,42 @@ function parseProductionStatusIssue(body) {
   if (failureMatch) {
     result.lastFailureStage = failureMatch[1].trim();
   }
-  if (sourcePushMatch) {
+  if (lastDeploymentSourcePushMatch) {
+    result.sourcePush = lastDeploymentSourcePushMatch[1].trim();
+  } else if (sourcePushMatch) {
     result.sourcePush = sourcePushMatch[1].trim();
   }
-  if (deploymentUpdateMatch) {
+  if (lastDeploymentUpdateMatch) {
+    result.deploymentUpdate = lastDeploymentUpdateMatch[1].trim();
+  } else if (deploymentUpdateMatch) {
     result.deploymentUpdate = deploymentUpdateMatch[1].trim();
   }
-  if (smokeTestMatch) {
+  if (lastDeploymentSmokeMatch) {
+    result.smokeTest = lastDeploymentSmokeMatch[1].trim();
+  } else if (smokeTestMatch) {
     result.smokeTest = smokeTestMatch[1].trim();
   }
   if (failureMessageMatch) {
     result.failureMessage = failureMessageMatch[1].trim();
   }
+  if (lastSuccessfulDeploymentShaMatch) {
+    result.lastSuccessfulDeploymentSha = lastSuccessfulDeploymentShaMatch[1];
+  } else if (result.productionStatus === 'deployed' && result.currentProductionSha !== 'unknown') {
+    result.lastSuccessfulDeploymentSha = result.currentProductionSha;
+  }
   if (lastSuccessfulDeploymentMatch) {
     result.lastSuccessfulDeploymentAt = lastSuccessfulDeploymentMatch[1].trim();
+  }
+  if (lastDeploymentWorkflowMatch) {
+    result.lastDeploymentWorkflowUrl = lastDeploymentWorkflowMatch[1].trim();
+  } else {
+    const legacyWorkflowMatch = normalized.match(/^- workflow run:\s*(.+)$/m);
+    if (legacyWorkflowMatch) {
+      result.lastDeploymentWorkflowUrl = legacyWorkflowMatch[1].trim();
+    }
+  }
+  if (lastStatusSyncWorkflowMatch) {
+    result.lastStatusSyncWorkflowUrl = lastStatusSyncWorkflowMatch[1].trim();
   }
   return result;
 }

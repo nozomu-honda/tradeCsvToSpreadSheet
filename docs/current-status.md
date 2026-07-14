@@ -84,6 +84,7 @@
 - 本番用 `.clasp.productionignore` では `src/test/**` と `src/app/e2e_helpers.gs` をpush対象から除外する。
 - 本番用ラッパーは、`src/test/**` または `src/app/e2e_helpers.gs` の除外設定が欠けている場合、`status` / `open` / `push` を安全側で停止する。
 - Issue #83で、本番反映をGitHub Actionsの `Deploy production` workflowへ移す対応を進めている。
+  - PR #84はIssue #83の一部対応であり、Issue #83は後続作業完了までopenのままにする。
   - 正式経路は、developへマージ済みPRへの `deploy-production-dry-run` / `deploy-production` / `deploy-production-force` ラベル付与。
   - default branch `main` 上のcontrol workflowがPRラベルを検証し、`deploy-production.yml` を `ref: develop` でdispatchする。
   - deploy workflow本体は `workflow_dispatch` のみで起動し、`HEAD == origin/develop == target_sha` を確認してから進む。
@@ -91,6 +92,11 @@
   - 正式運用前に、control workflowとdeploy workflow定義を `main` へ同期する後続対応が必要。
   - Static dry-runは本番Secretsなし、Authenticated dry-runは本番認証と `gas:production:status` まで確認する。
   - develop push時のmetadata-only workflowで、Production Status Issueを `not-deployed` へ更新する。
+  - Production Status Issue番号はRepository Variable `PRODUCTION_STATUS_ISSUE_NUMBER` だけを正本にし、Environment側に同名Variableを置かない。
+  - Status Issue番号未設定時はmetadata syncを安全にskipする。
+  - deploy workflowとstatus sync workflowは共通concurrency `production-state` でStatus Issueの並行更新を避ける。
+  - source push後にdevelopが進んだ場合は、本番反映工程が成功してもStatus Issueは `not-deployed` にする。
+  - Status Issueでは最新developの反映状態と、最後に成功した本番反映の工程結果・workflow URLを分けて表示する。
   - GitHub Environment `production` とProduction Status Issueで本番状態を追跡する。
   - GitHub DeploymentはEnvironment側を正本にし、スクリプトから追加作成しない。
   - 本番push、既存Webアプリdeployment更新、Status Issue更新は `dry_run=false` の時だけ行う。
@@ -175,7 +181,7 @@ GitHub Actions経由では、`clasp deploy --deploymentId` で既存deployment�
 - 本番Webアプリの主要画面確認。
 - GitHub Environment `production` の作成。
 - 本番反映workflow用Secrets / Variablesの登録。
-- 管理marker付きProduction Status Issueの作成と `PRODUCTION_STATUS_ISSUE_NUMBER` 設定。
+- 管理marker付きProduction Status Issueの作成とRepository Variable `PRODUCTION_STATUS_ISSUE_NUMBER` 設定。
 - 起動ラベル `deploy-production-dry-run` / `deploy-production` / `deploy-production-force` の作成。
 - default branch `main` へcontrol workflowとdeploy workflow定義を同期する後続対応。
 - default branch `main` でPRラベル起動workflowが有効になるかの確認。

@@ -15,6 +15,13 @@ const {
   validateManagedStatusIssue,
 } = require('./production-deploy-orchestrator');
 
+const IN_PROGRESS_STATES = [
+  'preflight',
+  'source-pushed',
+  'deployment-updated',
+  'verifying',
+];
+
 function workflowRunUrl(env) {
   if (!env.GITHUB_SERVER_URL || !env.GITHUB_REPOSITORY || !env.GITHUB_RUN_ID) {
     return '';
@@ -26,23 +33,45 @@ function requireStatusSyncConfig(env) {
   const missing = [
     'GITHUB_TOKEN',
     'GITHUB_REPOSITORY',
-    'PRODUCTION_STATUS_ISSUE_NUMBER',
   ].filter((name) => !env[name]);
   if (missing.length > 0) {
     throw new Error(`Missing required production status sync configuration: ${missing.join(', ')}`);
   }
 }
 
+function resolveStatusIssueNumber(env) {
+  const raw = env.PRODUCTION_STATUS_ISSUE_NUMBER;
+  if (raw === undefined || raw === null || String(raw).trim() === '') {
+    return {
+      configured: false,
+      reason: 'PRODUCTION_STATUS_ISSUE_NUMBER is not configured',
+    };
+  }
+  const issueNumber = Number(raw);
+  if (!Number.isInteger(issueNumber) || issueNumber <= 0) {
+    throw new Error('PRODUCTION_STATUS_ISSUE_NUMBER must be a positive issue number.');
+  }
+  return {
+    configured: true,
+    issueNumber,
+  };
+}
+
 function resolveNextStatus({ parsed, latestDevelopSha }) {
   const currentProductionSha = parsed.currentProductionSha || 'unknown';
+  if (parsed.productionStatus === 'failed') {
+    return 'failed';
+  }
   if (!isFullSha(currentProductionSha)) {
     return 'unknown';
   }
-  if (currentProductionSha === latestDevelopSha && parsed.smokeTest === 'success') {
+  if (
+    currentProductionSha === latestDevelopSha
+    && parsed.sourcePush === 'success'
+    && parsed.deploymentUpdate === 'success'
+    && parsed.smokeTest === 'success'
+  ) {
     return 'deployed';
-  }
-  if (parsed.productionStatus === 'failed') {
-    return 'failed';
   }
   if (currentProductionSha !== latestDevelopSha) {
     return 'not-deployed';
@@ -50,7 +79,29 @@ function resolveNextStatus({ parsed, latestDevelopSha }) {
   return 'unknown';
 }
 
+function writeSkippedSummary(adapters, reason) {
+  adapters.writeStepSummary([
+    '## Production Status sync',
+    '',
+    '- status: `skipped`',
+    `- reason: ${reason}`,
+  ].join('\n'));
+}
+
+function shouldSkipForDeployInProgress(parsed) {
+  return IN_PROGRESS_STATES.includes(parsed.productionStatus);
+}
+
 async function runProductionStatusSync({ env, adapters }) {
+  const issueNumberConfig = resolveStatusIssueNumber(env);
+  if (!issueNumberConfig.configured) {
+    writeSkippedSummary(adapters, issueNumberConfig.reason);
+    return {
+      skipped: true,
+      status: 'skipped',
+      reason: issueNumberConfig.reason,
+    };
+  }
   requireStatusSyncConfig(env);
   adapters.fetchDevelop();
 
@@ -59,14 +110,20 @@ async function runProductionStatusSync({ env, adapters }) {
     throw new Error('latest develop SHA must be a full git SHA.');
   }
 
-  const issueNumber = Number(env.PRODUCTION_STATUS_ISSUE_NUMBER);
-  if (!Number.isInteger(issueNumber) || issueNumber <= 0) {
-    throw new Error('PRODUCTION_STATUS_ISSUE_NUMBER must be a positive issue number.');
-  }
+  const { issueNumber } = issueNumberConfig;
 
   const issue = await adapters.githubRequest('GET', `/repos/${env.GITHUB_REPOSITORY}/issues/${issueNumber}`);
   validateManagedStatusIssue(issue);
   const parsed = parseProductionStatusIssue(issue.body || '');
+  if (shouldSkipForDeployInProgress(parsed)) {
+    writeSkippedSummary(adapters, 'Production deploy is in progress. Status sync skipped.');
+    return {
+      skipped: true,
+      status: 'skipped',
+      reason: 'deploy-in-progress',
+      parsed,
+    };
+  }
   const currentProductionSha = parsed.currentProductionSha || 'unknown';
   const commitsBehindDevelop = calculateBehindDevelop({
     currentProductionSha,
@@ -85,10 +142,13 @@ async function runProductionStatusSync({ env, adapters }) {
     previousProductionSha: currentProductionSha,
     currentProductionSha,
     commitsBehindDevelop,
+    lastSuccessfulDeploymentSha: parsed.lastSuccessfulDeploymentSha || 'unknown',
     lastSuccessfulDeploymentAt: parsed.lastSuccessfulDeploymentAt || 'unknown',
     dryRun: true,
     force: false,
     workflowRunUrl: workflowRunUrl(env),
+    lastDeploymentWorkflowUrl: parsed.lastDeploymentWorkflowUrl || 'unknown',
+    lastStatusSyncWorkflowUrl: workflowRunUrl(env),
     status,
   });
 
@@ -102,6 +162,20 @@ async function runProductionStatusSync({ env, adapters }) {
   if (!body.includes(STATUS_MARKER)) {
     throw new Error('Rendered Production Status Issue body is missing the managed marker.');
   }
+
+  const latestIssue = await adapters.githubRequest('GET', `/repos/${env.GITHUB_REPOSITORY}/issues/${issueNumber}`);
+  validateManagedStatusIssue(latestIssue);
+  const latestParsed = parseProductionStatusIssue(latestIssue.body || '');
+  if (shouldSkipForDeployInProgress(latestParsed)) {
+    writeSkippedSummary(adapters, 'Production deploy is in progress. Status sync skipped.');
+    return {
+      skipped: true,
+      status: 'skipped',
+      reason: 'deploy-in-progress',
+      parsed: latestParsed,
+    };
+  }
+
   await adapters.githubRequest('PATCH', `/repos/${env.GITHUB_REPOSITORY}/issues/${issueNumber}`, { body });
   adapters.writeStepSummary([
     '## Production Status sync',
@@ -199,8 +273,10 @@ if (require.main === module) {
 }
 
 module.exports = {
+  IN_PROGRESS_STATES,
   createNodeStatusSyncAdapters,
   requireStatusSyncConfig,
+  resolveStatusIssueNumber,
   resolveNextStatus,
   runProductionStatusSync,
 };

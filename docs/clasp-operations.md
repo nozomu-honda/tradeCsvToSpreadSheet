@@ -85,6 +85,12 @@ PR #84をdevelopへマージしただけでは、default branch `main` 上のラ
 6. Production Status IssueとGitHub EnvironmentのDeployment履歴を確認する。
 7. developが進んだ場合は、metadata-onlyの `Update production status` workflowがProduction Status Issueを `not-deployed` へ更新する。
 
+`Update production status` workflowは、Repository Variable `PRODUCTION_STATUS_ISSUE_NUMBER` が未設定または空文字の場合は安全にskipし、Actionsを失敗させません。
+設定済みなのに不正な値、PR、closed Issue、title不一致、markerなしの場合は失敗します。
+
+Production Status Issue番号はRepository Variableだけを正本にします。
+Environment側には同名の `PRODUCTION_STATUS_ISSUE_NUMBER` Variableを作りません。
+
 詳細は[`docs/production-deploy.md`](production-deploy.md)を確認します。
 
 Codexはこのworkflowの実行、起動ラベル付与、GitHub Environment作成、Secrets / Variables変更、本番push、本番deployment更新を行いません。

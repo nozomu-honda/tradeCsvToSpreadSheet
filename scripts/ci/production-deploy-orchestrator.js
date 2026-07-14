@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 
 const {
+  calculateBehindDevelop,
   createInitialProductionDeployState,
   failProductionDeployState,
   isFullSha,
@@ -95,6 +96,19 @@ function assertDevelopUnchanged(adapters, targetSha, message) {
     headSha,
     originDevelopSha,
   };
+}
+
+function calculateCommitsBehind({ adapters, currentProductionSha, latestDevelopSha }) {
+  return calculateBehindDevelop({
+    currentProductionSha,
+    latestDevelopSha,
+    isAncestor: isFullSha(currentProductionSha)
+      ? adapters.isAncestor(currentProductionSha, latestDevelopSha)
+      : false,
+    commitCount: isFullSha(currentProductionSha)
+      ? adapters.commitCount(`${currentProductionSha}..${latestDevelopSha}`)
+      : 0,
+  });
 }
 
 async function findMergedPrForTargetSha({ adapters, repo, targetSha }) {
@@ -280,7 +294,10 @@ async function runProductionDeploy({ env, adapters, cwd = process.cwd() }) {
     const managedIssue = await readManagedProductionStatusIssue({ adapters, env });
     state.previousProductionSha = managedIssue.parsed.currentProductionSha;
     state.currentProductionSha = managedIssue.parsed.currentProductionSha;
+    state.lastSuccessfulDeploymentSha = managedIssue.parsed.lastSuccessfulDeploymentSha || 'unknown';
     state.lastSuccessfulDeploymentAt = managedIssue.parsed.lastSuccessfulDeploymentAt || 'unknown';
+    state.lastDeploymentWorkflowUrl = managedIssue.parsed.lastDeploymentWorkflowUrl || 'unknown';
+    state.lastStatusSyncWorkflowUrl = managedIssue.parsed.lastStatusSyncWorkflowUrl || 'unknown';
 
     const duplicate = shouldBlockDuplicateDeployment({
       currentProductionSha: managedIssue.parsed.currentProductionSha,
@@ -350,9 +367,39 @@ async function runProductionDeploy({ env, adapters, cwd = process.cwd() }) {
     await safeUpdateStatusIssue({ adapters, env, state });
     await adapters.runSmokeTest();
 
-    state = markProductionDeployState(state, 'deployed', {
-      commitsBehindDevelop: '0 commits',
-    });
+    currentStage = 'post-smoke-develop-check';
+    adapters.fetchDevelop();
+    const latestDevelopShaAfterDeploy = adapters.getOriginDevelopSha();
+    const completedAt = new Date().toISOString();
+    const finalPatch = {
+      currentProductionSha: targetSha,
+      latestDevelopSha: latestDevelopShaAfterDeploy,
+      lastSuccessfulDeploymentSha: targetSha,
+      lastSuccessfulDeploymentAt: completedAt,
+      lastDeploymentWorkflowUrl: workflowRunUrl(env),
+      sourcePush: 'success',
+      deploymentUpdate: 'success',
+      smokeTest: 'success',
+      lastFailureStage: '',
+      failureMessage: '',
+      updatedAt: completedAt,
+    };
+    if (latestDevelopShaAfterDeploy === targetSha) {
+      state = markProductionDeployState(state, 'deployed', {
+        ...finalPatch,
+        commitsBehindDevelop: '0 commits',
+      });
+    } else {
+      state = markProductionDeployState(state, 'not-deployed', {
+        ...finalPatch,
+        developAdvancedAfterSourcePush: true,
+        commitsBehindDevelop: calculateCommitsBehind({
+          adapters,
+          currentProductionSha: targetSha,
+          latestDevelopSha: latestDevelopShaAfterDeploy,
+        }),
+      });
+    }
     currentStage = 'status-recording';
     await updateManagedProductionStatusIssue({ adapters, env, state });
     return state;

@@ -19,6 +19,8 @@ const DEFAULT_VALIDATION_SCRIPTS = [
   'test:production-deploy-control',
   'test:production-status-sync',
   'test:production-required-checks',
+  'test:production-state-concurrency',
+  'test:production-status-bootstrap',
 ];
 
 function npmCommand() {
@@ -190,6 +192,24 @@ function createNodeAdapters({
     },
     getCurrentBranch() {
       return git(['branch', '--show-current']);
+    },
+    isAncestor(ancestor, descendant) {
+      const result = spawnSync('git', ['merge-base', '--is-ancestor', ancestor, descendant], {
+        cwd,
+        env,
+        encoding: 'utf8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      if (result.status === 0) {
+        return true;
+      }
+      if (result.status === 1) {
+        return false;
+      }
+      throw new Error('git merge-base --is-ancestor failed.');
+    },
+    commitCount(range) {
+      return Number(git(['rev-list', '--count', range]));
     },
     runNpmCi() {
       run(npmCommand(), ['ci']);

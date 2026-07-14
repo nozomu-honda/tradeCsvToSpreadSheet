@@ -120,6 +120,7 @@ CI用の反映はGitHub Actionsだけが行う。ローカルPCからテスト�
 PRラベルはdefault branch `main` 上のcontrol workflowが受け、条件を満たした場合だけ `deploy-production.yml` を `ref: develop` でdispatchする。
 `workflow_dispatch` は人間向けfallbackとして残す。
 正式運用前に、control workflowとdeploy workflow定義を `main` へ同期する後続対応が必要。
+Production Status Issue番号はRepository Variable `PRODUCTION_STATUS_ISSUE_NUMBER` だけを正本にし、未設定時のstatus syncは安全にskipする。
 ローカル手動fallbackでは、本番専用設定を用意したうえで次のnpmコマンドだけを使う。
 
 ```bash

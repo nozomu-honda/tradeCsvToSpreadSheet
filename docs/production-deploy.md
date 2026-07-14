@@ -5,6 +5,7 @@ Issue #83で追加する本番反映workflowの運用手順です。
 
 Codexはこのworkflowの実行、GitHub Environment作成、Secrets / Variables変更、本番Apps Script操作、本番Webアプリ再デプロイを行いません。
 default branch `main` へのcontrol workflow同期メモは [`docs/production-deploy-control.md`](production-deploy-control.md) を参照します。
+PR #84はIssue #83の一部対応です。main同期、初回設定、authenticated dry-run、初回本番反映、本番状態追跡の実動作確認が終わるまでIssue #83はopenのままにします。
 
 ## 起動経路
 
@@ -134,10 +135,13 @@ GitHub Environment `production` のSecrets / Variablesを使い、本番操作�
 7. 本番push直前に `HEAD == origin/develop == target_sha` を再確認する。
 8. `npm run gas:production:push` を実行する。
 9. 既存Webアプリdeployment更新直前にもdevelopを再確認する。
-10. source push後にdevelopが進んでいた場合は、すでにpushした同一SHAのdeployment updateとSmoke Testまで完遂し、Status Issueへ記録する。
+10. source push後にdevelopが進んでいた場合は、すでにpushした同一SHAのdeployment updateとSmoke Testまで完遂する。
 11. `clasp deploy --deploymentId` で既存deploymentを更新する。
 12. 本番Webアプリへ安全なHTTP Smoke Testを実行する。
-13. Production Status Issueを `deployed` または `failed` へ更新する。
+13. Smoke Test後に最新 `origin/develop` を再取得する。
+14. 本番反映したSHAが最新developと一致すればProduction Status Issueを `deployed` にする。
+15. source push後にdevelopが進んでいれば、本番反映工程が成功していてもProduction Status Issueは `not-deployed` にする。
+16. 途中で失敗した場合は `failed` にし、失敗ステージと失敗内容を保持する。
 
 ## required checks
 
@@ -184,7 +188,8 @@ Environmentにrequired reviewersを設定した場合、ChatGPTから承認そ�
 
 ## Production Status Issue
 
-`PRODUCTION_STATUS_ISSUE_NUMBER` で指定する固定Issueには、必ず次のmarkerを含めます。
+Repository Variable `PRODUCTION_STATUS_ISSUE_NUMBER` で指定する固定Issueには、必ず次のmarkerを含めます。
+この番号はRepository Variableだけを正本にし、Environment Variableには同名Variableを作りません。
 
 ```html
 <!-- production-status:managed-by-github-actions -->
@@ -202,16 +207,25 @@ markerがないIssueは絶対に上書きしません。
 
 `.github/workflows/update-production-status.yml` は、`develop` push時にProduction Status Issueだけを更新するmetadata-only workflowです。
 本番Secrets、production Environment、clasp、本番Apps Script、本番Webアプリには触れません。
+`PRODUCTION_STATUS_ISSUE_NUMBER` が未設定または空文字の場合は、安全なskipとして成功終了します。
+設定済みなのに数値でない、0以下、Issueが存在しない、PRを指している、closed、title不一致、markerなしの場合は失敗します。
+
+`deploy-production.yml` と `update-production-status.yml` は、どちらもconcurrency group `production-state`、`cancel-in-progress: false` を使います。
+これにより、Production Status Issueを更新するworkflow同士が同時に走って状態を上書きすることを避け、進行中の本番反映もキャンセルしません。
 
 この同期で行うこと:
 
 - 最新 `develop` SHAを取得する。
 - Production Status Issueの現在の本番commitを読む。
 - 本番commitと最新developが異なる場合は `not-deployed` として記録する。
-- 現在の本番commit、最新develop、developとの差分、最終成功deployment日時、最終workflow run、失敗情報を保持・更新する。
+- 現在の本番commit、最新develop、developとの差分、最終成功deployment日時、最終本番反映workflow、失敗情報を保持・更新する。
+- status sync自身のworkflow URLは `最終status同期workflow` として別に記録する。
 - marker、Issue title、open状態、PRではないことを確認してから更新する。
+- 更新直前にIssueを再読込し、`preflight` / `source-pushed` / `deployment-updated` / `verifying` の場合は上書きせずskipする。
 
-`deployed` は、現在の本番commitが最新developと一致し、かつsmoke testが成功済みである状態だけを表します。
+`deployed` は、現在の本番commitが最新developと一致し、かつ最後の本番反映のsource push、deployment update、smoke testがすべて成功済みである状態だけを表します。
+`not-deployed` は、前回本番反映が成功していても、現在の本番commitが最新developと一致しない状態を表します。
+`failed` は本番反映処理が失敗した状態です。status syncでdevelopが進んでも、失敗ステージと失敗内容は消しません。
 
 初回Issue本文テンプレート:
 
@@ -223,9 +237,11 @@ markerがないIssueは絶対に上書きしません。
 - 反映対象commit: `unknown`
 - 最新develop: `unknown`
 - developとの差分: `unknown`
-- source push: `not-started`
-- deployment update: `not-started`
-- smoke test: `not-started`
+- 最新develop反映: `unknown`
+- 最終本番反映 source push: `not-started`
+- 最終本番反映 deployment update: `not-started`
+- 最終本番反映 smoke test: `not-started`
+- 最終成功本番反映commit: `unknown`
 - 最終成功deployment日時: `unknown`
 - dry_run: `true`
 - force: `false`
@@ -233,7 +249,9 @@ markerがないIssueは絶対に上書きしません。
 - 最終失敗ステージ: `none`
 - 失敗内容: `none`
 - 更新日時: `unknown`
-- workflow run: unknown
+- 最終本番反映workflow: unknown
+- 最終status同期workflow: unknown
+- 現在のworkflow run: unknown
 
 <!-- production-status:managed-by-github-actions -->
 ```
@@ -314,14 +332,16 @@ workflowではJSONのleaf値を個別にmaskし、複数行JSON全体をその�
    - `PRODUCTION_DEPLOYMENT_ID`
 4. Environment Variablesを設定する。
    - `PRODUCTION_WEB_APP_URL`
-   - `PRODUCTION_STATUS_ISSUE_NUMBER`
    - 任意: `PRODUCTION_SMOKE_EXPECTED_MARKER`
    - 任意: `PRODUCTION_REQUIRED_CHECKS`
-5. Production Status Issueをテンプレートで作成する。
-6. default branch `main` へcontrol workflowとdeploy workflow定義を同期する後続対応を実施する。
-7. default branch `main` でPRラベル起動が有効になるか確認する。
-8. まずStatic dry-runを実行する。
-9. Secrets / Variables設定後にAuthenticated dry-runを実行する。
+5. Repository Variableを設定する。
+   - `PRODUCTION_STATUS_ISSUE_NUMBER`
+6. Environment側には `PRODUCTION_STATUS_ISSUE_NUMBER` と同名のVariableを作らない。
+7. Production Status Issueをテンプレートで作成する。
+8. default branch `main` へcontrol workflowとdeploy workflow定義を同期する後続対応を実施する。
+9. default branch `main` でPRラベル起動が有効になるか確認する。
+10. まずStatic dry-runを実行する。
+11. Secrets / Variables設定後にAuthenticated dry-runを実行する。
 
 ラベルが存在しない場合は、人間がGitHub上で作成します。
 
@@ -360,6 +380,8 @@ npm run test:production-smoke-test
 npm run test:production-deploy-control
 npm run test:production-status-sync
 npm run test:production-required-checks
+npm run test:production-state-concurrency
+npm run test:production-status-bootstrap
 git diff --check
 ```
 

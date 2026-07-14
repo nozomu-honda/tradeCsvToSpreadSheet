@@ -18,6 +18,8 @@
     "test:production-deploy-control": "node scripts/ci/check-production-deploy-control.js",
     "test:production-status-sync": "node scripts/ci/check-production-status-sync.js",
     "test:production-required-checks": "node scripts/ci/check-production-required-checks.js",
+    "test:production-state-concurrency": "node scripts/ci/check-production-state-concurrency.js",
+    "test:production-status-bootstrap": "node scripts/ci/check-production-status-bootstrap.js",
     "test:ci-clasp-project": "node scripts/ci/check-ci-clasp-project.js",
     "test:web-e2e-output-reset": "node scripts/ci/check-web-e2e-output-reset.js",
     "test:web-e2e-source-transform": "node scripts/ci/check-web-e2e-source-transform.js"

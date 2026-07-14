@@ -37,6 +37,7 @@ let state = createInitialProductionDeployState({
 assert.strictEqual(state.status, 'preflight');
 assert.strictEqual(state.sourcePush, 'not-started');
 assert.strictEqual(state.currentProductionSha, 'unknown');
+assert.strictEqual(state.lastDeploymentWorkflowUrl, 'unknown');
 
 state = markProductionDeployState(state, 'source-pushed');
 assert.strictEqual(state.status, 'source-pushed');
@@ -49,6 +50,8 @@ assert.strictEqual(state.deploymentUpdate, 'success');
 state = markProductionDeployState(state, 'deployed');
 assert.strictEqual(state.status, 'deployed');
 assert.strictEqual(state.currentProductionSha, shaA);
+assert.strictEqual(state.lastSuccessfulDeploymentSha, shaA);
+assert.strictEqual(state.lastDeploymentWorkflowUrl, 'https://github.example/actions/runs/1');
 assert.strictEqual(state.smokeTest, 'success');
 assert.strictEqual(state.lastFailureStage, '');
 
@@ -118,14 +121,26 @@ const parsed = parseProductionStatusIssue([
   `- 本番commit: \`${shaA}\``,
   `- 最新develop: \`${shaB}\``,
   '- developとの差分: `2 commits`',
+  '- 最終本番反映 source push: `success`',
+  '- 最終本番反映 deployment update: `success`',
+  '- 最終本番反映 smoke test: `success`',
+  `- 最終成功本番反映commit: \`${shaA}\``,
   '- 最終成功deployment日時: `2026-07-14T00:00:00.000Z`',
+  '- 最終本番反映workflow: https://github.example/actions/runs/10',
+  '- 最終status同期workflow: https://github.example/actions/runs/11',
   '- 最終失敗ステージ: `none`',
 ].join('\n'));
 assert.strictEqual(parsed.productionStatus, 'deployed');
 assert.strictEqual(parsed.currentProductionSha, shaA);
 assert.strictEqual(parsed.latestDevelopSha, shaB);
 assert.strictEqual(parsed.commitsBehindDevelop, '2 commits');
+assert.strictEqual(parsed.sourcePush, 'success');
+assert.strictEqual(parsed.deploymentUpdate, 'success');
+assert.strictEqual(parsed.smokeTest, 'success');
+assert.strictEqual(parsed.lastSuccessfulDeploymentSha, shaA);
 assert.strictEqual(parsed.lastSuccessfulDeploymentAt, '2026-07-14T00:00:00.000Z');
+assert.strictEqual(parsed.lastDeploymentWorkflowUrl, 'https://github.example/actions/runs/10');
+assert.strictEqual(parsed.lastStatusSyncWorkflowUrl, 'https://github.example/actions/runs/11');
 
 assert.strictEqual(
   calculateBehindDevelop({

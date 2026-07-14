@@ -53,6 +53,7 @@ function createAdapters(options = {}) {
   const calls = [];
   const state = {
     fetchCount: 0,
+    sourcePushCount: 0,
     cleanupCount: 0,
     envFailureCount: 0,
     issuePatchBodies: [],
@@ -70,6 +71,8 @@ function createAdapters(options = {}) {
       'test:production-deploy-control',
       'test:production-status-sync',
       'test:production-required-checks',
+      'test:production-state-concurrency',
+      'test:production-status-bootstrap',
     ],
     addMasksFromEnv() {
       calls.push('mask');
@@ -94,7 +97,16 @@ function createAdapters(options = {}) {
       if (options.developAdvancesBeforePush && state.fetchCount > 1) {
         return 'dddddddddddddddddddddddddddddddddddddddd';
       }
+      if (options.developAdvancesAfterSourcePush && state.sourcePushCount > 0) {
+        return options.latestDevelopShaAfterSourcePush || 'dddddddddddddddddddddddddddddddddddddddd';
+      }
       return targetSha;
+    },
+    isAncestor() {
+      return options.developDivergesAfterSourcePush ? false : true;
+    },
+    commitCount() {
+      return options.commitsBehindAfterSourcePush === undefined ? 1 : options.commitsBehindAfterSourcePush;
     },
     runNpmCi() {
       calls.push('npm-ci');
@@ -116,6 +128,7 @@ function createAdapters(options = {}) {
     },
     runProductionSourcePush() {
       calls.push('source-push');
+      state.sourcePushCount += 1;
       if (options.failSourcePush) {
         throw new Error('source push failed');
       }
@@ -182,6 +195,9 @@ function createAdapters(options = {}) {
               `- 本番commit: \`${options.duplicateDeployed ? targetSha : previousSha}\``,
               `- 最新develop: \`${targetSha}\``,
               '- developとの差分: `1 commits`',
+              `- 最終成功本番反映commit: \`${previousSha}\``,
+              '- 最終成功deployment日時: `2026-07-13T00:00:00.000Z`',
+              '- 最終本番反映workflow: https://github.com/owner/repo/actions/runs/999',
               '<!-- production-status:managed-by-github-actions -->',
             ].join('\n'),
         };
@@ -252,6 +268,9 @@ async function assertRejectsWith(fn, pattern) {
     assert.ok(adapters.calls.indexOf('source-push') < adapters.calls.indexOf('deployment-update'));
     assert.ok(adapters.calls.indexOf('deployment-update') < adapters.calls.indexOf('smoke-test'));
     assert.ok(!adapters.calls.some((call) => call.includes('/deployments')), 'orchestrator must not create GitHub Deployments');
+    assert.ok(adapters.state.issuePatchBodies.some((body) => body.includes('- 状態: `deployed`')));
+    assert.ok(adapters.state.issuePatchBodies.some((body) => body.includes('- developとの差分: `0 commits`')));
+    assert.ok(adapters.state.issuePatchBodies.some((body) => body.includes('- 最終本番反映workflow: https://github.com/owner/repo/actions/runs/1')));
   }
 
   {
@@ -262,7 +281,7 @@ async function assertRejectsWith(fn, pattern) {
     }), /source push failed/);
     assert.ok(!adapters.calls.includes('deployment-update'));
     assert.ok(!adapters.calls.includes('smoke-test'));
-    assert.ok(adapters.state.issuePatchBodies.some((body) => body.includes('- source push: `failed`')));
+    assert.ok(adapters.state.issuePatchBodies.some((body) => body.includes('- 最終本番反映 source push: `failed`')));
   }
 
   {
@@ -272,7 +291,7 @@ async function assertRejectsWith(fn, pattern) {
       adapters,
     }), /deployment update failed/);
     assert.ok(!adapters.calls.includes('smoke-test'));
-    assert.ok(adapters.state.issuePatchBodies.some((body) => body.includes('- deployment update: `failed`')));
+    assert.ok(adapters.state.issuePatchBodies.some((body) => body.includes('- 最終本番反映 deployment update: `failed`')));
   }
 
   {
@@ -281,7 +300,8 @@ async function assertRejectsWith(fn, pattern) {
       env: baseEnv({ DRY_RUN: 'false', SOURCE_PR_NUMBER: '10' }),
       adapters,
     }), /smoke failed/);
-    assert.ok(adapters.state.issuePatchBodies.some((body) => body.includes('- smoke test: `failed`')));
+    assert.ok(adapters.state.issuePatchBodies.some((body) => body.includes('- 最終本番反映 smoke test: `failed`')));
+    assert.ok(!adapters.state.issuePatchBodies.some((body) => body.includes('- 状態: `not-deployed`')), 'smoke failure must remain failed, not not-deployed');
   }
 
   {
@@ -291,6 +311,44 @@ async function assertRejectsWith(fn, pattern) {
       adapters,
     }), /develop advanced/);
     assert.ok(!adapters.calls.includes('source-push'));
+  }
+
+  {
+    const adapters = createAdapters({ developAdvancesAfterSourcePush: true, commitsBehindAfterSourcePush: 1 });
+    await runProductionDeploy({
+      env: baseEnv({ DRY_RUN: 'false', SOURCE_PR_NUMBER: '10' }),
+      adapters,
+    });
+    assert.ok(adapters.calls.includes('source-push'));
+    assert.ok(adapters.calls.includes('deployment-update'));
+    assert.ok(adapters.calls.includes('smoke-test'));
+    const finalBody = adapters.state.issuePatchBodies.at(-1);
+    assert.ok(finalBody.includes('- 状態: `not-deployed`'));
+    assert.ok(finalBody.includes(`- 本番commit: \`${targetSha}\``));
+    assert.ok(finalBody.includes('- developとの差分: `1 commits`'));
+    assert.ok(finalBody.includes('- source push後にdevelop進行: `true`'));
+    assert.ok(finalBody.includes('- 最新develop反映: `pending`'));
+    assert.ok(finalBody.includes('- 最終本番反映 source push: `success`'));
+    assert.ok(finalBody.includes('- 最終本番反映 deployment update: `success`'));
+    assert.ok(finalBody.includes('- 最終本番反映 smoke test: `success`'));
+  }
+
+  {
+    const adapters = createAdapters({ developAdvancesAfterSourcePush: true, commitsBehindAfterSourcePush: 3 });
+    await runProductionDeploy({
+      env: baseEnv({ DRY_RUN: 'false', SOURCE_PR_NUMBER: '10' }),
+      adapters,
+    });
+    assert.ok(adapters.state.issuePatchBodies.at(-1).includes('- developとの差分: `3 commits`'));
+  }
+
+  {
+    const adapters = createAdapters({ developAdvancesAfterSourcePush: true, developDivergesAfterSourcePush: true });
+    await runProductionDeploy({
+      env: baseEnv({ DRY_RUN: 'false', SOURCE_PR_NUMBER: '10' }),
+      adapters,
+    });
+    assert.ok(adapters.state.issuePatchBodies.at(-1).includes('- developとの差分: `unknown-diverged`'));
   }
 
   {

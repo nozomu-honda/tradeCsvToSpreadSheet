@@ -11,6 +11,7 @@
 - 最新 `develop` では、Issue #76 / PR #78 の野村日本株Web E2E追加は完了済み。
 - 最新 `develop` では、Issue #81 / PR #82 の本番bundle参照切れ修正は完了済み。
 - Issue #83で、本番反映をGitHub Actions化し、Production Status Issueで本番状態を追跡する対応を進めている。
+  - PR #84は一部対応であり、Issue #83はmain同期・初回設定・dry-run・初回本番反映・状態追跡の実動作確認が終わるまでopenのままにする。
 - 楽天DBの専用ヘッダー対応、楽天DBから共通計算モデルへの変換、楽天配当金の手入力列対応は完了済み。
 - Web UIの6シート表記、外債件数表示、タブ順固定、`runStagingSheetFromWebApp` の重複整理は完了済み。
 - `runSmokeTests()` と `runAllTests()` は未実装タスクではなく、既存の手動テスト入口として扱う。
@@ -48,12 +49,17 @@ Issue #83対応後の基本フロー:
 4. 問題がなければ、人間が `deploy-production` ラベルで本番反映を起動する。
 5. Production Status IssueとGitHub EnvironmentのDeployment履歴を確認する。
 6. developが進んだ場合は、metadata-onlyの `Update production status` workflowがProduction Status Issueを `not-deployed` へ更新する。
+   - Status Issue番号未設定時は安全にskipする。
+   - deploy workflowとstatus sync workflowは共通concurrency `production-state` で並行更新を避ける。
+   - deploy中の `preflight` / `source-pushed` / `deployment-updated` / `verifying` はstatus syncが上書きしない。
 
 初回運用前に必要なこと:
 
 - GitHub Environment `production` を作成する。
 - Environment Secrets `CLASP_PRODUCTION_CREDENTIALS`、`PRODUCTION_SCRIPT_ID`、`PRODUCTION_DEPLOYMENT_ID` を設定する。
-- Environment Variables `PRODUCTION_WEB_APP_URL`、`PRODUCTION_STATUS_ISSUE_NUMBER`、必要なら `PRODUCTION_SMOKE_EXPECTED_MARKER` を設定する。
+- Environment Variables `PRODUCTION_WEB_APP_URL`、必要なら `PRODUCTION_SMOKE_EXPECTED_MARKER` / `PRODUCTION_REQUIRED_CHECKS` を設定する。
+- Repository Variable `PRODUCTION_STATUS_ISSUE_NUMBER` を設定する。
+- Environment側には `PRODUCTION_STATUS_ISSUE_NUMBER` と同名Variableを作らない。
 - 管理marker `<!-- production-status:managed-by-github-actions -->` を含むProduction Status Issueを作成し、実値を貼らずに状態追跡用として使う。
 - 起動ラベル `deploy-production-dry-run`、`deploy-production`、`deploy-production-force` を作成する。
 - default branch `main` へcontrol workflowとdeploy workflow定義を同期する後続対応を行う。

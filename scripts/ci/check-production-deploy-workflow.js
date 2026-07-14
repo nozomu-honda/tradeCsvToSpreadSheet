@@ -34,7 +34,7 @@ includes(workflow, 'dry_run_mode:', 'dry_run_mode input is required');
 includes(workflow, 'target_sha:', 'target_sha input is required');
 includes(workflow, 'source_pr_number:', 'source_pr_number input is required for PR traceability');
 includes(workflow, 'required: true', 'target_sha must be required');
-includes(workflow, 'group: production-deploy', 'workflow must serialize production deploys');
+includes(workflow, 'group: production-state', 'workflow must serialize production state updates');
 includes(workflow, 'cancel-in-progress: false', 'production deploy concurrency must not cancel in-progress runs');
 assert.ok(!workflow.includes('deployments: write'), 'manual Deployment API permissions must not be requested');
 assert.ok(!workflow.includes('actions: write'), 'develop deploy workflow must not dispatch other workflows');
@@ -42,6 +42,14 @@ includes(workflow, 'issues: write', 'workflow must be able to update the Status 
 includes(workflow, 'pull-requests: read', 'workflow must be able to validate merged PRs');
 includes(workflow, 'checks: read', 'workflow must be able to read check runs');
 includes(workflow, 'statuses: read', 'workflow must be able to read commit statuses');
+includes(workflow, 'resolve-production-status-config:', 'workflow must read repository status issue configuration before entering the production Environment');
+includes(workflow, 'production_status_issue_number: ${{ steps.status-config.outputs.production_status_issue_number }}', 'workflow must expose repository status issue variable as a job output');
+includes(workflow, 'PRODUCTION_STATUS_ISSUE_NUMBER: ${{ needs.resolve-production-status-config.outputs.production_status_issue_number }}', 'deploy job must consume repository status issue variable via resolver output');
+assert.strictEqual(
+  (workflow.match(/PRODUCTION_STATUS_ISSUE_NUMBER: \$\{\{ vars\.PRODUCTION_STATUS_ISSUE_NUMBER \}\}/g) || []).length,
+  1,
+  'PRODUCTION_STATUS_ISSUE_NUMBER must be read only by the non-Environment resolver job',
+);
 assert.ok(!workflow.includes('resolve-production-target:'), 'target resolution must live in the default-branch control workflow');
 includes(workflow, 'static-dry-run:', 'workflow must have a no-secrets static dry-run job');
 includes(workflow, 'deploy-production:', 'workflow must have an authenticated production job');
@@ -68,6 +76,8 @@ includes(controlWorkflow, 'source_pr_number: String(pr.number)', 'control workfl
 
 includes(statusWorkflow, '\n  push:', 'status sync workflow must run on develop push');
 includes(statusWorkflow, '- develop', 'status sync workflow must be scoped to develop');
+includes(statusWorkflow, 'group: production-state', 'status sync workflow must share production-state concurrency with deploy workflow');
+includes(statusWorkflow, 'cancel-in-progress: false', 'status sync workflow must not cancel deploy workflow');
 includes(statusWorkflow, 'issues: write', 'status sync workflow must update the Status Issue');
 assert.ok(!statusWorkflow.includes('environment:'), 'status sync workflow must not enter the production Environment');
 assert.ok(!statusWorkflow.includes('CLASP_PRODUCTION_CREDENTIALS'), 'status sync workflow must not use production clasp secrets');
@@ -103,6 +113,8 @@ includes(adapters, 'collectJsonLeafValues', 'adapters must mask JSON leaf values
   'test:production-deploy-control',
   'test:production-status-sync',
   'test:production-required-checks',
+  'test:production-state-concurrency',
+  'test:production-status-bootstrap',
 ].forEach((scriptName) => {
   assert.ok(packageJson.scripts[scriptName], `package.json must define ${scriptName}`);
 });

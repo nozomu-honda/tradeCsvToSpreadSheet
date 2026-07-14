@@ -42,12 +42,27 @@ permissions:
   statuses: read
 
 concurrency:
-  group: production-deploy
+  group: production-state
   cancel-in-progress: false
 
 jobs:
+  resolve-production-status-config:
+    name: Resolve production status config
+    runs-on: ubuntu-latest
+    outputs:
+      production_status_issue_number: ${{ steps.status-config.outputs.production_status_issue_number }}
+    steps:
+      - name: Read repository production status variable
+        id: status-config
+        shell: bash
+        run: |
+          printf 'production_status_issue_number=%s\n' "${PRODUCTION_STATUS_ISSUE_NUMBER}" >> "$GITHUB_OUTPUT"
+        env:
+          PRODUCTION_STATUS_ISSUE_NUMBER: ${{ vars.PRODUCTION_STATUS_ISSUE_NUMBER }}
+
   static-dry-run:
     name: Production static dry-run
+    needs: resolve-production-status-config
     runs-on: ubuntu-latest
     if: ${{ inputs.dry_run == true && inputs.dry_run_mode == 'static' }}
     env:
@@ -81,6 +96,7 @@ jobs:
 
   deploy-production:
     name: Deploy production
+    needs: resolve-production-status-config
     runs-on: ubuntu-latest
     if: ${{ inputs.dry_run != true || inputs.dry_run_mode == 'authenticated' }}
     environment:
@@ -97,7 +113,7 @@ jobs:
       PRODUCTION_DEPLOYMENT_ID: ${{ secrets.PRODUCTION_DEPLOYMENT_ID }}
       PRODUCTION_WEB_APP_URL: ${{ vars.PRODUCTION_WEB_APP_URL }}
       PRODUCTION_SMOKE_EXPECTED_MARKER: ${{ vars.PRODUCTION_SMOKE_EXPECTED_MARKER }}
-      PRODUCTION_STATUS_ISSUE_NUMBER: ${{ vars.PRODUCTION_STATUS_ISSUE_NUMBER }}
+      PRODUCTION_STATUS_ISSUE_NUMBER: ${{ needs.resolve-production-status-config.outputs.production_status_issue_number }}
       PRODUCTION_REQUIRED_CHECKS: ${{ vars.PRODUCTION_REQUIRED_CHECKS }}
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

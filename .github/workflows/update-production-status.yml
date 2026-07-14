@@ -12,7 +12,7 @@ permissions:
   issues: write
 
 concurrency:
-  group: production-status-sync
+  group: production-state
   cancel-in-progress: false
 
 jobs:
