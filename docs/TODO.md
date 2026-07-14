@@ -195,12 +195,13 @@ rollbackの正常系は既存E2Eで使っているが、異常系の明示確認
 - `runGasTestBatch01()` から `runGasTestBatch09()`
   - CI用。
   - `runAllTests()` 相当のテスト一覧を分割して実行する。
-- PRのGAS最終確認
-  - `run-gas-tests` ラベルを付ける。
+- PRの最終CI
+  - `run-final-ci` ラベルを付ける。
   - `Push test GAS project and run tests` の成功を確認する。
-- PRのWeb App E2E確認
-  - `gas-web-e2e` ラベルまたは `workflow_dispatch` で起動する。
-  - `Deploy test Web app and run Playwright E2E` の成功を確認する。
+  - 続けて `Deploy test Web app and run Playwright E2E` の成功を確認する。
+  - 同じhead SHAで成功済みの重い処理は再実行せず、head SHA上の成功Check Runを正本として再利用する。
+  - Web E2Eの403 skip、cleanup失敗、Check Run発行失敗は成功扱いにしない。
+  - 追加コミットでhead SHAが変わった場合は、`run-final-ci` ラベルを外して再付与する。
 
 ## 完了済みとして未完了一覧へ戻さない項目
 

@@ -119,100 +119,80 @@ try {
     fail('.claspignore must exclude scripts/** from GAS push targets');
   }
 
+  const finalCiWorkflow = readWorkflow('.github/workflows/final-ci.yml');
+  const finalCiRunWorkflow = readWorkflow('.github/workflows/final-ci-run.yml');
   const gasTestsWorkflow = readWorkflow('.github/workflows/gas-tests.yml');
   const gasWebE2eWorkflow = readWorkflow('.github/workflows/gas-web-e2e.yml');
-  const gasTestsGroup = extractConcurrencyGroupExpression(
-    gasTestsWorkflow,
-    '.github/workflows/gas-tests.yml'
-  );
-  const gasWebE2eGroup = extractConcurrencyGroupExpression(
-    gasWebE2eWorkflow,
-    '.github/workflows/gas-web-e2e.yml'
+  const finalCiGroup = extractConcurrencyGroupExpression(
+    finalCiRunWorkflow,
+    '.github/workflows/final-ci-run.yml'
   );
 
   assertEqual(
-    evaluateGitHubExpression(gasTestsGroup, pullRequestContext({
-      label: 'run-gas-tests',
+    evaluateGitHubExpression(finalCiGroup, pullRequestContext({
+      label: 'run-final-ci',
       prNumber: 72,
       runId: 1001,
     })),
     'gas-shared-test-project',
-    'GAS Tests target label concurrency group'
+    'Final CI target label concurrency group'
   );
   assertEqual(
-    evaluateGitHubExpression(gasWebE2eGroup, pullRequestContext({
-      label: 'gas-web-e2e',
-      prNumber: 72,
-      runId: 1002,
-    })),
-    'gas-shared-test-project',
-    'Web E2E target label concurrency group'
-  );
-  assertEqual(
-    evaluateGitHubExpression(gasTestsGroup, pullRequestContext({
-      label: 'run-gas-tests',
+    evaluateGitHubExpression(finalCiGroup, pullRequestContext({
+      label: 'run-final-ci',
       prNumber: 73,
       runId: 1003,
     })),
     'gas-shared-test-project',
-    'GAS Tests target label concurrency group for another PR'
-  );
-  assertEqual(
-    evaluateGitHubExpression(gasWebE2eGroup, pullRequestContext({
-      label: 'gas-web-e2e',
-      prNumber: 73,
-      runId: 1004,
-    })),
-    'gas-shared-test-project',
-    'Web E2E target label concurrency group for another PR'
-  );
-  assertEqual(
-    evaluateGitHubExpression(gasWebE2eGroup, workflowDispatchContext({ runId: 1005 })),
-    'gas-shared-test-project',
-    'Web E2E workflow_dispatch concurrency group'
+    'Final CI target label concurrency group for another PR'
   );
 
-  const gasTestsNonTargetGroup = evaluateGitHubExpression(
-    gasTestsGroup,
-    pullRequestContext({ label: 'gas-web-e2e', prNumber: 72, runId: 2001 })
-  );
-  const gasWebE2eNonTargetGroup = evaluateGitHubExpression(
-    gasWebE2eGroup,
-    pullRequestContext({ label: 'run-gas-tests', prNumber: 72, runId: 2002 })
-  );
-  const gasTestsExternalGroup = evaluateGitHubExpression(
-    gasTestsGroup,
-    pullRequestContext({
-      label: 'run-gas-tests',
-      prNumber: 72,
-      runId: 2003,
-      headRepo: 'someone/fork',
-    })
-  );
-  const gasWebE2eExternalGroup = evaluateGitHubExpression(
-    gasWebE2eGroup,
-    pullRequestContext({
-      label: 'gas-web-e2e',
-      prNumber: 72,
-      runId: 2004,
-      headRepo: 'someone/fork',
-    })
-  );
-
-  assertEqual(gasTestsNonTargetGroup, 'gas-tests-skip-2001', 'GAS Tests non-target label group');
-  assertEqual(gasWebE2eNonTargetGroup, 'gas-web-e2e-skip-2002', 'Web E2E non-target label group');
-  assertEqual(gasTestsExternalGroup, 'gas-tests-skip-2003', 'GAS Tests external PR group');
-  assertEqual(gasWebE2eExternalGroup, 'gas-web-e2e-skip-2004', 'Web E2E external PR group');
+  if (!finalCiWorkflow.includes("github.event.label.name == 'run-final-ci'")) {
+    fail('.github/workflows/final-ci.yml must call the reusable final CI body only for run-final-ci');
+  }
+  if (!finalCiWorkflow.includes('github.event.pull_request.head.repo.full_name == github.repository')) {
+    fail('.github/workflows/final-ci.yml must call the reusable final CI body only for same-repository PRs');
+  }
+  if (!finalCiWorkflow.includes('github.event.pull_request.head.repo.full_name != github.repository')) {
+    fail('.github/workflows/final-ci.yml must fail closed for external PRs');
+  }
 
   for (const [workflowPath, workflowSource, workflowGroup] of [
-    ['.github/workflows/gas-tests.yml', gasTestsWorkflow, gasTestsGroup],
-    ['.github/workflows/gas-web-e2e.yml', gasWebE2eWorkflow, gasWebE2eGroup],
+    ['.github/workflows/final-ci-run.yml', finalCiRunWorkflow, finalCiGroup],
   ]) {
     if (!workflowSource.includes('cancel-in-progress: false')) {
       fail(`${workflowPath} must queue instead of canceling the paired GAS workflow`);
     }
     if (workflowGroup.includes('pull_request.number')) {
       fail(`${workflowPath} concurrency group must not depend on the PR number`);
+    }
+  }
+
+  if (!finalCiWorkflow.includes('uses: ./.github/workflows/final-ci-run.yml')) {
+    fail('.github/workflows/final-ci.yml must call final-ci-run.yml as the reusable final CI body');
+  }
+  if (!finalCiWorkflow.includes('secrets: inherit')) {
+    fail('.github/workflows/final-ci.yml must pass secrets only through the same-repository reusable workflow call');
+  }
+  if (finalCiWorkflow.includes('createWorkflowDispatch') || finalCiWorkflow.includes('actions: write')) {
+    fail('.github/workflows/final-ci.yml must not dispatch final-ci-run.yml through a default-branch workflow_dispatch run');
+  }
+
+  for (const [workflowPath, workflowSource] of [
+    ['.github/workflows/gas-tests.yml', gasTestsWorkflow],
+    ['.github/workflows/gas-web-e2e.yml', gasWebE2eWorkflow],
+  ]) {
+    if (workflowSource.includes('pull_request:')) {
+      fail(`${workflowPath} must not run from PR label events`);
+    }
+    if (!workflowSource.includes('workflow_dispatch:')) {
+      fail(`${workflowPath} must remain available as a manual fallback`);
+    }
+    if (!workflowSource.includes('group: gas-shared-test-project')) {
+      fail(`${workflowPath} manual fallback must use the shared GAS test project concurrency group`);
+    }
+    if (!workflowSource.includes('cancel-in-progress: false')) {
+      fail(`${workflowPath} must queue instead of canceling the paired GAS workflow`);
     }
   }
 
@@ -293,17 +273,6 @@ function pullRequestContext({ label, prNumber, runId, headRepo = 'nozomu-honda/t
           },
         },
       },
-      repository: 'nozomu-honda/tradeCsvToSpreadSheet',
-      run_id: runId,
-    },
-  };
-}
-
-function workflowDispatchContext({ runId }) {
-  return {
-    github: {
-      event_name: 'workflow_dispatch',
-      event: {},
       repository: 'nozomu-honda/tradeCsvToSpreadSheet',
       run_id: runId,
     },

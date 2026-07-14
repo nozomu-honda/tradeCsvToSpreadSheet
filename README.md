@@ -115,6 +115,7 @@ bareな `clasp push` は使わない。CI用と本番用のApps Script project�
 実際の操作手順は、最初に [`docs/clasp-operations.md`](docs/clasp-operations.md) を確認する。
 
 CI用の反映はGitHub Actionsだけが行う。ローカルPCからテスト専用Apps Scriptプロジェクトへ手動pushしない。
+PRの最終CIは `run-final-ci` ラベル1回で起動し、GAS TestsとWeb E2Eを直列に確認する。GAS Tests / Web E2Eはいずれもhead SHA上の成功Check Runを正本として再利用し、旧ラベルの `run-gas-tests` / `gas-web-e2e` は最終CIの起動には使わない。
 
 本番反映は、原則としてマージ済みPRへの専用ラベル付与でGitHub Actionsの `Deploy production` workflowを起動する。
 PRラベルはdefault branch `main` 上のcontrol workflowが受け、条件を満たした場合だけ `deploy-production.yml` を `ref: develop` でdispatchする。

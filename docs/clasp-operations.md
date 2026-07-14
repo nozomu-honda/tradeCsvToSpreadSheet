@@ -6,8 +6,7 @@
 
 | やりたいこと | 接続先 | 操作する場所 | 実行方法 |
 | --- | --- | --- | --- |
-| PRのGASテスト | テスト専用Apps Script | GitHub Actions | PRへ `run-gas-tests` ラベルを付ける |
-| PRのWeb E2E | テスト専用Apps Script | GitHub Actions | PRへ `gas-web-e2e` ラベルを付ける |
+| PRの最終CI | テスト専用Apps Script | GitHub Actions | PRへ `run-final-ci` ラベルを付ける |
 | 本番反映dry-run | 本番Apps Script / 本番Webアプリ | GitHub Actions | マージ済みPRへ `deploy-production-dry-run` ラベルを付ける |
 | 本番反映 | 本番Apps Script / 本番Webアプリ | GitHub Actions | マージ済みPRへ `deploy-production` ラベルを付ける |
 | 本番ソースの確認 | 本番Apps Script | ローカルPC | `npm run gas:production:status` |
@@ -26,29 +25,26 @@
 
 GitHub Actionsが自動で反映します。人やCodexがローカルPCからCI用Apps Scriptへpushすることはありません。
 
-### GAS Testsを実行する
+### 最終CIを実行する
 
 1. 対象PRのレビューと修正を終える。
-2. PRへ `run-gas-tests` ラベルを付ける。
-3. GitHub Actionsの `Push test GAS project and run tests` が完了するまで待つ。
-4. 成功したことを確認する。
+2. PRへ `run-final-ci` ラベルを付ける。
+3. GitHub Actionsの `Final CI` workflowが完了するまで待つ。
+4. `Push test GAS project and run tests` と `Deploy test Web app and run Playwright E2E` が成功したことを確認する。
+5. 以降コード変更や追加ラベル操作をせずにマージする。
 
 ラベルを付けると、GitHub Actionsは次を自動実行します。
 
-1. CI用認証をGitHub Secretsからrunnerへ用意する。
-2. テスト専用Apps Scriptへ最新ソースをpushする。
-3. GASテストを9バッチに分けて実行する。
-4. 結果をPRのcheckへ反映する。
-
-テスト成功後に追加コミットした場合は、`run-gas-tests` ラベルを一度外して再度付け、最新headで実行し直します。
-
-### Web E2Eを実行する
-
-1. 対象PRへ `gas-web-e2e` ラベルを付ける。
-2. GitHub Actionsの `Deploy test Web app and run Playwright E2E` が完了するまで待つ。
-3. Playwright、cleanup、rollback、一時deployment削除が成功したことを確認する。
+1. PR番号、head SHA、同一リポジトリPRかどうかを記録する。
+2. 同じhead SHAで `Push test GAS project and run tests` が成功済みか確認する。成功済みならGASの重い処理は再利用し、jobは成功checkを残す。
+3. 未成功なら、CI用認証をGitHub Secretsからrunnerへ用意し、テスト専用Apps Scriptへ最新ソースをpushしてGASテストを9バッチに分けて実行する。
+4. GAS Testsが成功した後、同じhead SHAで `Deploy test Web app and run Playwright E2E` が成功済みか確認する。成功済みならWeb E2Eの重い処理は再利用する。
+5. 未成功なら、一時Webアプリdeploymentを作成してPlaywright E2Eを実行し、cleanup、rollback、一時deployment削除を確認する。
 
 Web E2Eでは一時Webアプリdeploymentを作成しますが、テスト終了後に自動削除されます。固定の本番Webアプリは更新しません。
+
+テスト成功後に追加コミットした場合は、`run-final-ci` ラベルを一度外して再度付け、最新headで実行し直します。
+旧ラベルの `run-gas-tests` と `gas-web-e2e` は最終CIの起動には使いません。
 
 ### CI用で使われる設定
 

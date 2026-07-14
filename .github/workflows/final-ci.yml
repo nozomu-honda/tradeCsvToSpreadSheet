@@ -1,0 +1,44 @@
+name: Final CI controller
+
+on:
+  pull_request:
+    branches:
+      - develop
+    types:
+      - labeled
+
+permissions:
+  contents: read
+  checks: write
+  pull-requests: read
+
+jobs:
+  final-ci:
+    name: Run final CI
+    if: >-
+      ${{
+        github.event.label.name == 'run-final-ci' &&
+        github.event.pull_request.head.repo.full_name == github.repository
+      }}
+    uses: ./.github/workflows/final-ci-run.yml
+    with:
+      pr_number: ${{ github.event.pull_request.number }}
+      head_sha: ${{ github.event.pull_request.head.sha }}
+      base_branch: ${{ github.event.pull_request.base.ref }}
+      head_repository: ${{ github.event.pull_request.head.repo.full_name }}
+    secrets: inherit
+
+  external-pr-guard:
+    name: Final CI external PR guard
+    if: >-
+      ${{
+        github.event.label.name == 'run-final-ci' &&
+        github.event.pull_request.head.repo.full_name != github.repository
+      }}
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Reject secret-backed final CI for external PR
+        run: |
+          echo "::error::Secret-backed final CI is disabled for fork or external PRs."
+          exit 1

@@ -10,60 +10,64 @@ CI用バッチ関数は `runGasTestBatch01` から `runGasTestBatch09` までで
 
 ## 目的
 
-個人アカウント所有の公開リポジトリでは GitHub Merge Queue を利用できないため、マージ直前の最終確認は `run-gas-tests` ラベルで明示的に起動します。
+個人アカウント所有の公開リポジトリでは GitHub Merge Queue を利用できないため、マージ直前の最終確認は `run-final-ci` ラベルで明示的に起動します。
 
 現在の方針は次のとおりです。
 
 - PR作成時には重いGASテストを実行しない。
 - PRブランチへのpushごとには重いGASテストを実行しない。
-- 最終レビュー後に `run-gas-tests` ラベルを付けた時だけGAS CIを起動する。
-- docs-only / Markdown-only / GASに影響しない変更では、workflow jobは成功させつつ重いGAS実行をスキップする。
-- GAS影響ファイルを含むPRでも、最新コミットがdocs/Markdownだけで、直前headのrequired checkが成功済みなら重いGAS実行をスキップする。
+- 最終レビュー後に `run-final-ci` ラベルを付けた時だけ、GAS TestsとWeb E2Eの最終CIを起動する。
+- 同じhead SHAで `Push test GAS project and run tests` が成功済みの場合は、jobを成功させつつ重いGAS実行をスキップする。
+- 同じhead SHAで `Deploy test Web app and run Playwright E2E` が成功済みの場合は、Web E2Eの重い処理をスキップする。
+- GAS Tests / Web E2Eはいずれも、対象head SHAへ明示発行した成功Check Runだけを再利用対象にする。
+- Web E2EのHTTP 403 skip、Playwright未実行、動的deployment cleanup失敗、Check Run発行失敗は成功扱いにしない。
 - `clasp run` が実行権限エラーで使えない場合は、CI上では `clasp run unavailable` として記録し、`clasp push` とソース検証が通っていればrequired checkは成功させる。
 - テスト失敗、例外、実行時間超過は認証不能fallbackと混同せず、required checkを失敗させる。
 - コード変更PRでは、必要に応じて Apps Script エディタでCI用バッチ関数を手動実行し、結果をPR本文へ残す。
-- テスト成功後に追加コミットした場合は、`run-gas-tests` ラベルを外して再度付けることで新しいheadに対して再実行する。
+- テスト成功後に追加コミットした場合は、`run-final-ci` ラベルを外して再度付けることで新しいheadに対して再評価する。
 - `pull_request_target` は使わない。
 - forkや外部PRにはGoogle Secretsを渡さない。
 
 ## Workflow
 
-`.github/workflows/gas-tests.yml` は `develop` 向けPRの次のイベントだけで起動します。
+`.github/workflows/final-ci.yml` は `develop` 向けPRの次のイベントで起動します。
 
 - `pull_request` `labeled`
 
-対象ラベルは次の1つです。
+重い最終CIを実行する対象ラベルは次の1つです。
 
-- `run-gas-tests`
+- `run-final-ci`
 
-`opened`、`synchronize`、`reopened`、`ready_for_review`、`workflow_dispatch`、`merge_group` では起動しません。
+`opened`、`synchronize`、`reopened`、`ready_for_review`、`merge_group` では起動しません。
 
-`run-gas-tests` 以外のラベルで起動した場合は、job名を `Ignore non-GAS label` に切り替えて軽く成功させます。required check名の `Push test GAS project and run tests` は `run-gas-tests` ラベルの時だけ作られるため、通常のラベル運用でGAS checkを誤って成功させたり失敗させたりしません。
+旧ラベルの `run-gas-tests` / `gas-web-e2e` は最終CIの起動には使いません。通常ラベルや旧ラベルでは、GAS Tests / Web E2Eの本体workflowを起動しません。
 
-GAS Tests と GAS Web App E2E は同じテスト専用 Apps Script プロジェクトへpushし、Script Propertiesも共有します。そのため、実際に共有テストprojectへ触るrunだけを、PR番号を含まない共通のconcurrency group `gas-shared-test-project` で直列化し、同時実行しません。`run-gas-tests` と `gas-web-e2e` を続けて付けた場合も、片方が完了してからもう片方が開始されます。
+GAS Tests と GAS Web App E2E は同じテスト専用 Apps Script プロジェクトへpushし、Script Propertiesも共有します。そのため、`Final CI` workflowはPR番号を含まない共通のconcurrency group `gas-shared-test-project` を使い、GAS Tests -> Web E2E の順に直列実行します。
 
-`run-gas-tests` 以外のラベルで起動した `Ignore non-GAS label` run や、Secretsを使わないskip/guard runは、`github.run_id` を含む固有groupへ分離します。これにより、軽量なignore/skip runが、待機中のGAS TestsやWeb E2Eの実runをキャンセルしないようにします。
+`.github/workflows/gas-tests.yml` と `.github/workflows/gas-web-e2e.yml` は、ラベル起動ではなく `workflow_dispatch` の手動fallbackとして残します。
+
+`run-final-ci` ラベルを受ける `.github/workflows/final-ci.yml` は軽量controllerです。PR codeをcheckoutせず、同一リポジトリPRだけに対して `.github/workflows/final-ci-run.yml` をreusable workflowとして呼び出します。必須check名のjobは `final-ci-run.yml` 側にだけ置くため、通常ラベルでは `Push test GAS project and run tests` checkを作りません。
+
+reusable workflowの表示名差異やPR merge commit側のcheckだけではhead SHA再利用判定ができない問題を避けるため、GAS Tests jobの最後に同じhead SHAへ `Push test GAS project and run tests`、Web E2E jobの最後に同じhead SHAへ `Deploy test Web app and run Playwright E2E` というCheck Runを明示的に完了状態で発行します。実行または再利用判定が失敗した場合、このCheck Runも失敗にします。Check Run発行前にもPR head SHAを再確認し、headが変わっていた場合やCheck Run発行に失敗した場合はFinal CIを失敗させます。
 
 ## 推奨マージフロー
 
 1. 実装を完了する。
 2. 最終レビューを行う。
-3. PRに `run-gas-tests` ラベルを付ける。
-4. `Push test GAS project and run tests` が成功することを確認する。
-5. 以降コード変更せずにマージする。
+3. PRに `run-final-ci` ラベルを付ける。
+4. `Push test GAS project and run tests` と `Deploy test Web app and run Playwright E2E` が成功することを確認する。
+5. 以降コード変更や追加ラベル操作をせずにマージする。
 
-テスト成功後に追加コミットした場合は、`run-gas-tests` ラベルを一度外してから再度付けてください。これにより、新しいPR headでGAS CIを再確認できます。
-
-追加コミットがdocs/Markdownだけで、直前headの `Push test GAS project and run tests` が成功済みの場合、workflow jobは成功しますが重いGAS実行はスキップします。直前headのrequired checkが失敗・未実行・確認不能の場合は、docs/Markdownだけの最新コミットでもGAS実行を省略しません。
+テスト成功後に追加コミットした場合は、`run-final-ci` ラベルを一度外してから再度付けてください。これにより、新しいPR headでGAS TestsとWeb E2Eを再評価できます。
 
 ## Codexにマージを依頼する場合
 
 ユーザーがCodexに「マージして」と依頼した場合、Codexはすぐにマージせず、次の順で進めます。
 
 1. 対象PRのhead SHA、base branch、mergeable状態を確認する。
-2. `run-gas-tests` ラベルが付いていない場合は付ける。
-3. `run-gas-tests` ラベルが既に付いていて最新headのGAS Testsが未確認の場合は、ラベルを一度外して再度付ける。
-4. `Push test GAS project and run tests` が最新headで成功するまで待つ。
+2. `run-final-ci` ラベルが付いていない場合は付ける。
+3. `run-final-ci` ラベルが既に付いていて最新headの最終CIが未確認の場合は、ラベルを一度外して再度付ける。
+4. `Push test GAS project and run tests` と `Deploy test Web app and run Playwright E2E` が最新headで成功するまで待つ。
 5. チェック成功後にhead SHAを再確認し、変わっていなければマージする。
 
 GAS Testsが失敗した場合、Codexはマージせず、失敗したcheck名とログ上の原因を報告します。
@@ -76,38 +80,24 @@ required check 名は次のまま維持します。
 
 `develop` のrulesetでは、このcheckを必須にしてください。
 
-このrequired check名は `run-gas-tests` ラベルの時だけ出します。`bug` や `docs` など別ラベルを付けた時は、別名の `Ignore non-GAS label` jobとして終了するため、required checkの偽陽性には使われません。
+このrequired check名は `run-final-ci` のGAS Tests jobで固定します。job名を `Ignore non-GAS label` などに動的変更しません。
 
 ## GAS実行対象の判定
 
-`run-gas-tests` ラベルが付いた場合でも、すべての変更でGASを実行するわけではありません。workflow内で `develop` との差分を確認し、次のようなGAS影響ファイルがある場合だけソース検証、CI専用project設定を明示した `clasp --project <ci-project> push --force`、可能な場合は `clasp --project <ci-project> run` によるCI用バッチ関数の逐次実行を行います。
+`run-final-ci` ラベルが付いた場合、workflow開始時にPR番号、head SHA、base branch、head repositoryを記録します。各重い処理の直前にもGitHub APIでPR head SHAを再確認し、変わっていた場合は停止します。
 
-- `src/**`
-- `scripts/**`
-- `.github/workflows/**`
-- `appsscript.json`
-- `Index.html`
-- `.claspignore`
-- `.clasp.productionignore`
-- `.clasp.example.json`
-- `.clasp.production.example.json`
-- `package.json`
-- `package-lock.json`
+同じhead SHAに成功済みのcheckがある場合は、その結果を再利用します。
 
-次のような変更だけの場合、workflow jobは成功しますが、重いGAS実行はスキップします。
-
-- `docs/**`
-- `*.md`
-- GASコード、CIスクリプト、workflow、設定に影響しないファイル
-
-ただし、PR全体にGAS影響ファイルが含まれていても、最新コミットがdocs/Markdownだけの場合は、直前headのrequired checkを確認します。直前headで `Push test GAS project and run tests` が成功済みなら、最新headのjobは成功させつつ重いGAS実行をスキップします。直前headの成功が確認できない場合は、安全側としてGASを実行します。
-
-`paths-ignore` は使いません。workflow自体をスキップすると、required check が pending のままになりマージをブロックすることがあるためです。
+- `Push test GAS project and run tests` 成功済み: GAS Tests jobは成功checkを残し、`clasp push` とGAS実行を省略する。
+- `Deploy test Web app and run Playwright E2E` 成功済み: Web E2E jobは成功checkを残し、一時deployment作成とPlaywright実行を省略する。
+- Web E2EがHTTP 403でPlaywright未実行になった場合: 未検証のため成功Check Runは発行せず、再利用対象外にする。
+- 動的Web app deploymentのcleanupに失敗した場合: Playwrightが成功していてもWeb E2E全体を失敗にする。
+- head SHAが変わった場合: 古いheadの成功結果は再利用しない。
 
 ## セキュリティ
 
 - workflowは `pull_request` を使い、`pull_request_target` は使いません。
-- `run-gas-tests` ラベルが付いた同一リポジトリPRだけがsecret-backed GAS jobに進めます。
+- `run-final-ci` ラベルが付いた同一リポジトリPRだけがsecret-backed GAS / Web E2E jobに進めます。
 - forkや外部PRでは冒頭のガードで失敗し、Google Secretsを使うstepへ進みません。
 - CIの対象はテスト専用 Apps Script プロジェクトだけです。
 - CI用のclasp project設定はrunner一時領域に生成し、すべての `clasp` 呼び出しで `--project` により明示します。リポジトリ直下の `.clasp.json` は生成・利用しません。設定ファイル自体は一時領域に置きますが、`rootDir` は `GITHUB_WORKSPACE` の絶対パスに正規化し、push対象は常にリポジトリルート配下にします。`.claspignore` もリポジトリ直下のファイルを `--ignore` で明示し、CI用NodeスクリプトやdocsをGAS push対象にしません。
@@ -177,7 +167,7 @@ GAS実行対象と判定された場合、workflowは次を行います。
 
 workflowは次の場合に明示的に失敗します。
 
-- forkまたは外部PRで `run-gas-tests` ラベルが付いた。
+- forkまたは外部PRで `run-final-ci` ラベルが付いた。
 - ソース管理された `.gs` / `.js` ファイル内にCI用バッチ関数がない。
 - `.gs` ファイルの Node VM 構文チェックに失敗した。
 - CI専用project設定を明示した `clasp push` に失敗した。
