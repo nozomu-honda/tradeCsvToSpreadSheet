@@ -10,6 +10,7 @@
 - 最新 `develop` では、Issue #79 / PR #80 の本番push対象からE2E専用helperを除外する対応は完了済み。
 - 最新 `develop` では、Issue #76 / PR #78 の野村日本株Web E2E追加は完了済み。
 - 最新 `develop` では、Issue #81 / PR #82 の本番bundle参照切れ修正は完了済み。
+- Issue #83で、本番反映をGitHub Actions化し、Production Status Issueで本番状態を追跡する対応を進めている。
 - 楽天DBの専用ヘッダー対応、楽天DBから共通計算モデルへの変換、楽天配当金の手入力列対応は完了済み。
 - Web UIの6シート表記、外債件数表示、タブ順固定、`runStagingSheetFromWebApp` の重複整理は完了済み。
 - `runSmokeTests()` と `runAllTests()` は未実装タスクではなく、既存の手動テスト入口として扱う。
@@ -39,7 +40,22 @@ npm run gas:production:push
 - 本番対象に `src/app/e2e_runtime_support.gs` が含まれる。
 - 実Script ID、Deployment ID、Web App URL、Spreadsheet URL、Drive folder ID、OAuth token、GitHub Secrets実値をログやdocsへ残さない。
 
-Codexは本番Apps Scriptへのpush、本番Webアプリdeployment更新、GitHub Secrets変更を実行しない。
+Issue #83対応後の基本フロー:
+
+1. GitHub Actionsの `Deploy production` を `dry_run=true` で実行する。
+2. dry-runで本番wrapper検証、本番bundle境界検証、`npm run gas:production:status`、重複反映ガードを確認する。
+3. 問題がなければ、人間が `dry_run=false` で本番反映を実行する。
+4. Production Status IssueとGitHub Deploymentsを確認する。
+
+初回運用前に必要なこと:
+
+- GitHub Environment `production` を作成する。
+- Environment Secrets `CLASP_PRODUCTION_CREDENTIALS`、`PRODUCTION_SCRIPT_ID`、`PRODUCTION_DEPLOYMENT_ID` を設定する。
+- Environment Variables `PRODUCTION_WEB_APP_URL`、`PRODUCTION_STATUS_ISSUE_NUMBER` を設定する。
+- Production Status Issueを作成し、実値を貼らずに状態追跡用として使う。
+- `dry_run=true` で成功することを確認する。
+
+Codexは本番Apps Scriptへのpush、本番Webアプリdeployment更新、GitHub Secrets / Variables変更、GitHub Environment作成、production workflow実行を行わない。
 
 ## 次の開発候補
 
@@ -135,6 +151,11 @@ rollbackの正常系は既存E2Eで使っているが、異常系の明示確認
 - 本番Apps Scriptへの `npm run gas:production:push`。
 - 本番Webアプリの既存deployment更新。
 - 本番Webアプリの主要画面確認。
+- GitHub Environment `production` の初回設定。
+- 本番反映workflow用Secrets / Variablesの初回設定。
+- Production Status Issueの初回作成。
+- `Deploy production` workflowのdry-run確認。
+- `Deploy production` workflowによる本番反映。
 - Issue #76 / Issue #81 は実装対応済みだが、GitHub Issue自体はOPENの場合があるため、必要なら人間がクローズ確認する。
 - 別ユーザーでのDrive OAuth承認確認。
 - 別ユーザーでのDBフォルダ編集権限確認。
@@ -180,6 +201,7 @@ rollbackの正常系は既存E2Eで使っているが、異常系の明示確認
 - GAS CI詳細: `docs/gas-ci.md`
 - Web App E2E詳細: `docs/gas-web-e2e.md`
 - clasp反映手順: `docs/clasp-operations.md`
+- 本番反映workflow: `docs/production-deploy.md`
 - 仕様: `docs/spec.md`
 - 取引ルール: `docs/trade-rules.md`
 - Codex依頼テンプレート: `docs/codex-prompts.md`

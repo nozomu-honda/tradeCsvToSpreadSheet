@@ -8,15 +8,17 @@
 | --- | --- | --- | --- |
 | PRのGASテスト | テスト専用Apps Script | GitHub Actions | PRへ `run-gas-tests` ラベルを付ける |
 | PRのWeb E2E | テスト専用Apps Script | GitHub Actions | PRへ `gas-web-e2e` ラベルを付ける |
+| 本番反映dry-run | 本番Apps Script / 本番Webアプリ | GitHub Actions | `Deploy production` を `dry_run=true` で実行 |
+| 本番反映 | 本番Apps Script / 本番Webアプリ | GitHub Actions | `Deploy production` を `dry_run=false` で実行 |
 | 本番ソースの確認 | 本番Apps Script | ローカルPC | `npm run gas:production:status` |
-| 本番ソースの反映 | 本番Apps Script | ローカルPC | `npm run gas:production:push` |
+| 本番ソースの手動反映 | 本番Apps Script | ローカルPC | `npm run gas:production:push` |
 | 本番エディタを開く | 本番Apps Script | ローカルPC | `npm run gas:production:open` |
 | 公開中Webアプリの更新 | 本番Webアプリ | Apps Script画面 | 新バージョンを作成して再デプロイ |
 
 迷った場合は、次の2点だけ先に確認してください。
 
 - CI用へ反映する場合、ローカルPCでは何もpushしません。GitHub Actionsだけを使います。
-- 本番用へ反映する場合、CI用の設定やコマンドは使いません。本番専用npmコマンドだけを使います。
+- 本番用へ反映する場合、CI用の設定やコマンドは使いません。原則として `Deploy production` workflowを使い、ローカル手動反映はfallbackとして扱います。
 
 ## CI用Apps Scriptへの反映
 
@@ -58,7 +60,24 @@ Web E2Eでは一時Webアプリdeploymentを作成しますが、テスト終了
 
 これらの実値をローカルファイルへコピーしたり、コミットしたりしません。
 
-## 本番Apps Scriptへの反映
+## GitHub Actionsによる本番反映
+
+Issue #83以降の本番反映は、原則としてGitHub Actionsの `Deploy production` workflowで行います。
+
+基本フロー:
+
+1. 最新 `develop` を確認する。
+2. Actionsから `Deploy production` を `dry_run=true` で実行する。
+3. dry-runで `npm ci`、本番wrapper検証、本番bundle境界検証、`npm run gas:production:status`、重複反映ガードを確認する。
+4. 問題がなければ、人間が `dry_run=false` で同じworkflowを実行する。
+5. workflowが本番Apps Scriptへpushし、既存Webアプリdeploymentを新バージョンへ更新する。
+6. Production Status IssueとGitHub Deploymentsを確認する。
+
+詳細は[`docs/production-deploy.md`](production-deploy.md)を確認します。
+
+Codexはこのworkflowの実行、GitHub Environment作成、Secrets / Variables変更、本番push、本番deployment更新を行いません。
+
+## ローカルPCからの本番Apps Script確認 / 手動fallback
 
 ### 初回だけ行う準備
 
@@ -162,7 +181,7 @@ npm run gas:production:open
 
 新しいdeploymentを追加するのではなく、通常は現在の本番deploymentを新バージョンへ更新します。これにより既存のWebアプリURLを維持できます。
 
-本番へのpushと再デプロイは人が実行します。Codexは実行しません。
+本番へのpushと再デプロイは、人間がGitHub Actionsまたは手動fallbackで実行します。Codexは実行しません。
 
 ## 本番用で使われる設定
 
@@ -224,4 +243,5 @@ git pull --ff-only origin develop
 
 - GAS Testsの詳細は[`docs/gas-ci.md`](gas-ci.md)を確認する。
 - Web E2Eの詳細は[`docs/gas-web-e2e.md`](gas-web-e2e.md)を確認する。
+- 本番反映workflowの詳細は[`docs/production-deploy.md`](production-deploy.md)を確認する。
 - CI用設定を直すためにローカルからCI用Apps Scriptへpushしない。

@@ -1,0 +1,72 @@
+name: Deploy production
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'trueの場合は本番push、deployment更新、Status Issue更新を行わない'
+        required: true
+        default: true
+        type: boolean
+      force:
+        description: '同じcommitの再反映を許可する場合だけtrue'
+        required: true
+        default: false
+        type: boolean
+      target_sha:
+        description: '空なら最新origin/develop。指定する場合も最新origin/developと一致する必要があります'
+        required: false
+        default: ''
+        type: string
+
+run-name: Production deploy dry_run=${{ inputs.dry_run }} force=${{ inputs.force }}
+
+permissions:
+  contents: read
+  deployments: write
+  issues: write
+  actions: read
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy-production:
+    name: Deploy production
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: ${{ vars.PRODUCTION_WEB_APP_URL }}
+    env:
+      DRY_RUN: ${{ inputs.dry_run }}
+      FORCE: ${{ inputs.force }}
+      TARGET_SHA: ${{ inputs.target_sha }}
+      CLASP_PRODUCTION_CREDENTIALS: ${{ secrets.CLASP_PRODUCTION_CREDENTIALS }}
+      PRODUCTION_SCRIPT_ID: ${{ secrets.PRODUCTION_SCRIPT_ID }}
+      PRODUCTION_DEPLOYMENT_ID: ${{ secrets.PRODUCTION_DEPLOYMENT_ID }}
+      PRODUCTION_WEB_APP_URL: ${{ vars.PRODUCTION_WEB_APP_URL }}
+      PRODUCTION_STATUS_ISSUE_NUMBER: ${{ vars.PRODUCTION_STATUS_ISSUE_NUMBER }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - name: Checkout latest develop
+        uses: actions/checkout@v4
+        with:
+          ref: develop
+          fetch-depth: 0
+
+      - name: Pin local branch to origin/develop
+        run: |
+          git fetch --no-tags origin develop
+          git checkout -B develop origin/develop
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Preflight and deploy production
+        shell: bash
+        run: node scripts/ci/run-production-deploy.js

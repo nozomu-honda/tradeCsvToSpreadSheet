@@ -48,6 +48,11 @@
   - 本番Webアプリの再デプロイ手順
   - CI用と本番用の設定・認証・ignoreの違い
 
+- [`docs/production-deploy.md`](docs/production-deploy.md)
+  - 本番反映GitHub Actionsの運用手順
+  - dry-runと本番反映の違い
+  - Production Status IssueとGitHub Environmentの設定
+
 ---
 
 ## このリポジトリでのルール
@@ -107,7 +112,8 @@ bareな `clasp push` は使わない。CI用と本番用のApps Script project�
 
 CI用の反映はGitHub Actionsだけが行う。ローカルPCからテスト専用Apps Scriptプロジェクトへ手動pushしない。
 
-本番反映は、本番専用設定を用意したうえで次のnpmコマンドだけを使う。
+本番反映は、原則としてGitHub Actionsの `Deploy production` workflowを使う。
+ローカル手動fallbackでは、本番専用設定を用意したうえで次のnpmコマンドだけを使う。
 
 ```bash
 npm run gas:production:status
