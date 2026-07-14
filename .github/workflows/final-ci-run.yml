@@ -1,0 +1,393 @@
+name: Final CI
+
+on:
+  workflow_call:
+    inputs:
+      pr_number:
+        required: true
+        type: string
+      head_sha:
+        required: true
+        type: string
+      base_branch:
+        required: true
+        type: string
+      head_repository:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  checks: write
+  pull-requests: read
+
+env:
+  GAS_WEB_E2E_DEPLOY_MODE: dynamic-public
+
+concurrency:
+  group: >-
+    ${{ 'gas-shared-test-project' }}
+  cancel-in-progress: false
+
+jobs:
+  final-ci-context:
+    name: Final CI context
+    runs-on: ubuntu-latest
+    outputs:
+      pr_number: ${{ steps.context.outputs.pr_number }}
+      head_sha: ${{ steps.context.outputs.head_sha }}
+      same_repository: ${{ steps.context.outputs.same_repository }}
+      required_check_name: ${{ steps.context.outputs.required_check_name }}
+    steps:
+      - name: Record final CI context
+        id: context
+        shell: bash
+        env:
+          PR_NUMBER: ${{ inputs.pr_number }}
+          HEAD_SHA: ${{ inputs.head_sha }}
+          HEAD_REPOSITORY: ${{ inputs.head_repository }}
+          BASE_REPOSITORY: ${{ github.repository }}
+          BASE_BRANCH: ${{ inputs.base_branch }}
+          REQUIRED_CHECK_NAME: Push test GAS project and run tests
+        run: |
+          set -euo pipefail
+
+          same_repository=false
+          if [[ "${HEAD_REPOSITORY}" == "${BASE_REPOSITORY}" ]]; then
+            same_repository=true
+          fi
+
+          {
+            echo "pr_number=${PR_NUMBER}"
+            echo "head_sha=${HEAD_SHA}"
+            echo "same_repository=${same_repository}"
+            echo "required_check_name=${REQUIRED_CHECK_NAME}"
+          } >> "${GITHUB_OUTPUT}"
+
+          {
+            echo "## Final CI"
+            echo ""
+            echo "- PR number: #${PR_NUMBER}"
+            echo "- Head SHA: \`${HEAD_SHA}\`"
+            echo "- Base branch: \`${BASE_BRANCH}\`"
+            echo "- Head repository: \`${HEAD_REPOSITORY}\`"
+            echo "- Same repository PR: \`${same_repository}\`"
+            echo "- Required check name: \`${REQUIRED_CHECK_NAME}\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  gas-tests:
+    name: Push test GAS project and run tests
+    needs:
+      - final-ci-context
+    if: ${{ needs.final-ci-context.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    outputs:
+      gas_status: ${{ steps.gas_result.outputs.status }}
+      gas_reason: ${{ steps.gas_result.outputs.reason }}
+    steps:
+      - name: Checkout PR merge commit
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+
+      - name: Decide GAS Tests execution
+        id: gas_decision
+        env:
+          CHECK_KIND: GAS Tests
+          CHECK_NAME: Push test GAS project and run tests
+          EXPECTED_HEAD_SHA: ${{ needs.final-ci-context.outputs.head_sha }}
+          GITHUB_TOKEN: ${{ github.token }}
+          LABEL_NAME: run-final-ci
+          PR_NUMBER: ${{ needs.final-ci-context.outputs.pr_number }}
+        run: node scripts/ci/final-ci.js decide
+
+      - name: Verify PR head before GAS Tests
+        if: ${{ steps.gas_decision.outputs.execute == 'true' }}
+        env:
+          EXPECTED_HEAD_SHA: ${{ needs.final-ci-context.outputs.head_sha }}
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ needs.final-ci-context.outputs.pr_number }}
+        run: node scripts/ci/final-ci.js assert-head
+
+      - name: Install clasp
+        if: ${{ steps.gas_decision.outputs.execute == 'true' && needs.final-ci-context.outputs.same_repository == 'true' }}
+        run: npm install --global @google/clasp
+
+      - name: Push to test Apps Script and run GAS tests
+        id: run_gas_tests
+        if: ${{ steps.gas_decision.outputs.execute == 'true' && needs.final-ci-context.outputs.same_repository == 'true' }}
+        shell: bash
+        env:
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+          GAS_TEST_SCRIPT_ID: ${{ secrets.GAS_TEST_SCRIPT_ID }}
+          GAS_TEST_DEPLOYMENT_ID: ${{ secrets.GAS_TEST_DEPLOYMENT_ID }}
+          CLASP_PROJECT_JSON: ${{ secrets.CLASP_PROJECT_JSON }}
+          CLASP_USER: ${{ secrets.CLASP_USER }}
+        run: bash scripts/ci/run-gas-tests.sh
+
+      - name: Report reused GAS Tests
+        if: ${{ steps.gas_decision.outputs.status == 'reused' }}
+        run: echo "Reusing successful GAS Tests for head ${{ needs.final-ci-context.outputs.head_sha }}."
+
+      - name: Record GAS Tests status
+        id: gas_result
+        if: ${{ always() }}
+        shell: bash
+        env:
+          DECISION_STATUS: ${{ steps.gas_decision.outputs.status }}
+          DECISION_REASON: ${{ steps.gas_decision.outputs.reason }}
+          RUN_OUTCOME: ${{ steps.run_gas_tests.outcome }}
+        run: |
+          set -euo pipefail
+
+          status="${DECISION_STATUS:-failed}"
+          reason="${DECISION_REASON:-GAS Tests did not finish successfully}"
+          if [[ "${RUN_OUTCOME}" == "failure" ]]; then
+            status="failed"
+            reason="GAS Tests failed"
+          fi
+
+          echo "status=${status}" >> "${GITHUB_OUTPUT}"
+          echo "reason=${reason}" >> "${GITHUB_OUTPUT}"
+
+          {
+            echo "### GAS Tests result"
+            echo ""
+            echo "- Status: \`${status}\`"
+            echo "- Reason: ${reason}"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Publish required GAS status check
+        if: ${{ always() }}
+        uses: actions/github-script@v8
+        env:
+          REQUIRED_CHECK_NAME: Push test GAS project and run tests
+          TARGET_HEAD_SHA: ${{ needs.final-ci-context.outputs.head_sha }}
+          GAS_STATUS: ${{ steps.gas_result.outputs.status }}
+          GAS_REASON: ${{ steps.gas_result.outputs.reason }}
+        with:
+          script: |
+            const gasStatus = process.env.GAS_STATUS || 'failed';
+            const gasReason = process.env.GAS_REASON || 'GAS Tests did not finish successfully';
+            const conclusion = gasStatus === 'failed' ? 'failure' : 'success';
+
+            await github.rest.checks.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              name: process.env.REQUIRED_CHECK_NAME,
+              head_sha: process.env.TARGET_HEAD_SHA,
+              status: 'completed',
+              conclusion,
+              output: {
+                title: process.env.REQUIRED_CHECK_NAME,
+                summary: [
+                  `GAS Tests: ${gasStatus}`,
+                  `Reason: ${gasReason}`,
+                  `Head SHA: ${process.env.TARGET_HEAD_SHA}`,
+                ].join('\n'),
+              },
+            });
+
+  gas-web-e2e:
+    name: Deploy test Web app and run Playwright E2E
+    needs:
+      - final-ci-context
+      - gas-tests
+    if: ${{ needs.final-ci-context.result == 'success' && needs.gas-tests.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      web_e2e_status: ${{ steps.web_e2e_result.outputs.status }}
+      web_e2e_reason: ${{ steps.web_e2e_result.outputs.reason }}
+    steps:
+      - name: Checkout PR merge commit
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+
+      - name: Decide Web E2E execution
+        id: web_e2e_decision
+        env:
+          CHECK_KIND: Web E2E
+          CHECK_NAME: Deploy test Web app and run Playwright E2E
+          EXPECTED_HEAD_SHA: ${{ needs.final-ci-context.outputs.head_sha }}
+          GITHUB_TOKEN: ${{ github.token }}
+          LABEL_NAME: run-final-ci
+          PR_NUMBER: ${{ needs.final-ci-context.outputs.pr_number }}
+        run: node scripts/ci/final-ci.js decide
+
+      - name: Verify PR head before Web E2E
+        if: ${{ steps.web_e2e_decision.outputs.execute == 'true' }}
+        env:
+          EXPECTED_HEAD_SHA: ${{ needs.final-ci-context.outputs.head_sha }}
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ needs.final-ci-context.outputs.pr_number }}
+        run: node scripts/ci/final-ci.js assert-head
+
+      - name: Validate E2E secrets
+        if: ${{ steps.web_e2e_decision.outputs.execute == 'true' && needs.final-ci-context.outputs.same_repository == 'true' }}
+        shell: bash
+        env:
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+          GAS_TEST_SCRIPT_ID: ${{ secrets.GAS_TEST_SCRIPT_ID }}
+          CI_E2E_TOKEN: ${{ secrets.CI_E2E_TOKEN }}
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in CLASPRC_JSON GAS_TEST_SCRIPT_ID CI_E2E_TOKEN; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "::error title=Missing GitHub secret::${name} is required for GAS Web app E2E."
+              missing=1
+            fi
+          done
+          exit "${missing}"
+
+      - name: Install dependencies
+        if: ${{ steps.web_e2e_decision.outputs.execute == 'true' && needs.final-ci-context.outputs.same_repository == 'true' }}
+        run: |
+          npm ci
+          npm install --global @google/clasp
+          npx playwright install --with-deps chromium
+
+      - name: Push source and prepare test Web app deployment
+        id: deploy_webapp
+        if: ${{ steps.web_e2e_decision.outputs.execute == 'true' && needs.final-ci-context.outputs.same_repository == 'true' }}
+        shell: bash
+        env:
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+          CLASP_USER: ${{ secrets.CLASP_USER }}
+          GAS_TEST_SCRIPT_ID: ${{ secrets.GAS_TEST_SCRIPT_ID }}
+          GAS_TEST_WEBAPP_DEPLOYMENT_ID: ${{ secrets.GAS_TEST_WEBAPP_DEPLOYMENT_ID }}
+          GAS_TEST_WEBAPP_URL: ${{ secrets.GAS_TEST_WEBAPP_URL }}
+          CLASP_PROJECT_JSON: ${{ secrets.CLASP_PROJECT_JSON }}
+          GAS_WEB_E2E_DEPLOY_MODE: ${{ env.GAS_WEB_E2E_DEPLOY_MODE }}
+        run: bash scripts/ci/deploy-test-webapp.sh
+
+      - name: Skip Playwright E2E for protected Web app
+        if: ${{ steps.deploy_webapp.outputs.webapp_probe == 'protected' }}
+        run: |
+          echo "Skipping Playwright E2E because the Web app URL returned HTTP 403 from GitHub Actions."
+          {
+            echo "### Playwright E2E"
+            echo "- Result: SKIP"
+            echo "- Reason: Web app URL returned HTTP 403 from GitHub Actions."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Run Playwright E2E
+        id: run_playwright
+        if: ${{ steps.deploy_webapp.outputs.webapp_probe == 'ready' }}
+        env:
+          GAS_TEST_WEBAPP_URL: ${{ steps.deploy_webapp.outputs.webapp_url }}
+          CI_E2E_TOKEN: ${{ secrets.CI_E2E_TOKEN }}
+        run: npx playwright test
+
+      - name: Report Playwright E2E success
+        if: ${{ steps.deploy_webapp.outputs.webapp_probe == 'ready' && success() }}
+        run: |
+          {
+            echo "### Playwright E2E"
+            echo "- Result: PASS"
+            echo "- Cases: Nomura Japan stock plus Rakuten Japan stock, US stock, fund, cash, dividend, distribution, and principal return CSV upload with cleanup"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload Playwright artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gas-web-e2e-artifacts
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Delete dynamic Web app deployment
+        if: ${{ always() && steps.deploy_webapp.outputs.dynamic_deployment_id != '' }}
+        shell: bash
+        env:
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+          CLASP_USER: ${{ secrets.CLASP_USER }}
+          GAS_TEST_SCRIPT_ID: ${{ secrets.GAS_TEST_SCRIPT_ID }}
+          CLASP_PROJECT_JSON: ${{ secrets.CLASP_PROJECT_JSON }}
+          GAS_WEB_E2E_DYNAMIC_DEPLOYMENT_ID: ${{ steps.deploy_webapp.outputs.dynamic_deployment_id }}
+        run: bash scripts/ci/delete-dynamic-webapp-deployment.sh
+
+      - name: Report reused Web E2E
+        if: ${{ steps.web_e2e_decision.outputs.status == 'reused' }}
+        run: echo "Reusing successful Web E2E for head ${{ needs.final-ci-context.outputs.head_sha }}."
+
+      - name: Record Web E2E status
+        id: web_e2e_result
+        if: ${{ always() }}
+        shell: bash
+        env:
+          DECISION_STATUS: ${{ steps.web_e2e_decision.outputs.status }}
+          DECISION_REASON: ${{ steps.web_e2e_decision.outputs.reason }}
+          DEPLOY_OUTCOME: ${{ steps.deploy_webapp.outcome }}
+          PLAYWRIGHT_OUTCOME: ${{ steps.run_playwright.outcome }}
+        run: |
+          set -euo pipefail
+
+          status="${DECISION_STATUS:-failed}"
+          reason="${DECISION_REASON:-Web E2E did not finish successfully}"
+          if [[ "${DEPLOY_OUTCOME}" == "failure" || "${PLAYWRIGHT_OUTCOME}" == "failure" ]]; then
+            status="failed"
+            reason="Web E2E failed"
+          fi
+
+          echo "status=${status}" >> "${GITHUB_OUTPUT}"
+          echo "reason=${reason}" >> "${GITHUB_OUTPUT}"
+
+          {
+            echo "### Web E2E result"
+            echo ""
+            echo "- Status: \`${status}\`"
+            echo "- Reason: ${reason}"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  final-ci-summary:
+    name: Final CI summary
+    needs:
+      - final-ci-context
+      - gas-tests
+      - gas-web-e2e
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Summarize final CI
+        shell: bash
+        env:
+          PR_NUMBER: ${{ inputs.pr_number }}
+          HEAD_SHA: ${{ inputs.head_sha }}
+          SAME_REPOSITORY: ${{ needs.final-ci-context.outputs.same_repository }}
+          GAS_STATUS: ${{ needs.gas-tests.outputs.gas_status }}
+          WEB_E2E_STATUS: ${{ needs.gas-web-e2e.outputs.web_e2e_status }}
+          REQUIRED_CHECK_NAME: Push test GAS project and run tests
+        run: |
+          set -euo pipefail
+
+          gas_status="${GAS_STATUS:-failed}"
+          web_e2e_status="${WEB_E2E_STATUS:-skipped}"
+
+          {
+            echo "## Final CI summary"
+            echo ""
+            echo "- PR number: #${PR_NUMBER}"
+            echo "- Head SHA: \`${HEAD_SHA}\`"
+            echo "- GAS Tests: \`${gas_status}\`"
+            echo "- Web E2E: \`${web_e2e_status}\`"
+            echo "- Required check name: \`${REQUIRED_CHECK_NAME}\`"
+            echo "- Same repository PR: \`${SAME_REPOSITORY:-unknown}\`"
+          } >> "${GITHUB_STEP_SUMMARY}"

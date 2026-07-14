@@ -7,11 +7,12 @@
 - PR #43 の古い楽天配当金 7 件 E2E は使わず、現在の `develop` に合わせて小さく作り直す。
 - 初回対象は楽天日本株 CSV アップロード 1 ケースだけにした。現在は野村共通CSVの日本株1ケースに加え、楽天日本株、楽天米国株、楽天投資信託、楽天入出金履歴、楽天配当金・分配金・元本払戻金の代表ケースを確認する。
 - 外部スプレッドシート URL は使わず、Playwright のローカル CSV fixture をアップロードする。
-- workflow は `workflow_dispatch` または同一リポジトリ PR に `gas-web-e2e` ラベルが付いた時だけ実行する。
+- PRの最終確認では、`run-final-ci` ラベルで起動する `Final CI` workflow内の2番目のjobとして実行する。
+- `.github/workflows/gas-web-e2e.yml` は `workflow_dispatch` の手動fallbackとして残す。
 - `pull_request_target` は使わない。
 - fork / external PR では Google Secrets を使う step へ進ませない。
-- 既存 required check の `Push test GAS project and run tests` とは別 workflow とし、通常の GAS CI fallback 方針を変えない。
-- GAS Tests と GAS Web App E2E は同じテスト専用 Apps Script プロジェクトと Script Properties を共有するため、実際に共有テストprojectへ触るrunだけを、PR番号を含まない共通のconcurrency group `gas-shared-test-project` で直列化し、同時には実行しない。`gas-web-e2e` 以外のラベルで起動したskip/ignore runや外部PR guardは `github.run_id` を含む固有groupに分け、待機中の実runをキャンセルしないようにする。`workflow_dispatch` で実行したWeb E2Eも共有groupへ入れる。
+- GAS Tests と GAS Web App E2E は同じテスト専用 Apps Script プロジェクトと Script Properties を共有するため、`Final CI` workflow内で GAS Tests -> Web E2E の順に直列実行する。workflow-level concurrency groupはPR番号を含まない `gas-shared-test-project` とし、同時には共有テストprojectへ触らない。
+- 同じhead SHAで `Deploy test Web app and run Playwright E2E` が成功済みの場合、Final CIのWeb E2E jobは成功checkを残しつつ、一時deployment作成とPlaywright実行を再利用扱いで省略する。
 - CI用のclasp project設定は `${RUNNER_TEMP}` 配下へ生成し、すべてのclasp呼び出しで `--project <CI専用設定ファイル>` と `--ignore <repo .claspignore>` を明示する。リポジトリ直下の `.clasp.json` は生成・利用しない。設定ファイルは一時領域に置くが、`rootDir` は `GITHUB_WORKSPACE` の絶対パスへ正規化し、push対象は常にリポジトリルート配下にする。`.claspignore` もリポジトリ直下のファイルを使い、CI用NodeスクリプトやdocsをGAS push対象にしない。
 - E2E CIでは従来どおり `.claspignore` を使い、テスト専用 Apps Script プロジェクトへテストコードもpushできる。本番反映では `.clasp.productionignore` を使い、`src/test/**` を本番Apps Scriptへpushしない。
 - workflow 内では、テスト専用 Apps Script プロジェクトへ push する直前の `appsscript.json` にだけ `webapp.access = ANYONE_ANONYMOUS` / `webapp.executeAs = USER_DEPLOYING` を注入する。リポジトリ上の manifest は通常運用向けのままにする。

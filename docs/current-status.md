@@ -65,7 +65,7 @@
 
 ### GAS CI / clasp運用
 
-- PR向けGAS CIは `run-gas-tests` ラベル付与時だけ起動する。
+- PR向け最終CIは `run-final-ci` ラベル付与時だけ起動する。
 - PR向けGAS CIは、テスト専用Apps Scriptプロジェクトだけへpushする。
 - CIでは `pull_request_target` を使わず、fork / external PRへGoogle Secretsを渡さない。
 - GAS CIは `runAllTests()` の1回実行ではなく、`runGasTestBatch01` から `runGasTestBatch09` までの9バッチを順番に実行する。
@@ -73,8 +73,10 @@
 - `runSmokeTests()` と `runAllTests()` は手動確認用の既存テスト入口として残っている。未実装タスクではない。
 - CI用clasp project設定はrunner一時領域へ生成し、すべてのCI側clasp操作で `--project <CI専用設定ファイル>` と `--ignore <repo .claspignore>` を明示する。
 - CI用project設定の `rootDir` はリポジトリルートの絶対パスへ正規化し、`CLASP_PROJECT_JSON` の相対 `srcDir` はCIでは使わない。
+- `run-final-ci` ではGAS Tests -> GAS Web App E2Eの順で直列実行する。
+- 同じhead SHAで成功済みのGAS Tests / Web E2Eは、jobの成功checkを残しつつ重い処理だけ再利用する。
+- 旧ラベルの `run-gas-tests` / `gas-web-e2e` は最終CIの起動には使わない。
 - GAS Tests と GAS Web App E2E の実runは、共通の `gas-shared-test-project` concurrency groupで直列化する。
-- 対象外ラベルのignore/skip runは固有groupへ分離し、待機中の実runをキャンセルしない。
 - CI用と本番用のclasp操作は分離済み。
 - 本番Apps Script操作は次の本番専用npmコマンドだけを使う。
   - `npm run gas:production:open`
@@ -229,8 +231,9 @@ GitHub Actions経由では、`clasp deploy --deploymentId` で既存deployment�
 - 軽い手動確認は `runSmokeTests()` を使う。
 - 手動の一括確認入口は `runAllTests()` を使う。
 - CIではApps Scriptの実行時間上限を避けるため、`runAllTests()` 相当の一覧を `runGasTestBatch01` から `runGasTestBatch09` までに分割して実行する。
-- PRの最終GAS確認は `run-gas-tests` ラベルで起動する。
-- Web App E2Eは `gas-web-e2e` ラベル、または `workflow_dispatch` で起動する。
+- PRの最終確認は `run-final-ci` ラベルで起動する。
+- Final CIでは `Push test GAS project and run tests` の後に `Deploy test Web app and run Playwright E2E` を実行する。
+- 追加コミットでhead SHAが変わった場合は、`run-final-ci` ラベルを外して再付与する。
 
 ## Codexへの伝え方
 
