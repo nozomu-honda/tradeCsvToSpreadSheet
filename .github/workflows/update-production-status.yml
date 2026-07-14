@@ -1,0 +1,45 @@
+name: Update production status
+
+on:
+  push:
+    branches:
+      - develop
+
+run-name: Update production status
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: production-state
+  cancel-in-progress: false
+
+jobs:
+  update-production-status:
+    name: Update Production Status Issue
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      PRODUCTION_STATUS_ISSUE_NUMBER: ${{ vars.PRODUCTION_STATUS_ISSUE_NUMBER }}
+    steps:
+      - name: Checkout trusted develop source
+        uses: actions/checkout@v4
+        with:
+          ref: develop
+          fetch-depth: 0
+
+      - name: Pin local branch to origin/develop
+        run: |
+          git fetch --no-tags origin develop
+          git checkout -B develop origin/develop
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Sync Production Status Issue
+        shell: bash
+        run: node scripts/ci/sync-production-status.js
