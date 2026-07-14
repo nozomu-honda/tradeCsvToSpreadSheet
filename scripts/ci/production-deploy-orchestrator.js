@@ -26,6 +26,14 @@ const DEFAULT_REQUIRED_CHECKS = [
   'Push test GAS project and run tests',
 ];
 
+class ExpectedProductionDeployRejection extends Error {
+  constructor(code, message) {
+    super(message);
+    this.name = 'ExpectedProductionDeployRejection';
+    this.code = code;
+  }
+}
+
 function booleanFromEnv(value, defaultValue = false) {
   if (value === undefined || value === null || value === '') {
     return defaultValue;
@@ -206,6 +214,21 @@ function hydrateStateFromProductionStatusIssue(state, parsed) {
   };
 }
 
+function renderExpectedRejectionSummary({ state, error }) {
+  return [
+    '## Production deploy skipped',
+    '',
+    '- result: `rejected`',
+    `- reason: \`${error.code || 'unknown'}\``,
+    `- target_sha: \`${state && state.targetSha ? state.targetSha : 'unknown'}\``,
+    `- current production: \`${state && state.currentProductionSha ? state.currentProductionSha : 'unknown'}\``,
+    `- force: \`${state && state.force ? 'true' : 'false'}\``,
+    '',
+    '同じcommitはすでに本番反映済みです。',
+    '意図的に再反映する場合だけforce=trueを使用してください。',
+  ].join('\n');
+}
+
 async function updateManagedProductionStatusIssue({ adapters, env, state }) {
   const issueNumber = Number(env.PRODUCTION_STATUS_ISSUE_NUMBER);
   const issue = await adapters.githubRequest('GET', `/repos/${env.GITHUB_REPOSITORY}/issues/${issueNumber}`);
@@ -293,7 +316,7 @@ async function runProductionDeploy({ env, adapters, cwd = process.cwd() }) {
         force,
       });
       if (duplicate.blocked) {
-        throw new Error(duplicate.reason);
+        throw new ExpectedProductionDeployRejection('already-deployed', duplicate.reason);
       }
       state.duplicateGuard = 'passed';
     }
@@ -420,6 +443,11 @@ async function runProductionDeploy({ env, adapters, cwd = process.cwd() }) {
     await updateManagedProductionStatusIssue({ adapters, env, state });
     return state;
   } catch (error) {
+    if (error instanceof ExpectedProductionDeployRejection) {
+      adapters.writeStepSummary(renderExpectedRejectionSummary({ state, error }));
+      throw error;
+    }
+
     const failedState = failProductionDeployState(state || createInitialProductionDeployState({
       dryRun,
       force,
@@ -440,6 +468,7 @@ async function runProductionDeploy({ env, adapters, cwd = process.cwd() }) {
 
 module.exports = {
   DEFAULT_REQUIRED_CHECKS,
+  ExpectedProductionDeployRejection,
   STATUS_MARKER,
   assertDevelopUnchanged,
   hydrateStateFromProductionStatusIssue,

@@ -97,6 +97,7 @@
   - deploy workflowとstatus sync workflowは共通concurrency `production-state` でStatus Issueの並行更新を避ける。
   - Authenticated dry-runと `dry_run=false` の本番deployでは、required checks / `npm ci` / validationより前にProduction Status Issueを読み、現在の本番commitと最終成功deployment情報をstateへ反映する。
   - preflight失敗時も、既存の本番SHA、最終成功deployment日時、最終本番反映workflow、前回工程結果を `unknown` で上書きしない。
+  - 同一SHAがすでに `deployed` の場合、`force=false` の通常再実行は安全に拒否し、Production Status Issueを `failed` へ変更しない。
   - Static dry-runはProduction Status Issueを読まず、本番Secretsも要求しない。
   - source push後にdevelopが進んだ場合は、本番反映工程が成功してもStatus Issueは `not-deployed` にする。
   - Status Issueでは最新developの反映状態と、最後に成功した本番反映の工程結果・workflow URLを分けて表示する。

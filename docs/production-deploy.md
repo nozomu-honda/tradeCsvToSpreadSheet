@@ -111,6 +111,8 @@ GitHub Environment `production` のSecrets / Variablesを使い、本番操作�
 - required checksや `npm ci` より前にProduction Status Issueを読み、現在の本番commit、最終成功deployment、前回工程結果をstateへ反映する。
 - Production Status Issueのmarker確認。
 - 同一SHA二重反映ガード。
+  - `force=false` で同じSHAがすでに `deployed` の場合は安全に拒否する。
+  - この拒否ではProduction Status Issueを `failed` へ変更しない。
 - clasp named user `production` 認証確認。
 - `npm run gas:production:status -- --json`。
 - clasp実判定のTracked / Untracked解析。
@@ -145,6 +147,10 @@ GitHub Environment `production` のSecrets / Variablesを使い、本番操作�
 15. 本番反映したSHAが最新developと一致すればProduction Status Issueを `deployed` にする。
 16. source push後にdevelopが進んでいれば、本番反映工程が成功していてもProduction Status Issueは `not-deployed` にする。
 17. 途中で失敗した場合は `failed` にし、失敗ステージと失敗内容を保持する。
+
+同一SHAがすでに `deployed` と記録されている場合、通常の再実行は安全な拒否として停止します。
+この拒否では本番source push、既存Webアプリdeployment更新、Smoke Test、Production Status Issue更新、Environment failure記録を行いません。
+意図的に同じSHAを再反映する場合だけ、`deploy-production-force` ラベルまたは `force=true` を使います。
 
 ## required checks
 
@@ -232,6 +238,7 @@ markerがないIssueは絶対に上書きしません。
 Authenticated dry-runと本番deployでは、required checks、`npm ci`、validationより前にStatus Issueを読みます。
 このため、preflight中に失敗しても、現在の本番commit、最終成功deployment、最終本番反映workflow、前回工程結果は`unknown`で上書きせず保持します。
 Status Issue読込自体が失敗した場合は、無関係なIssueを更新せずに停止します。
+同一SHAの通常再実行をduplicate guardで拒否した場合も、Production Status Issueは変更せず、`failed` へは変えません。
 Static dry-runでは、Status Issueを読まず、本番Secretsも要求しません。
 
 初回Issue本文テンプレート:
