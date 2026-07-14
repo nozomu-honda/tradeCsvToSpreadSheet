@@ -90,9 +90,9 @@
   - deploy workflow本体は `workflow_dispatch` のみで起動し、`HEAD == origin/develop == target_sha` を確認してから進む。
   - PR #84をdevelopへマージしただけでは、default branch `main` 上のラベル起動経路はまだ有効にならない。
   - 正式運用前に、control workflowとdeploy workflow定義を `main` へ同期する後続対応が必要。
-  - `Deploy production` workflow内では、Environmentなしの `production-preflight` jobと、production Environment付きの `deploy-production` mutation jobを分離する。
-  - Static dry-runは本番Secretsなし、Authenticated dry-runは本番認証と `gas:production:status` まで確認する。
-  - Authenticated dry-run、duplicate拒否、required checks / `npm ci` / validation / bundle境界 / production status解析 / Status Issue読込のpreflight失敗では、production Environment Deployment履歴を作らない。
+  - `Deploy production` workflow内では、Environmentなしの `production-preflight` job、`production-preflight` Environment付きの authenticated dry-run job、`production` Environment付きの `deploy-production` mutation jobを分離する。
+  - Static dry-runは本番Secretsなし、Authenticated dry-runは `production-preflight` Environment承認後に本番認証と `gas:production:status` まで確認する。
+  - duplicate拒否、required checks / `npm ci` / validation / bundle境界 / Status Issue読込のEnvironmentなしpreflight失敗では、Environment Deployment履歴を作らない。
   - develop push時のmetadata-only workflowで、Production Status Issueを `not-deployed` へ更新する。
   - Production Status Issue番号はRepository Variable `PRODUCTION_STATUS_ISSUE_NUMBER` だけを正本にし、Environment側に同名Variableを置かない。
   - Status Issue番号未設定時はmetadata syncを安全にskipする。
@@ -103,9 +103,11 @@
   - Static dry-runはProduction Status Issueを読まず、本番Secretsも要求しない。
   - source push後にdevelopが進んだ場合は、本番反映工程が成功してもStatus Issueは `not-deployed` にする。
   - Status Issueでは最新developの反映状態と、最後に成功した本番反映の工程結果・workflow URLを分けて表示する。
+  - GitHub Environment `production-preflight` はauthenticated dry-run用、`production` は実本番mutation用として分ける。
   - GitHub Environment `production` とProduction Status Issueで本番状態を追跡する。
   - GitHub DeploymentはEnvironment側を正本にし、スクリプトから追加作成しない。Environment履歴は実本番mutationを開始したrunだけを記録する。
-  - 本番workflow用の `CLASP_PRODUCTION_CREDENTIALS`、`PRODUCTION_SCRIPT_ID`、`PRODUCTION_DEPLOYMENT_ID` はRepository Secrets、`PRODUCTION_WEB_APP_URL` などはRepository Variablesに置く前提。
+  - 本番workflow用の `CLASP_PRODUCTION_CREDENTIALS`、`PRODUCTION_SCRIPT_ID`、`PRODUCTION_DEPLOYMENT_ID` はRepository Secretsへ置かず、`production-preflight` と `production` の各Environment Secretsへ登録する前提。
+  - `PRODUCTION_WEB_APP_URL`、任意の `PRODUCTION_SMOKE_EXPECTED_MARKER` / `PRODUCTION_REQUIRED_CHECKS` はRepository Variablesへ置き、Environment側に同名Variableを置く場合は値を一致させる。
   - 本番push、既存Webアプリdeployment更新、Status Issue更新は `dry_run=false` の時だけ行う。
 - clasp反映手順は `docs/clasp-operations.md` に整理済み。
 
@@ -157,7 +159,7 @@
 - 現在の本番Webアプリには、Issue #81修正前のbundleが反映されている可能性がある。
 - 本番復旧には、最新 `develop` を本番Apps Scriptへ再反映し、既存Webアプリdeploymentを新バージョンへ更新する必要がある。
 - Issue #83対応後は、原則としてマージ済みPRへのラベル付与で `Deploy production` workflowを起動し、dry-run確認後に本番反映する。
-- 初回運用前に、人間がGitHub Environment `production`、Repository Secrets / Variables、Production Status Issue、起動ラベル、default branch `main` へのcontrol/deploy workflow同期を確認する必要がある。
+- 初回運用前に、人間がGitHub Environment `production-preflight` / `production`、Environment Secrets、Repository Variables、Production Status Issue、起動ラベル、default branch `main` へのcontrol/deploy workflow同期を確認する必要がある。
 
 手動fallbackの基本手順:
 
@@ -186,8 +188,8 @@ GitHub Actions経由では、`clasp deploy --deploymentId` で既存deployment�
 - 本番Apps Scriptへの `npm run gas:production:push`。
 - 本番Webアプリの既存deployment更新。
 - 本番Webアプリの主要画面確認。
-- GitHub Environment `production` の作成。
-- 本番反映workflow用Repository Secrets / Variablesの登録。
+- GitHub Environment `production-preflight` / `production` の作成。
+- 本番反映workflow用Environment Secrets / Repository Variablesの登録。
 - 管理marker付きProduction Status Issueの作成とRepository Variable `PRODUCTION_STATUS_ISSUE_NUMBER` 設定。
 - 起動ラベル `deploy-production-dry-run` / `deploy-production` / `deploy-production-force` の作成。
 - default branch `main` へcontrol workflowとdeploy workflow定義を同期する後続対応。

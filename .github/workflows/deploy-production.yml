@@ -80,9 +80,6 @@ jobs:
       FORCE: ${{ inputs.force }}
       TARGET_SHA: ${{ inputs.target_sha }}
       SOURCE_PR_NUMBER: ${{ inputs.source_pr_number }}
-      CLASP_PRODUCTION_CREDENTIALS: ${{ secrets.CLASP_PRODUCTION_CREDENTIALS }}
-      PRODUCTION_SCRIPT_ID: ${{ secrets.PRODUCTION_SCRIPT_ID }}
-      PRODUCTION_DEPLOYMENT_ID: ${{ secrets.PRODUCTION_DEPLOYMENT_ID }}
       PRODUCTION_WEB_APP_URL: ${{ vars.PRODUCTION_WEB_APP_URL }}
       PRODUCTION_SMOKE_EXPECTED_MARKER: ${{ vars.PRODUCTION_SMOKE_EXPECTED_MARKER }}
       PRODUCTION_STATUS_ISSUE_NUMBER: ${{ needs.resolve-production-status-config.outputs.production_status_issue_number }}
@@ -112,17 +109,88 @@ jobs:
         run: node scripts/ci/run-production-deploy.js
 
       - name: Pack preflight dependencies
-        if: ${{ steps.preflight.outputs.should_deploy == 'true' }}
+        if: ${{ steps.preflight.outputs.preflight_passed == 'true' && (steps.preflight.outputs.should_deploy == 'true' || inputs.dry_run_mode == 'authenticated') }}
         shell: bash
         run: tar -czf production-node-modules.tgz node_modules
 
       - name: Upload preflight dependencies
-        if: ${{ steps.preflight.outputs.should_deploy == 'true' }}
+        if: ${{ steps.preflight.outputs.preflight_passed == 'true' && (steps.preflight.outputs.should_deploy == 'true' || inputs.dry_run_mode == 'authenticated') }}
         uses: actions/upload-artifact@v4
         with:
           name: production-node-modules
           path: production-node-modules.tgz
           retention-days: 1
+
+  authenticated-production-dry-run:
+    name: Authenticated production dry-run
+    needs:
+      - resolve-production-status-config
+      - production-preflight
+    runs-on: ubuntu-latest
+    if: >-
+      ${{
+        inputs.dry_run == true &&
+        inputs.dry_run_mode == 'authenticated' &&
+        needs.production-preflight.result == 'success'
+      }}
+    environment:
+      name: production-preflight
+      url: ${{ vars.PRODUCTION_WEB_APP_URL }}
+    env:
+      PRODUCTION_DEPLOY_PHASE: authenticated-dry-run
+      DRY_RUN: ${{ inputs.dry_run }}
+      DRY_RUN_MODE: ${{ inputs.dry_run_mode }}
+      FORCE: ${{ inputs.force }}
+      TARGET_SHA: ${{ inputs.target_sha }}
+      SOURCE_PR_NUMBER: ${{ inputs.source_pr_number }}
+      PREFLIGHT_TARGET_SHA: ${{ needs.production-preflight.outputs.target_sha }}
+      PREFLIGHT_SOURCE_PR_NUMBER: ${{ needs.production-preflight.outputs.source_pr_number }}
+      PREFLIGHT_PASSED: ${{ needs.production-preflight.outputs.preflight_passed }}
+      PREFLIGHT_SHOULD_DEPLOY: ${{ needs.production-preflight.outputs.should_deploy }}
+      PREFLIGHT_CURRENT_PRODUCTION_SHA: ${{ needs.production-preflight.outputs.current_production_sha }}
+      PREFLIGHT_PRODUCTION_STATUS_ISSUE_NUMBER: ${{ needs.production-preflight.outputs.production_status_issue_number }}
+      PREFLIGHT_REQUIRED_CHECKS_VERIFIED: ${{ needs.production-preflight.outputs.required_checks_verified }}
+      PREFLIGHT_BUNDLE_BOUNDARY_VERIFIED: ${{ needs.production-preflight.outputs.bundle_boundary_verified }}
+      CLASP_PRODUCTION_CREDENTIALS: ${{ secrets.CLASP_PRODUCTION_CREDENTIALS }}
+      PRODUCTION_SCRIPT_ID: ${{ secrets.PRODUCTION_SCRIPT_ID }}
+      PRODUCTION_DEPLOYMENT_ID: ${{ secrets.PRODUCTION_DEPLOYMENT_ID }}
+      PRODUCTION_WEB_APP_URL: ${{ vars.PRODUCTION_WEB_APP_URL }}
+      PRODUCTION_SMOKE_EXPECTED_MARKER: ${{ vars.PRODUCTION_SMOKE_EXPECTED_MARKER }}
+      PRODUCTION_STATUS_ISSUE_NUMBER: ${{ needs.resolve-production-status-config.outputs.production_status_issue_number }}
+      PRODUCTION_REQUIRED_CHECKS: ${{ vars.PRODUCTION_REQUIRED_CHECKS }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - name: Checkout trusted develop source
+        uses: actions/checkout@v4
+        with:
+          ref: develop
+          fetch-depth: 0
+
+      - name: Pin local branch to origin/develop
+        run: |
+          git fetch --no-tags origin develop
+          git checkout -B develop origin/develop
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Download preflight dependencies
+        uses: actions/download-artifact@v4
+        with:
+          name: production-node-modules
+          path: .
+
+      - name: Restore preflight dependencies
+        shell: bash
+        run: tar -xzf production-node-modules.tgz
+
+      - name: Run authenticated production dry-run
+        shell: bash
+        run: node scripts/ci/run-production-deploy.js
 
   deploy-production:
     name: Deploy production

@@ -33,6 +33,7 @@ function jobBlock(yaml, jobName) {
 }
 
 const preflightJob = jobBlock(workflow, 'production-preflight');
+const authenticatedDryRunJob = jobBlock(workflow, 'authenticated-production-dry-run');
 const deployJob = jobBlock(workflow, 'deploy-production');
 
 includes(workflow, 'workflow_dispatch:', 'production workflow must be workflow_dispatch driven');
@@ -63,15 +64,32 @@ assert.strictEqual(
 );
 assert.ok(!workflow.includes('resolve-production-target:'), 'target resolution must live in the default-branch control workflow');
 includes(workflow, 'production-preflight:', 'workflow must have a production preflight job');
-assert.ok(!workflow.includes('static-dry-run:'), 'static and authenticated dry-run must share the Environment-free preflight job');
+includes(workflow, 'authenticated-production-dry-run:', 'workflow must have an authenticated dry-run Environment job');
+assert.ok(!workflow.includes('static-dry-run:'), 'static dry-run must share the Environment-free preflight job');
 includes(workflow, 'deploy-production:', 'workflow must have a production mutation job');
 assert.ok(!preflightJob.includes('environment:'), 'production-preflight must not use the production Environment');
-includes(deployJob, 'environment:', 'only the production mutation job must use the production Environment');
+assert.ok(!preflightJob.includes('secrets.CLASP_PRODUCTION_CREDENTIALS'), 'Environment-free preflight must not read production credentials');
+assert.ok(!preflightJob.includes('secrets.PRODUCTION_SCRIPT_ID'), 'Environment-free preflight must not read production Script ID');
+assert.ok(!preflightJob.includes('secrets.PRODUCTION_DEPLOYMENT_ID'), 'Environment-free preflight must not read production Deployment ID');
+includes(authenticatedDryRunJob, 'environment:', 'authenticated dry-run must use a protected Environment');
+includes(authenticatedDryRunJob, 'name: production-preflight', 'authenticated dry-run Environment name must be production-preflight');
+includes(authenticatedDryRunJob, 'PRODUCTION_DEPLOY_PHASE: authenticated-dry-run', 'authenticated dry-run job must run the authenticated-dry-run phase');
+includes(authenticatedDryRunJob, 'inputs.dry_run == true', 'authenticated dry-run job must run only for dry_run=true');
+includes(authenticatedDryRunJob, "inputs.dry_run_mode == 'authenticated'", 'authenticated dry-run job must require authenticated mode');
+includes(authenticatedDryRunJob, "needs.production-preflight.result == 'success'", 'authenticated dry-run job must require Environment-free preflight success');
+includes(authenticatedDryRunJob, 'CLASP_PRODUCTION_CREDENTIALS: ${{ secrets.CLASP_PRODUCTION_CREDENTIALS }}', 'authenticated dry-run must read production credentials inside its Environment');
+includes(authenticatedDryRunJob, 'PRODUCTION_SCRIPT_ID: ${{ secrets.PRODUCTION_SCRIPT_ID }}', 'authenticated dry-run must read production Script ID inside its Environment');
+includes(authenticatedDryRunJob, 'PRODUCTION_DEPLOYMENT_ID: ${{ secrets.PRODUCTION_DEPLOYMENT_ID }}', 'authenticated dry-run must read production Deployment ID inside its Environment');
+assert.ok(!authenticatedDryRunJob.includes('source-push'), 'authenticated dry-run job must not run source push steps');
+assert.ok(!authenticatedDryRunJob.includes('deployment-update'), 'authenticated dry-run job must not run deployment update steps');
+assert.ok(!authenticatedDryRunJob.includes('smoke-test'), 'authenticated dry-run job must not run smoke test steps');
+includes(deployJob, 'environment:', 'production mutation job must use the production Environment');
 includes(deployJob, 'name: production', 'workflow Environment name must be production');
-assert.strictEqual((workflow.match(/\n    environment:\n/g) || []).length, 1, 'only one job may enter the production Environment');
+assert.strictEqual((workflow.match(/\n    environment:\n/g) || []).length, 2, 'only authenticated dry-run and production mutation jobs may enter protected Environments');
 includes(preflightJob, 'PRODUCTION_DEPLOY_PHASE: preflight', 'preflight job must run the preflight phase');
 includes(deployJob, 'PRODUCTION_DEPLOY_PHASE: mutation', 'deploy job must run the mutation phase');
 includes(deployJob, 'inputs.dry_run == false', 'production Environment job must run only for dry_run=false');
+assert.ok(!deployJob.includes("inputs.dry_run == true"), 'production mutation job must skip dry_run=true');
 includes(deployJob, "needs.production-preflight.result == 'success'", 'production Environment job must require preflight success');
 includes(deployJob, "needs.production-preflight.outputs.should_deploy == 'true'", 'production Environment job must skip duplicate/dry-run preflight results');
 includes(workflow, 'ref: develop', 'workflow must checkout trusted develop source');
@@ -84,9 +102,24 @@ includes(workflow, 'PREFLIGHT_REQUIRED_CHECKS_VERIFIED: ${{ needs.production-pre
 includes(workflow, 'PREFLIGHT_BUNDLE_BOUNDARY_VERIFIED: ${{ needs.production-preflight.outputs.bundle_boundary_verified }}', 'deploy job must receive bundle-boundary verification from preflight outputs');
 includes(preflightJob, 'tar -czf production-node-modules.tgz node_modules', 'preflight job must package validated dependencies outside the production Environment');
 includes(preflightJob, 'actions/upload-artifact@v4', 'preflight job must upload validated dependencies for the production mutation job');
+includes(authenticatedDryRunJob, 'actions/download-artifact@v4', 'authenticated dry-run job must restore dependencies from the preflight artifact');
+includes(authenticatedDryRunJob, 'tar -xzf production-node-modules.tgz', 'authenticated dry-run job must unpack preflight dependencies');
 includes(deployJob, 'actions/download-artifact@v4', 'deploy job must restore dependencies from the preflight artifact');
 includes(deployJob, 'tar -xzf production-node-modules.tgz', 'deploy job must unpack preflight dependencies');
+assert.ok(!authenticatedDryRunJob.includes('npm ci'), 'authenticated dry-run Environment job must not run npm ci');
 assert.ok(!deployJob.includes('npm ci'), 'production Environment job must not run npm ci');
+
+[
+  'CLASP_PRODUCTION_CREDENTIALS',
+  'PRODUCTION_SCRIPT_ID',
+  'PRODUCTION_DEPLOYMENT_ID',
+].forEach((name) => {
+  assert.strictEqual(
+    (workflow.match(new RegExp(`${name}: \\\$\\{\\{ secrets\\.${name} \\}\\}`, 'g')) || []).length,
+    2,
+    `${name} must be read only by authenticated dry-run and production mutation Environment jobs`,
+  );
+});
 
 includes(controlWorkflow, 'pull_request_target:', 'default-branch control workflow must handle PR labels');
 includes(controlWorkflow, '- labeled', 'control workflow must listen for labeled PR events');

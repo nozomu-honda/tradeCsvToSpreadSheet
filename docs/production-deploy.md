@@ -19,10 +19,11 @@ PR #84はIssue #83の一部対応です。main同期、初回設定、authentica
 - deploy workflow: `.github/workflows/deploy-production.yml`
   - `workflow_dispatch` だけで起動する。
   - 信頼済みの最新 `develop` をcheckoutする。
-  - `resolve-production-status-config`、`production-preflight`、`deploy-production` の3 jobで構成する。
-  - `production-preflight` はproduction Environmentを参照せず、dry-run、duplicate guard、required checks、ローカル検証、production status解析まで行う。
-  - `production-preflight` は検証済みの `node_modules` を短期artifactとして渡し、production Environment job内では `npm ci` を再実行しない。
-  - `deploy-production` は `dry_run=false` かつpreflight成功かつ `should_deploy=true` の場合だけ起動し、このjobだけがproduction Environmentを参照する。
+  - `resolve-production-status-config`、`production-preflight`、`authenticated-production-dry-run`、`deploy-production` で構成する。
+  - `production-preflight` はEnvironmentを参照せず、本番credentialも受け取らない。duplicate guard、required checks、ローカル検証、Smoke Test設定値の形式確認まで行う。
+  - `production-preflight` は検証済みの `node_modules` を短期artifactとして渡し、Environment job内では `npm ci` を再実行しない。
+  - `authenticated-production-dry-run` は `dry_run=true` かつ `dry_run_mode=authenticated` の場合だけ起動し、`production-preflight` Environment内で本番credentialを使ってclasp status境界まで確認する。
+  - `deploy-production` は `dry_run=false` かつpreflight成功かつ `should_deploy=true` の場合だけ起動し、このjobだけが `production` Environmentを参照する。
   - 本番mutation直前にも `HEAD == origin/develop == target_sha` を再確認する。
 
 正式経路は、developへマージ済みPRへのラベル付与です。
@@ -108,8 +109,8 @@ dry-runには2種類あります。
 
 `dry_run=true`、`dry_run_mode=authenticated`
 
-Repository Secrets / Variablesを使い、本番操作直前まで確認します。
-production Environmentは参照しないため、Environment Deployment履歴は作成しません。
+Environment `production-preflight` の承認後に本番credentialを使い、本番操作直前のclasp境界まで確認します。
+本番mutation用の `production` Environmentは参照しません。
 
 実行すること:
 
@@ -130,7 +131,13 @@ production Environmentは参照しないため、Environment Deployment履歴は
 - Smoke Test。
 - Production Status Issue更新。
 - production Environment参照。
-- Environment Deployment履歴作成。
+- 本番source push / deployment更新 / Smoke Test。
+
+Environment Deployment履歴:
+
+- `production-preflight` Environmentにはauthenticated dry-run試行として残る可能性がある。
+- `production` Environmentには残らない。
+- `production` EnvironmentのDeployment履歴は実本番mutationの正本として扱う。
 
 ## 本番反映
 
@@ -141,20 +148,21 @@ production Environmentは参照しないため、Environment Deployment履歴は
 1. control workflowが、マージ済みPRのmerge commit SHAを `target_sha` として `deploy-production.yml` を `ref: develop` でdispatchする。
 2. `production-preflight` jobが信頼済み `develop` をcheckoutし、`HEAD == origin/develop == target_sha` を確認する。
 3. `production-preflight` jobがProduction Status Issueを読み、marker、現在の本番commit、最終成功deployment、前回工程結果を確認する。
-4. `production-preflight` jobが同一SHA二重反映ガード、required checks、`npm ci`、ローカル検証、`npm run gas:production:status -- --json` の実出力解析を行う。
+4. `production-preflight` jobが同一SHA二重反映ガード、required checks、`npm ci`、ローカル検証、Smoke Test設定値の形式確認を行う。このjobでは本番credential、clasp設定生成、`npm run gas:production:status -- --json` は使わない。
 5. preflightが成功し、かつ `dry_run=false`、かつ `should_deploy=true` の場合だけ、production Environment付きの `deploy-production` jobを起動する。
    - このjobではpreflight済み依存artifactを復元し、`npm ci` は実行しない。
-6. `deploy-production` jobが本番mutation直前に `HEAD == origin/develop == target_sha` を再確認し、preflight outputs、Status Issue marker、duplicate状態を再確認する。
-7. Production Status Issueへ `preflight` を記録する。
-8. `npm run gas:production:push` を実行する。
-9. 既存Webアプリdeployment更新直前にもdevelopを再確認する。
-10. source push後にdevelopが進んでいた場合は、すでにpushした同一SHAのdeployment updateとSmoke Testまで完遂する。
-11. `clasp deploy --deploymentId` で既存deploymentを更新する。
-12. 本番Webアプリへ安全なHTTP Smoke Testを実行する。
-13. Smoke Test後に最新 `origin/develop` を再取得する。
-14. 本番反映したSHAが最新developと一致すればProduction Status Issueを `deployed` にする。
-15. source push後にdevelopが進んでいれば、本番反映工程が成功していてもProduction Status Issueは `not-deployed` にする。
-16. production Environment job開始後に失敗した場合は `failed` にし、失敗ステージと失敗内容を保持する。
+6. `deploy-production` jobがEnvironment承認後に `HEAD == origin/develop == target_sha` を再確認し、preflight outputs、Status Issue marker、現在の本番commit、duplicate状態、source PR番号、Status Issue番号を再確認する。
+7. 本番credentialから一時 `.clasprc.json` / `.clasp.production.json` を生成し、`npm run gas:production:status -- --json` でTracked / Untracked境界を確認する。
+8. clasp status境界確認が成功した後だけ、Production Status Issueへ `preflight` を記録する。
+9. `npm run gas:production:push` を実行する。
+10. 既存Webアプリdeployment更新直前にもdevelopを再確認する。
+11. source push後にdevelopが進んでいた場合は、すでにpushした同一SHAのdeployment updateとSmoke Testまで完遂する。
+12. `clasp deploy --deploymentId` で既存deploymentを更新する。
+13. 本番Webアプリへ安全なHTTP Smoke Testを実行する。
+14. Smoke Test後に最新 `origin/develop` を再取得する。
+15. 本番反映したSHAが最新developと一致すればProduction Status Issueを `deployed` にする。
+16. source push後にdevelopが進んでいれば、本番反映工程が成功していてもProduction Status Issueは `not-deployed` にする。
+17. production Environment job開始後に失敗した場合は `failed` にし、失敗ステージと失敗内容を保持する。
 
 同一SHAがすでに `deployed` と記録されている場合、通常の再実行は安全な拒否として停止します。
 この拒否では本番source push、既存Webアプリdeployment更新、Smoke Test、Production Status Issue更新、Environment failure記録を行いません。
@@ -181,6 +189,7 @@ workflow_dispatchでは、target SHAに対応するmerged PRをGitHub APIから�
 ## production status解析
 
 `npm run gas:production:status -- --json` を使い、claspの実判定結果をJSONで解析します。
+この確認は本番credentialが必要なため、Environmentなしpreflightでは実行せず、`production-preflight` Environment承認後のauthenticated dry-run、または `production` Environment承認後の本番mutation直前に実行します。
 
 Trackedに含まれてはいけないもの:
 
@@ -195,7 +204,7 @@ Trackedに含まれる必要があるもの:
 
 ## GitHub Deployment
 
-GitHub Actionsの `deploy-production` jobだけが `environment: production` を持ちます。
+GitHub Actionsでは、authenticated dry-run用に `authenticated-production-dry-run` jobだけが `environment: production-preflight` を持ち、実本番用に `deploy-production` jobだけが `environment: production` を持ちます。
 production Environment Deployment履歴は、実際の本番反映を開始したrunだけを記録する正本として扱います。
 スクリプトからGitHub Deployment APIで追加deploymentを作成しません。
 
@@ -204,19 +213,18 @@ production Environment Deployment履歴は、実際の本番反映を開始し�
 
 Environment Deployment履歴へ記録するもの:
 
+- `production-preflight` Environment: authenticated dry-runの承認後clasp status確認。
 - `dry_run=false` でpreflightに成功し、production Environment付きの本番mutation jobを開始したrun。
-- 本番mutation開始後のsource push失敗、deployment更新失敗、Smoke Test失敗、Status Issue更新失敗。
+- 本番mutation開始後のclasp status境界失敗、source push失敗、deployment更新失敗、Smoke Test失敗、Status Issue更新失敗。
 
 Environment Deployment履歴へ記録しないもの:
 
 - Static dry-run。
-- Authenticated dry-run。
 - duplicate拒否。
 - required checks失敗。
 - `npm ci`失敗。
 - validation失敗。
-- bundle境界失敗。
-- production status解析失敗。
+- Environmentなしpreflightでのbundle境界失敗。
 - Status Issue読込失敗。
 - target SHA不一致やpreflight中のdevelop進行。
 
@@ -263,7 +271,7 @@ markerがないIssueは絶対に上書きしません。
 `deployed` は、現在の本番commitが最新developと一致し、かつ最後の本番反映のsource push、deployment update、smoke testがすべて成功済みである状態だけを表します。
 `not-deployed` は、前回本番反映が成功していても、現在の本番commitが最新developと一致しない状態を表します。
 `failed` は本番反映処理が失敗した状態です。status syncでdevelopが進んでも、失敗ステージと失敗内容は消しません。
-Authenticated dry-runと本番deployのpreflightでは、required checks、`npm ci`、validationより前にStatus Issueを読みます。
+Authenticated dry-runと本番deployのEnvironmentなしpreflightでは、required checks、`npm ci`、validationより前にStatus Issueを読みます。
 preflight jobはStatus IssueをPATCHしません。
 このため、preflight中に失敗しても、現在の本番commit、最終成功deployment、最終本番反映workflow、前回工程結果は`unknown`で上書きしません。
 Production Status Issueへ `preflight`、`source-pushed`、`deployment-updated`、`verifying`、`deployed`、`failed` を記録するのは、production Environment付きの本番mutation jobだけです。
@@ -363,30 +371,41 @@ fake claspによる引数確認は回帰テストで維持します。
 
 実際のtoken、client_id、client_secret、refresh_tokenは記載しません。
 workflowではJSONのleaf値を個別にmaskし、複数行JSON全体をそのままworkflow commandへ渡しません。
+このSecretはRepository Secretsには置きません。`production-preflight` と `production` の各Environment Secretsへ登録します。
 
 ## 初回設定
 
 人間が実施します。
 
-1. GitHub Environment `production` を作成する。
-2. 必要ならEnvironment protection rulesを設定する。
-3. Repository Secretsを設定する。
+1. GitHub Environment `production-preflight` を作成する。
+2. GitHub Environment `production` を作成する。
+3. 必要なら両Environmentにrequired reviewersなどのprotection rulesを設定する。
+4. `production-preflight` Environment Secretsを設定する。
    - `CLASP_PRODUCTION_CREDENTIALS`
    - `PRODUCTION_SCRIPT_ID`
    - `PRODUCTION_DEPLOYMENT_ID`
-4. Repository Variablesを設定する。
+5. `production` Environment Secretsにも同じ3つのSecretを設定する。
+   - `CLASP_PRODUCTION_CREDENTIALS`
+   - `PRODUCTION_SCRIPT_ID`
+   - `PRODUCTION_DEPLOYMENT_ID`
+6. Repository Secretsには上記3つの本番credentialを置かない。
+7. Repository Variablesを設定する。
    - `PRODUCTION_WEB_APP_URL`
    - 任意: `PRODUCTION_SMOKE_EXPECTED_MARKER`
    - 任意: `PRODUCTION_REQUIRED_CHECKS`
-5. Repository Variableを設定する。
+8. 必要なら `production-preflight` / `production` Environment Variablesにも同名Variableを置く。ただしRepository Variablesと値を一致させる。
+   - `PRODUCTION_WEB_APP_URL`
+   - 任意: `PRODUCTION_SMOKE_EXPECTED_MARKER`
+   - 任意: `PRODUCTION_REQUIRED_CHECKS`
+9. Repository Variableを設定する。
    - `PRODUCTION_STATUS_ISSUE_NUMBER`
-6. production EnvironmentはDeployment履歴、required reviewers、deployment protection rules、本番URL表示の境界として使う。認証情報は置かない。
-7. Environment側には `PRODUCTION_STATUS_ISSUE_NUMBER` と同名のVariableを作らない。
-8. Production Status Issueをテンプレートで作成する。
-9. default branch `main` へcontrol workflowとdeploy workflow定義を同期する後続対応を実施する。
-10. default branch `main` でPRラベル起動が有効になるか確認する。
-11. まずStatic dry-runを実行する。
-12. Repository Secrets / Variables設定後にAuthenticated dry-runを実行する。
+10. `production` Environmentは実本番mutationのDeployment履歴、required reviewers、deployment protection rules、本番URL表示の境界として使う。
+11. Environment側には `PRODUCTION_STATUS_ISSUE_NUMBER` と同名のVariableを作らない。
+12. Production Status Issueをテンプレートで作成する。
+13. default branch `main` へcontrol workflowとdeploy workflow定義を同期する後続対応を実施する。
+14. default branch `main` でPRラベル起動が有効になるか確認する。
+15. まずStatic dry-runを実行する。
+16. Environment Secrets / Variables設定後にAuthenticated dry-runを実行する。
 
 ラベルが存在しない場合は、人間がGitHub上で作成します。
 
