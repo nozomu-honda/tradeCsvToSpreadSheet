@@ -79,9 +79,10 @@ PR #84をdevelopへマージしただけでは、default branch `main` 上のラ
 
 1. 最新 `develop` を確認する。
 2. マージ済みPRへ `deploy-production-dry-run` ラベルを付ける。
-3. dry-runでrequired checks、`npm ci`、本番wrapper検証、本番bundle境界検証、`npm run gas:production:status -- --json`、重複反映ガードを確認する。
+3. Environmentなしのpreflight jobで、required checks、`npm ci`、本番wrapper検証、本番bundle境界検証、`npm run gas:production:status -- --json`、重複反映ガードを確認する。
+   - authenticated dry-run、duplicate拒否、preflight失敗ではproduction Environment Deployment履歴を作らない。
 4. 問題がなければ、人間が `deploy-production` ラベルで本番反映を起動する。
-5. workflowが本番Apps Scriptへpushし、既存Webアプリdeploymentを新バージョンへ更新する。
+5. preflight成功後、production Environment付きの本番mutation jobだけが本番Apps Scriptへpushし、既存Webアプリdeploymentを新バージョンへ更新する。
 6. Production Status IssueとGitHub EnvironmentのDeployment履歴を確認する。
 7. developが進んだ場合は、metadata-onlyの `Update production status` workflowがProduction Status Issueを `not-deployed` へ更新する。
 
@@ -90,6 +91,8 @@ PR #84をdevelopへマージしただけでは、default branch `main` 上のラ
 
 Production Status Issue番号はRepository Variableだけを正本にします。
 Environment側には同名の `PRODUCTION_STATUS_ISSUE_NUMBER` Variableを作りません。
+本番workflow用の `CLASP_PRODUCTION_CREDENTIALS`、`PRODUCTION_SCRIPT_ID`、`PRODUCTION_DEPLOYMENT_ID` はRepository Secrets、`PRODUCTION_WEB_APP_URL`、任意の `PRODUCTION_SMOKE_EXPECTED_MARKER` / `PRODUCTION_REQUIRED_CHECKS` はRepository Variablesに設定します。
+production Environmentは実本番mutationを開始したrunの履歴、required reviewers、deployment protection rules、本番URL表示に限定して使います。
 
 詳細は[`docs/production-deploy.md`](production-deploy.md)を確認します。
 

@@ -19,7 +19,11 @@ PR #84はIssue #83の一部対応です。main同期、初回設定、authentica
 - deploy workflow: `.github/workflows/deploy-production.yml`
   - `workflow_dispatch` だけで起動する。
   - 信頼済みの最新 `develop` をcheckoutする。
-  - `HEAD == origin/develop == target_sha` を満たす場合だけ、本番反映処理へ進む。
+  - `resolve-production-status-config`、`production-preflight`、`deploy-production` の3 jobで構成する。
+  - `production-preflight` はproduction Environmentを参照せず、dry-run、duplicate guard、required checks、ローカル検証、production status解析まで行う。
+  - `production-preflight` は検証済みの `node_modules` を短期artifactとして渡し、production Environment job内では `npm ci` を再実行しない。
+  - `deploy-production` は `dry_run=false` かつpreflight成功かつ `should_deploy=true` の場合だけ起動し、このjobだけがproduction Environmentを参照する。
+  - 本番mutation直前にも `HEAD == origin/develop == target_sha` を再確認する。
 
 正式経路は、developへマージ済みPRへのラベル付与です。
 
@@ -68,7 +72,8 @@ control workflowは `deploy-production.yml` を `ref: develop` でdispatchする
 - Issue本文やPR本文の値は信頼しない。
 - 起動ラベルを削除し、必要な場合は再ラベル付与で再実行できるようにする。
 
-不正なラベル、未マージPR、古いPR、fork PRではproduction jobへ進みません。
+不正なラベル、未マージPR、古いPR、fork PRではdeploy workflowへ進みません。
+deploy workflow内でも、preflight失敗やduplicate拒否ではproduction Environment jobへ進みません。
 
 ## dry-run
 
@@ -103,7 +108,8 @@ dry-runには2種類あります。
 
 `dry_run=true`、`dry_run_mode=authenticated`
 
-GitHub Environment `production` のSecrets / Variablesを使い、本番操作直前まで確認します。
+Repository Secrets / Variablesを使い、本番操作直前まで確認します。
+production Environmentは参照しないため、Environment Deployment履歴は作成しません。
 
 実行すること:
 
@@ -123,6 +129,8 @@ GitHub Environment `production` のSecrets / Variablesを使い、本番操作�
 - 既存Webアプリdeployment更新。
 - Smoke Test。
 - Production Status Issue更新。
+- production Environment参照。
+- Environment Deployment履歴作成。
 
 ## 本番反映
 
@@ -131,25 +139,26 @@ GitHub Environment `production` のSecrets / Variablesを使い、本番操作�
 実行順:
 
 1. control workflowが、マージ済みPRのmerge commit SHAを `target_sha` として `deploy-production.yml` を `ref: develop` でdispatchする。
-2. deploy workflowが信頼済み `develop` をcheckoutし、`HEAD == origin/develop == target_sha` を確認する。
-3. Production Status Issueを読み、marker、現在の本番commit、最終成功deployment、前回工程結果を確認する。
-4. 同一SHA二重反映ガードを確認する。
-5. required checksが成功していることを確認する。
-6. `npm ci` とローカル検証を実行する。
-7. `npm run gas:production:status -- --json` の実出力を解析する。
-8. 本番push直前に `HEAD == origin/develop == target_sha` を再確認する。
-9. `npm run gas:production:push` を実行する。
-10. 既存Webアプリdeployment更新直前にもdevelopを再確認する。
-11. source push後にdevelopが進んでいた場合は、すでにpushした同一SHAのdeployment updateとSmoke Testまで完遂する。
-12. `clasp deploy --deploymentId` で既存deploymentを更新する。
-13. 本番Webアプリへ安全なHTTP Smoke Testを実行する。
-14. Smoke Test後に最新 `origin/develop` を再取得する。
-15. 本番反映したSHAが最新developと一致すればProduction Status Issueを `deployed` にする。
-16. source push後にdevelopが進んでいれば、本番反映工程が成功していてもProduction Status Issueは `not-deployed` にする。
-17. 途中で失敗した場合は `failed` にし、失敗ステージと失敗内容を保持する。
+2. `production-preflight` jobが信頼済み `develop` をcheckoutし、`HEAD == origin/develop == target_sha` を確認する。
+3. `production-preflight` jobがProduction Status Issueを読み、marker、現在の本番commit、最終成功deployment、前回工程結果を確認する。
+4. `production-preflight` jobが同一SHA二重反映ガード、required checks、`npm ci`、ローカル検証、`npm run gas:production:status -- --json` の実出力解析を行う。
+5. preflightが成功し、かつ `dry_run=false`、かつ `should_deploy=true` の場合だけ、production Environment付きの `deploy-production` jobを起動する。
+   - このjobではpreflight済み依存artifactを復元し、`npm ci` は実行しない。
+6. `deploy-production` jobが本番mutation直前に `HEAD == origin/develop == target_sha` を再確認し、preflight outputs、Status Issue marker、duplicate状態を再確認する。
+7. Production Status Issueへ `preflight` を記録する。
+8. `npm run gas:production:push` を実行する。
+9. 既存Webアプリdeployment更新直前にもdevelopを再確認する。
+10. source push後にdevelopが進んでいた場合は、すでにpushした同一SHAのdeployment updateとSmoke Testまで完遂する。
+11. `clasp deploy --deploymentId` で既存deploymentを更新する。
+12. 本番Webアプリへ安全なHTTP Smoke Testを実行する。
+13. Smoke Test後に最新 `origin/develop` を再取得する。
+14. 本番反映したSHAが最新developと一致すればProduction Status Issueを `deployed` にする。
+15. source push後にdevelopが進んでいれば、本番反映工程が成功していてもProduction Status Issueは `not-deployed` にする。
+16. production Environment job開始後に失敗した場合は `failed` にし、失敗ステージと失敗内容を保持する。
 
 同一SHAがすでに `deployed` と記録されている場合、通常の再実行は安全な拒否として停止します。
 この拒否では本番source push、既存Webアプリdeployment更新、Smoke Test、Production Status Issue更新、Environment failure記録を行いません。
+また、production Environment jobを起動しないため、Environment Deployment履歴も作成しません。
 意図的に同じSHAを再反映する場合だけ、`deploy-production-force` ラベルまたは `force=true` を使います。
 
 ## required checks
@@ -186,11 +195,30 @@ Trackedに含まれる必要があるもの:
 
 ## GitHub Deployment
 
-GitHub Actions jobの `environment: production` を正本にします。
+GitHub Actionsの `deploy-production` jobだけが `environment: production` を持ちます。
+production Environment Deployment履歴は、実際の本番反映を開始したrunだけを記録する正本として扱います。
 スクリプトからGitHub Deployment APIで追加deploymentを作成しません。
 
 これにより、1回の本番反映でDeployment履歴が二重に作られることを避けます。
 段階的な詳細状態はProduction Status Issueに記録します。
+
+Environment Deployment履歴へ記録するもの:
+
+- `dry_run=false` でpreflightに成功し、production Environment付きの本番mutation jobを開始したrun。
+- 本番mutation開始後のsource push失敗、deployment更新失敗、Smoke Test失敗、Status Issue更新失敗。
+
+Environment Deployment履歴へ記録しないもの:
+
+- Static dry-run。
+- Authenticated dry-run。
+- duplicate拒否。
+- required checks失敗。
+- `npm ci`失敗。
+- validation失敗。
+- bundle境界失敗。
+- production status解析失敗。
+- Status Issue読込失敗。
+- target SHA不一致やpreflight中のdevelop進行。
 
 Environmentにrequired reviewersを設定した場合、ChatGPTから承認そのものはできない可能性があります。
 承認が必要な場合は人間がGitHub上で確認・承認します。
@@ -235,8 +263,10 @@ markerがないIssueは絶対に上書きしません。
 `deployed` は、現在の本番commitが最新developと一致し、かつ最後の本番反映のsource push、deployment update、smoke testがすべて成功済みである状態だけを表します。
 `not-deployed` は、前回本番反映が成功していても、現在の本番commitが最新developと一致しない状態を表します。
 `failed` は本番反映処理が失敗した状態です。status syncでdevelopが進んでも、失敗ステージと失敗内容は消しません。
-Authenticated dry-runと本番deployでは、required checks、`npm ci`、validationより前にStatus Issueを読みます。
-このため、preflight中に失敗しても、現在の本番commit、最終成功deployment、最終本番反映workflow、前回工程結果は`unknown`で上書きせず保持します。
+Authenticated dry-runと本番deployのpreflightでは、required checks、`npm ci`、validationより前にStatus Issueを読みます。
+preflight jobはStatus IssueをPATCHしません。
+このため、preflight中に失敗しても、現在の本番commit、最終成功deployment、最終本番反映workflow、前回工程結果は`unknown`で上書きしません。
+Production Status Issueへ `preflight`、`source-pushed`、`deployment-updated`、`verifying`、`deployed`、`failed` を記録するのは、production Environment付きの本番mutation jobだけです。
 Status Issue読込自体が失敗した場合は、無関係なIssueを更新せずに停止します。
 同一SHAの通常再実行をduplicate guardで拒否した場合も、Production Status Issueは変更せず、`failed` へは変えません。
 Static dry-runでは、Status Issueを読まず、本番Secretsも要求しません。
@@ -340,22 +370,23 @@ workflowではJSONのleaf値を個別にmaskし、複数行JSON全体をその�
 
 1. GitHub Environment `production` を作成する。
 2. 必要ならEnvironment protection rulesを設定する。
-3. Environment Secretsを設定する。
+3. Repository Secretsを設定する。
    - `CLASP_PRODUCTION_CREDENTIALS`
    - `PRODUCTION_SCRIPT_ID`
    - `PRODUCTION_DEPLOYMENT_ID`
-4. Environment Variablesを設定する。
+4. Repository Variablesを設定する。
    - `PRODUCTION_WEB_APP_URL`
    - 任意: `PRODUCTION_SMOKE_EXPECTED_MARKER`
    - 任意: `PRODUCTION_REQUIRED_CHECKS`
 5. Repository Variableを設定する。
    - `PRODUCTION_STATUS_ISSUE_NUMBER`
-6. Environment側には `PRODUCTION_STATUS_ISSUE_NUMBER` と同名のVariableを作らない。
-7. Production Status Issueをテンプレートで作成する。
-8. default branch `main` へcontrol workflowとdeploy workflow定義を同期する後続対応を実施する。
-9. default branch `main` でPRラベル起動が有効になるか確認する。
-10. まずStatic dry-runを実行する。
-11. Secrets / Variables設定後にAuthenticated dry-runを実行する。
+6. production EnvironmentはDeployment履歴、required reviewers、deployment protection rules、本番URL表示の境界として使う。認証情報は置かない。
+7. Environment側には `PRODUCTION_STATUS_ISSUE_NUMBER` と同名のVariableを作らない。
+8. Production Status Issueをテンプレートで作成する。
+9. default branch `main` へcontrol workflowとdeploy workflow定義を同期する後続対応を実施する。
+10. default branch `main` でPRラベル起動が有効になるか確認する。
+11. まずStatic dry-runを実行する。
+12. Repository Secrets / Variables設定後にAuthenticated dry-runを実行する。
 
 ラベルが存在しない場合は、人間がGitHub上で作成します。
 
@@ -365,7 +396,7 @@ ChatGPT側:
 
 - マージ済みPRへ `deploy-production-dry-run` などのラベルを付けて起動する。
 - dry-run結果を確認する。
-- 必要に応じて人間へEnvironment承認を依頼する。
+- 本番mutation jobへ進む場合だけ、必要に応じて人間へEnvironment承認を依頼する。
 
 Codexが行わないこと:
 

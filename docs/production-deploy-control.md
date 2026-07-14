@@ -37,6 +37,10 @@ GitHub ActionsのPRラベル起動は、default branch上のworkflow定義で評
 条件を満たした場合だけ、`deploy-production.yml` を `ref: develop` でworkflow_dispatchする。
 これにより、GitHub Environment Deploymentの対象SHAは `main` 側control workflowのSHAではなく、実際の反映対象である最新 `develop` のSHAになる。
 
+`deploy-production.yml` 内では、Environmentなしの `production-preflight` jobがdry-run、duplicate guard、required checks、production status解析を行う。
+production Environment付きの `deploy-production` jobは、`dry_run=false` かつpreflight成功かつ `should_deploy=true` の場合だけ起動する。
+このため、authenticated dry-run、duplicate拒否、preflight失敗ではEnvironment Deployment履歴を作らない。
+
 ## 後続Issue候補
 
 PR #84マージ後、次の内容だけを扱う小さな後続Issueを作る。
@@ -49,8 +53,11 @@ PR #84マージ後、次の内容だけを扱う小さな後続Issueを作る。
 
 ### GitHub EnvironmentとProduction Status Issueを初期設定しdry-runする
 
-- Production Status Issue、Environment、Secrets / Variables、起動ラベルは人間が設定する。
+- Production Status Issue、Environment、Repository Secrets / Variables、起動ラベルは人間が設定する。
+- `CLASP_PRODUCTION_CREDENTIALS`、`PRODUCTION_SCRIPT_ID`、`PRODUCTION_DEPLOYMENT_ID` はRepository Secretsに置く。
+- `PRODUCTION_WEB_APP_URL`、任意の `PRODUCTION_SMOKE_EXPECTED_MARKER` / `PRODUCTION_REQUIRED_CHECKS` はRepository Variablesに置く。
 - Status Issue番号はRepository Variable `PRODUCTION_STATUS_ISSUE_NUMBER` だけを正本にする。
 - Environment側には同名Variableを作らない。
+- production Environmentは実本番mutationの履歴、required reviewers、deployment protection rules、本番URL表示に限定して使う。
 - main同期後にauthenticated dry-runを実行する。
 - dry-run成功後に初回本番反映を判断する。

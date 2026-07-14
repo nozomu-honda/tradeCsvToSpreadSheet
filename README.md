@@ -121,6 +121,9 @@ PRラベルはdefault branch `main` 上のcontrol workflowが受け、条件を�
 `workflow_dispatch` は人間向けfallbackとして残す。
 正式運用前に、control workflowとdeploy workflow定義を `main` へ同期する後続対応が必要。
 Production Status Issue番号はRepository Variable `PRODUCTION_STATUS_ISSUE_NUMBER` だけを正本にし、未設定時のstatus syncは安全にskipする。
+本番workflowはpreflight jobと本番mutation jobを分け、static/authenticated dry-run、duplicate拒否、preflight失敗ではproduction Environment Deployment履歴を作らない。
+本番workflow用の `CLASP_PRODUCTION_CREDENTIALS`、`PRODUCTION_SCRIPT_ID`、`PRODUCTION_DEPLOYMENT_ID` はRepository Secrets、`PRODUCTION_WEB_APP_URL` などはRepository Variablesに置く。
+production Environmentは、実本番mutationを開始したrunの履歴、required reviewers、deployment protection rules、本番URL表示に限定して使う。
 ローカル手動fallbackでは、本番専用設定を用意したうえで次のnpmコマンドだけを使う。
 
 ```bash

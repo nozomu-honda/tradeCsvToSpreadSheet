@@ -24,6 +24,17 @@ function includes(text, pattern, message) {
   assert.ok(text.includes(pattern), message || `Expected to find: ${pattern}`);
 }
 
+function jobBlock(yaml, jobName) {
+  const start = yaml.indexOf(`  ${jobName}:`);
+  assert.ok(start >= 0, `workflow must define ${jobName}`);
+  const rest = yaml.slice(start + 1);
+  const next = rest.search(/\n  [a-zA-Z0-9_-]+:\n/);
+  return next >= 0 ? rest.slice(0, next) : rest;
+}
+
+const preflightJob = jobBlock(workflow, 'production-preflight');
+const deployJob = jobBlock(workflow, 'deploy-production');
+
 includes(workflow, 'workflow_dispatch:', 'production workflow must be workflow_dispatch driven');
 assert.ok(!workflow.includes('\n  issues:\n    types:'), 'develop deploy workflow must not use issues:labeled');
 assert.ok(!workflow.includes('pull_request_target'), 'develop deploy workflow must not use pull_request_target');
@@ -51,15 +62,31 @@ assert.strictEqual(
   'PRODUCTION_STATUS_ISSUE_NUMBER must be read only by the non-Environment resolver job',
 );
 assert.ok(!workflow.includes('resolve-production-target:'), 'target resolution must live in the default-branch control workflow');
-includes(workflow, 'static-dry-run:', 'workflow must have a no-secrets static dry-run job');
-includes(workflow, 'deploy-production:', 'workflow must have an authenticated production job');
-includes(workflow, 'environment:', 'authenticated job must use the production Environment');
-includes(workflow, 'name: production', 'workflow Environment name must be production');
+includes(workflow, 'production-preflight:', 'workflow must have a production preflight job');
+assert.ok(!workflow.includes('static-dry-run:'), 'static and authenticated dry-run must share the Environment-free preflight job');
+includes(workflow, 'deploy-production:', 'workflow must have a production mutation job');
+assert.ok(!preflightJob.includes('environment:'), 'production-preflight must not use the production Environment');
+includes(deployJob, 'environment:', 'only the production mutation job must use the production Environment');
+includes(deployJob, 'name: production', 'workflow Environment name must be production');
+assert.strictEqual((workflow.match(/\n    environment:\n/g) || []).length, 1, 'only one job may enter the production Environment');
+includes(preflightJob, 'PRODUCTION_DEPLOY_PHASE: preflight', 'preflight job must run the preflight phase');
+includes(deployJob, 'PRODUCTION_DEPLOY_PHASE: mutation', 'deploy job must run the mutation phase');
+includes(deployJob, 'inputs.dry_run == false', 'production Environment job must run only for dry_run=false');
+includes(deployJob, "needs.production-preflight.result == 'success'", 'production Environment job must require preflight success');
+includes(deployJob, "needs.production-preflight.outputs.should_deploy == 'true'", 'production Environment job must skip duplicate/dry-run preflight results');
 includes(workflow, 'ref: develop', 'workflow must checkout trusted develop source');
 includes(workflow, 'git checkout -B develop origin/develop', 'local branch must be pinned to origin/develop');
 includes(workflow, 'TARGET_SHA: ${{ inputs.target_sha }}', 'deploy job must use dispatch target_sha');
 includes(workflow, 'SOURCE_PR_NUMBER: ${{ inputs.source_pr_number }}', 'deploy job must preserve source PR number');
 includes(workflow, 'node scripts/ci/run-production-deploy.js', 'workflow must call the production deploy orchestrator');
+includes(workflow, 'PREFLIGHT_TARGET_SHA: ${{ needs.production-preflight.outputs.target_sha }}', 'deploy job must receive target_sha from preflight outputs');
+includes(workflow, 'PREFLIGHT_REQUIRED_CHECKS_VERIFIED: ${{ needs.production-preflight.outputs.required_checks_verified }}', 'deploy job must receive required-check verification from preflight outputs');
+includes(workflow, 'PREFLIGHT_BUNDLE_BOUNDARY_VERIFIED: ${{ needs.production-preflight.outputs.bundle_boundary_verified }}', 'deploy job must receive bundle-boundary verification from preflight outputs');
+includes(preflightJob, 'tar -czf production-node-modules.tgz node_modules', 'preflight job must package validated dependencies outside the production Environment');
+includes(preflightJob, 'actions/upload-artifact@v4', 'preflight job must upload validated dependencies for the production mutation job');
+includes(deployJob, 'actions/download-artifact@v4', 'deploy job must restore dependencies from the preflight artifact');
+includes(deployJob, 'tar -xzf production-node-modules.tgz', 'deploy job must unpack preflight dependencies');
+assert.ok(!deployJob.includes('npm ci'), 'production Environment job must not run npm ci');
 
 includes(controlWorkflow, 'pull_request_target:', 'default-branch control workflow must handle PR labels');
 includes(controlWorkflow, '- labeled', 'control workflow must listen for labeled PR events');

@@ -52,6 +52,23 @@ function baseEnv(overrides = {}) {
   };
 }
 
+function mutationEnv(overrides = {}) {
+  return baseEnv({
+    DRY_RUN: 'false',
+    PRODUCTION_DEPLOY_PHASE: 'mutation',
+    SOURCE_PR_NUMBER: '10',
+    PREFLIGHT_TARGET_SHA: targetSha,
+    PREFLIGHT_SOURCE_PR_NUMBER: '10',
+    PREFLIGHT_PASSED: 'true',
+    PREFLIGHT_SHOULD_DEPLOY: 'true',
+    PREFLIGHT_CURRENT_PRODUCTION_SHA: previousSha,
+    PREFLIGHT_PRODUCTION_STATUS_ISSUE_NUMBER: '123',
+    PREFLIGHT_REQUIRED_CHECKS_VERIFIED: 'true',
+    PREFLIGHT_BUNDLE_BOUNDARY_VERIFIED: 'true',
+    ...overrides,
+  });
+}
+
 function createAdapters(options = {}) {
   const calls = [];
   const state = {
@@ -307,6 +324,146 @@ async function assertRejectsWith(fn, pattern) {
     assert.ok(!adapters.calls.includes('source-push'));
     assert.ok(!adapters.calls.includes('deployment-update'));
     assert.ok(!adapters.calls.includes('status-issue-update'));
+  }
+
+  {
+    const adapters = createAdapters();
+    const result = await runProductionDeploy({
+      env: baseEnv({ DRY_RUN_MODE: 'authenticated', PRODUCTION_DEPLOY_PHASE: 'preflight', SOURCE_PR_NUMBER: '10' }),
+      adapters,
+    });
+    assert.strictEqual(result.phase, 'preflight');
+    assert.strictEqual(result.outputs.should_deploy, 'false');
+    assert.strictEqual(result.outputs.preflight_passed, 'true');
+    assert.strictEqual(result.outputs.required_checks_verified, 'true');
+    assert.strictEqual(result.outputs.bundle_boundary_verified, 'true');
+    assert.ok(adapters.calls.includes('production-status'));
+    assert.ok(!adapters.calls.includes('source-push'));
+    assert.ok(!adapters.calls.includes('deployment-update'));
+    assert.ok(!adapters.calls.includes('smoke-test'));
+    assert.ok(!adapters.calls.includes('status-issue-update'));
+    assert.ok(!adapters.calls.includes('environment-failure'));
+  }
+
+  {
+    const adapters = createAdapters();
+    const result = await runProductionDeploy({
+      env: baseEnv({ DRY_RUN: 'false', PRODUCTION_DEPLOY_PHASE: 'preflight', SOURCE_PR_NUMBER: '10' }),
+      adapters,
+    });
+    assert.strictEqual(result.phase, 'preflight');
+    assert.strictEqual(result.outputs.should_deploy, 'true');
+    assert.strictEqual(result.outputs.target_sha, targetSha);
+    assert.strictEqual(result.outputs.current_production_sha, previousSha);
+    assert.strictEqual(result.outputs.production_status_issue_number, '123');
+    assert.ok(adapters.calls.includes('production-status'));
+    assert.ok(!adapters.calls.includes('source-push'));
+    assert.ok(!adapters.calls.includes('deployment-update'));
+    assert.ok(!adapters.calls.includes('smoke-test'));
+    assert.ok(!adapters.calls.includes('status-issue-update'));
+  }
+
+  {
+    const adapters = createAdapters({ duplicateDeployed: true });
+    await assertRejectsWith(() => runProductionDeploy({
+      env: baseEnv({ DRY_RUN: 'false', PRODUCTION_DEPLOY_PHASE: 'preflight', SOURCE_PR_NUMBER: '10' }),
+      adapters,
+    }), /already recorded as deployed/);
+    assert.ok(!adapters.calls.includes('npm-ci'));
+    assert.ok(!adapters.calls.includes('write-clasp'));
+    assert.ok(!adapters.calls.includes('production-status'));
+    assert.ok(!adapters.calls.includes('source-push'));
+    assert.ok(!adapters.calls.includes('deployment-update'));
+    assert.ok(!adapters.calls.includes('smoke-test'));
+    assert.ok(!adapters.calls.includes('status-issue-update'));
+    assert.ok(!adapters.calls.includes('environment-failure'));
+    assert.ok(adapters.state.stepSummaries.at(-1).includes('- reason: `already-deployed`'));
+  }
+
+  {
+    const adapters = createAdapters({ requiredCheckFails: true });
+    await assertRejectsWith(() => runProductionDeploy({
+      env: baseEnv({ DRY_RUN: 'false', PRODUCTION_DEPLOY_PHASE: 'preflight', SOURCE_PR_NUMBER: '10' }),
+      adapters,
+    }), /Required checks/);
+    assert.ok(!adapters.calls.includes('npm-ci'));
+    assert.ok(!adapters.calls.includes('write-clasp'));
+    assert.ok(!adapters.calls.includes('production-status'));
+    assert.ok(!adapters.calls.includes('source-push'));
+    assert.ok(!adapters.calls.includes('deployment-update'));
+    assert.ok(!adapters.calls.includes('smoke-test'));
+    assert.ok(!adapters.calls.includes('status-issue-update'));
+    assert.ok(!adapters.calls.includes('environment-failure'));
+  }
+
+  {
+    const adapters = createAdapters({ failNpmCi: true });
+    await assertRejectsWith(() => runProductionDeploy({
+      env: baseEnv({ DRY_RUN: 'false', PRODUCTION_DEPLOY_PHASE: 'preflight', SOURCE_PR_NUMBER: '10' }),
+      adapters,
+    }), /npm ci failed/);
+    assert.ok(!adapters.calls.includes('write-clasp'));
+    assert.ok(!adapters.calls.includes('production-status'));
+    assert.ok(!adapters.calls.includes('source-push'));
+    assert.ok(!adapters.calls.includes('status-issue-update'));
+    assert.ok(!adapters.calls.includes('environment-failure'));
+  }
+
+  {
+    const adapters = createAdapters({ failValidationScript: 'test:production-status-parser' });
+    await assertRejectsWith(() => runProductionDeploy({
+      env: baseEnv({ DRY_RUN: 'false', PRODUCTION_DEPLOY_PHASE: 'preflight', SOURCE_PR_NUMBER: '10' }),
+      adapters,
+    }), /validation failed: test:production-status-parser/);
+    assert.ok(!adapters.calls.includes('write-clasp'));
+    assert.ok(!adapters.calls.includes('production-status'));
+    assert.ok(!adapters.calls.includes('source-push'));
+    assert.ok(!adapters.calls.includes('status-issue-update'));
+    assert.ok(!adapters.calls.includes('environment-failure'));
+  }
+
+  {
+    const adapters = createAdapters({
+      badStatusOutput: JSON.stringify({ filesToPush: ['src/app/e2e_helpers.gs'], untrackedFiles: [] }),
+    });
+    await assertRejectsWith(() => runProductionDeploy({
+      env: baseEnv({ DRY_RUN: 'false', PRODUCTION_DEPLOY_PHASE: 'preflight', SOURCE_PR_NUMBER: '10' }),
+      adapters,
+    }), /required tracked file|forbidden/);
+    assert.ok(adapters.calls.includes('write-clasp'));
+    assert.ok(adapters.calls.includes('production-status'));
+    assert.ok(!adapters.calls.includes('source-push'));
+    assert.ok(!adapters.calls.includes('deployment-update'));
+    assert.ok(!adapters.calls.includes('smoke-test'));
+    assert.ok(!adapters.calls.includes('status-issue-update'));
+    assert.ok(!adapters.calls.includes('environment-failure'));
+  }
+
+  {
+    const adapters = createAdapters();
+    await runProductionDeploy({
+      env: mutationEnv(),
+      adapters,
+    });
+    assert.ok(adapters.calls.includes('source-push'));
+    assert.ok(adapters.calls.includes('deployment-update'));
+    assert.ok(adapters.calls.includes('smoke-test'));
+    assert.ok(adapters.state.issuePatchBodies.some((body) => body.includes('- 状態: `deployed`')));
+  }
+
+  {
+    const adapters = createAdapters({ failSourcePush: true });
+    await assertRejectsWith(() => runProductionDeploy({
+      env: mutationEnv(),
+      adapters,
+    }), /source push failed/);
+    assert.ok(adapters.calls.includes('write-clasp'));
+    assert.ok(adapters.calls.includes('source-push'));
+    assert.ok(!adapters.calls.includes('deployment-update'));
+    assert.ok(!adapters.calls.includes('smoke-test'));
+    assert.ok(adapters.calls.includes('environment-failure'), 'mutation failure should be recorded as an Environment failure when supported');
+    assert.ok(adapters.state.issuePatchBodies.some((body) => body.includes('- 状態: `failed`')));
+    assert.ok(adapters.state.issuePatchBodies.some((body) => body.includes('- 最終本番反映 source push: `failed`')));
   }
 
   {

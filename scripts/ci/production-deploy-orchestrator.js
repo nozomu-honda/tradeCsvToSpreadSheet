@@ -20,6 +20,9 @@ const {
 const {
   parseAndValidateProductionStatusOutput,
 } = require('./production-status-parser');
+const {
+  assertAllowedHttpsUrl,
+} = require('./production-smoke-test');
 
 const STATUS_MARKER = '<!-- production-status:managed-by-github-actions -->';
 const DEFAULT_REQUIRED_CHECKS = [
@@ -229,6 +232,52 @@ function renderExpectedRejectionSummary({ state, error }) {
   ].join('\n');
 }
 
+function validateProductionSmokeConfig(env) {
+  assertAllowedHttpsUrl(env.PRODUCTION_WEB_APP_URL);
+}
+
+function createPreflightOutputs({
+  env,
+  state,
+  shouldDeploy,
+  requiredChecksVerified,
+  bundleBoundaryVerified,
+}) {
+  return {
+    target_sha: state.targetSha || '',
+    source_pr_number: env.SOURCE_PR_NUMBER || '',
+    preflight_passed: 'true',
+    should_deploy: shouldDeploy ? 'true' : 'false',
+    current_production_sha: state.currentProductionSha || 'unknown',
+    production_status_issue_number: env.PRODUCTION_STATUS_ISSUE_NUMBER || '',
+    required_checks_verified: requiredChecksVerified ? 'true' : 'false',
+    bundle_boundary_verified: bundleBoundaryVerified ? 'true' : 'false',
+  };
+}
+
+function assertMutationPreflightOutputs({ env, targetSha }) {
+  const expectedSourcePrNumber = env.SOURCE_PR_NUMBER || '';
+  const expectedIssueNumber = env.PRODUCTION_STATUS_ISSUE_NUMBER || '';
+  const checks = [
+    ['PREFLIGHT_PASSED', env.PREFLIGHT_PASSED, 'true'],
+    ['PREFLIGHT_SHOULD_DEPLOY', env.PREFLIGHT_SHOULD_DEPLOY, 'true'],
+    ['PREFLIGHT_TARGET_SHA', env.PREFLIGHT_TARGET_SHA, targetSha],
+    ['PREFLIGHT_SOURCE_PR_NUMBER', env.PREFLIGHT_SOURCE_PR_NUMBER || '', expectedSourcePrNumber],
+    ['PREFLIGHT_PRODUCTION_STATUS_ISSUE_NUMBER', env.PREFLIGHT_PRODUCTION_STATUS_ISSUE_NUMBER || '', expectedIssueNumber],
+    ['PREFLIGHT_REQUIRED_CHECKS_VERIFIED', env.PREFLIGHT_REQUIRED_CHECKS_VERIFIED, 'true'],
+    ['PREFLIGHT_BUNDLE_BOUNDARY_VERIFIED', env.PREFLIGHT_BUNDLE_BOUNDARY_VERIFIED, 'true'],
+  ];
+
+  for (const [name, actual, expected] of checks) {
+    if (actual !== expected) {
+      throw new Error(`${name} did not match the trusted preflight output.`);
+    }
+  }
+  if (!env.PREFLIGHT_CURRENT_PRODUCTION_SHA) {
+    throw new Error('PREFLIGHT_CURRENT_PRODUCTION_SHA must be present.');
+  }
+}
+
 async function updateManagedProductionStatusIssue({ adapters, env, state }) {
   const issueNumber = Number(env.PRODUCTION_STATUS_ISSUE_NUMBER);
   const issue = await adapters.githubRequest('GET', `/repos/${env.GITHUB_REPOSITORY}/issues/${issueNumber}`);
@@ -264,7 +313,7 @@ async function safeUpdateStatusIssue({ adapters, env, state }) {
   }
 }
 
-async function runProductionDeploy({ env, adapters, cwd = process.cwd() }) {
+async function runProductionDeployAll({ env, adapters, cwd = process.cwd() }) {
   const dryRun = booleanFromEnv(env.DRY_RUN, true);
   const dryRunMode = dryRun ? (env.DRY_RUN_MODE || 'static') : 'authenticated';
   const staticDryRun = dryRun && dryRunMode === 'static';
@@ -466,6 +515,315 @@ async function runProductionDeploy({ env, adapters, cwd = process.cwd() }) {
   }
 }
 
+async function runProductionPreflight({ env, adapters, cwd = process.cwd() }) {
+  const dryRun = booleanFromEnv(env.DRY_RUN, true);
+  const dryRunMode = dryRun ? (env.DRY_RUN_MODE || 'static') : 'authenticated';
+  const staticDryRun = dryRun && dryRunMode === 'static';
+  const force = booleanFromEnv(env.FORCE, false);
+  const sourcePrNumber = env.SOURCE_PR_NUMBER || '';
+  let state;
+  let currentStage = 'preflight';
+  let claspFiles;
+  let requiredChecksVerified = false;
+  let bundleBoundaryVerified = false;
+
+  try {
+    adapters.addMasksFromEnv();
+    requireConfig(env, { dryRun, dryRunMode });
+
+    adapters.fetchDevelop();
+    const latestDevelopSha = adapters.getOriginDevelopSha();
+    if (!env.TARGET_SHA || !env.TARGET_SHA.trim()) {
+      throw new Error('TARGET_SHA must be provided by workflow_dispatch and match the latest origin/develop commit.');
+    }
+    const targetSha = resolveTargetSha({
+      targetSha: env.TARGET_SHA,
+      latestDevelopSha,
+    });
+    const headSha = adapters.getHeadSha();
+    if (headSha !== targetSha) {
+      throw new Error('Checked-out HEAD must match the production target SHA.');
+    }
+
+    state = createInitialProductionDeployState({
+      targetSha,
+      latestDevelopSha,
+      dryRun,
+      force,
+      workflowRunUrl: workflowRunUrl(env),
+      status: 'preflight',
+    });
+
+    if (!staticDryRun) {
+      currentStage = 'status-issue-read';
+      const managedIssue = await readManagedProductionStatusIssue({ adapters, env });
+      state = hydrateStateFromProductionStatusIssue(state, managedIssue.parsed);
+
+      const duplicate = shouldBlockDuplicateDeployment({
+        currentProductionSha: managedIssue.parsed.currentProductionSha,
+        productionStatus: managedIssue.parsed.productionStatus,
+        targetSha,
+        force,
+      });
+      if (duplicate.blocked) {
+        throw new ExpectedProductionDeployRejection('already-deployed', duplicate.reason);
+      }
+      state.duplicateGuard = 'passed';
+    }
+
+    currentStage = 'required-checks';
+    const requiredCheckResult = await validateRequiredChecks({
+      adapters,
+      repo: env.GITHUB_REPOSITORY,
+      targetSha,
+      sourcePrNumber,
+      requiredChecks: requiredCheckNames(env),
+    });
+    requiredChecksVerified = true;
+
+    currentStage = 'local-validation';
+    validateProductionIgnoreBoundary(cwd);
+    adapters.runNpmCi();
+    for (const script of adapters.validationScripts) {
+      adapters.runValidationScript(script);
+    }
+    bundleBoundaryVerified = true;
+
+    if (staticDryRun) {
+      state.duplicateGuard = 'skipped-static-dry-run';
+      adapters.writeStepSummary([
+        renderDryRunSummary(state),
+        '',
+        `- required checks source PR: #${requiredCheckResult.pullNumber}`,
+        `- required checks SHA: \`${requiredCheckResult.checkedSha}\``,
+        '- dry_run_mode: `static`',
+      ].join('\n'));
+      return {
+        phase: 'preflight',
+        state,
+        outputs: createPreflightOutputs({
+          env,
+          state,
+          shouldDeploy: false,
+          requiredChecksVerified,
+          bundleBoundaryVerified,
+        }),
+      };
+    }
+
+    currentStage = 'production-status';
+    validateProductionSmokeConfig(env);
+    claspFiles = adapters.writeProductionClaspFiles();
+    const rawStatus = adapters.runProductionStatusCheck();
+    const parsedStatus = parseAndValidateProductionStatusOutput(rawStatus);
+
+    adapters.writeStepSummary([
+      renderDryRunSummary(state),
+      '',
+      `- required checks source PR: #${requiredCheckResult.pullNumber}`,
+      `- required checks SHA: \`${requiredCheckResult.checkedSha}\``,
+      `- production tracked files: \`${parsedStatus.trackedCount}\``,
+      `- production untracked files: \`${parsedStatus.untrackedCount}\``,
+      `- dry_run_mode: \`${dryRunMode}\``,
+      `- production mutation job: \`${dryRun ? 'skipped by dry_run' : 'ready'}\``,
+    ].join('\n'));
+
+    if (dryRun) {
+      adapters.log('dry_run=true: production mutation job, source push, deployment update, smoke test, and status issue update were skipped.');
+    }
+
+    return {
+      phase: 'preflight',
+      state,
+      outputs: createPreflightOutputs({
+        env,
+        state,
+        shouldDeploy: !dryRun,
+        requiredChecksVerified,
+        bundleBoundaryVerified,
+      }),
+    };
+  } catch (error) {
+    if (error instanceof ExpectedProductionDeployRejection) {
+      adapters.writeStepSummary(renderExpectedRejectionSummary({ state, error }));
+      throw error;
+    }
+
+    const failedState = failProductionDeployState(state || createInitialProductionDeployState({
+      dryRun,
+      force,
+      workflowRunUrl: workflowRunUrl(env),
+    }), currentStage, error);
+    adapters.writeStepSummary(renderProductionStatusIssue(failedState));
+    throw error;
+  } finally {
+    adapters.cleanupProductionClaspFiles(claspFiles);
+  }
+}
+
+async function runProductionMutation({ env, adapters, cwd = process.cwd() }) {
+  const dryRun = booleanFromEnv(env.DRY_RUN, true);
+  const dryRunMode = dryRun ? (env.DRY_RUN_MODE || 'static') : 'authenticated';
+  const force = booleanFromEnv(env.FORCE, false);
+  const sourcePrNumber = env.SOURCE_PR_NUMBER || '';
+  let state;
+  let currentStage = 'preflight';
+  let claspFiles;
+  let sourcePushSucceeded = false;
+  let statusIssueReadSucceeded = false;
+
+  try {
+    if (dryRun) {
+      throw new Error('production mutation phase requires dry_run=false.');
+    }
+
+    adapters.addMasksFromEnv();
+    requireConfig(env, { dryRun, dryRunMode });
+
+    adapters.fetchDevelop();
+    const latestDevelopSha = adapters.getOriginDevelopSha();
+    if (!env.TARGET_SHA || !env.TARGET_SHA.trim()) {
+      throw new Error('TARGET_SHA must be provided by workflow_dispatch and match the latest origin/develop commit.');
+    }
+    const targetSha = resolveTargetSha({
+      targetSha: env.TARGET_SHA,
+      latestDevelopSha,
+    });
+    const headSha = adapters.getHeadSha();
+    if (headSha !== targetSha) {
+      throw new Error('Checked-out HEAD must match the production target SHA.');
+    }
+    assertMutationPreflightOutputs({ env, targetSha });
+
+    state = createInitialProductionDeployState({
+      targetSha,
+      latestDevelopSha,
+      dryRun,
+      force,
+      workflowRunUrl: workflowRunUrl(env),
+      status: 'preflight',
+    });
+
+    currentStage = 'status-issue-read';
+    const managedIssue = await readManagedProductionStatusIssue({ adapters, env });
+    statusIssueReadSucceeded = true;
+    state = hydrateStateFromProductionStatusIssue(state, managedIssue.parsed);
+
+    const duplicate = shouldBlockDuplicateDeployment({
+      currentProductionSha: managedIssue.parsed.currentProductionSha,
+      productionStatus: managedIssue.parsed.productionStatus,
+      targetSha,
+      force,
+    });
+    if (duplicate.blocked) {
+      throw new ExpectedProductionDeployRejection('already-deployed', duplicate.reason);
+    }
+    state.duplicateGuard = 'passed';
+    if (sourcePrNumber !== (env.PREFLIGHT_SOURCE_PR_NUMBER || '')) {
+      throw new Error('SOURCE_PR_NUMBER did not match the trusted preflight output.');
+    }
+
+    currentStage = 'status-recording';
+    await updateManagedProductionStatusIssue({ adapters, env, state });
+
+    currentStage = 'source-push';
+    assertDevelopUnchanged(adapters, targetSha);
+    claspFiles = adapters.writeProductionClaspFiles();
+    adapters.runProductionSourcePush();
+    sourcePushSucceeded = true;
+    state = markProductionDeployState(state, 'source-pushed');
+    await safeUpdateStatusIssue({ adapters, env, state });
+
+    currentStage = 'deployment-update';
+    try {
+      assertDevelopUnchanged(adapters, targetSha, 'develop advanced after source push. Continuing deployment update for the already pushed target SHA.');
+    } catch (error) {
+      state.developAdvancedAfterSourcePush = true;
+      adapters.warn(error.message);
+    }
+    adapters.updateAppsScriptDeployment(targetSha);
+    state = markProductionDeployState(state, 'deployment-updated');
+    await safeUpdateStatusIssue({ adapters, env, state });
+
+    currentStage = 'smoke-test';
+    state = markProductionDeployState(state, 'verifying');
+    await safeUpdateStatusIssue({ adapters, env, state });
+    await adapters.runSmokeTest();
+
+    currentStage = 'post-smoke-develop-check';
+    adapters.fetchDevelop();
+    const latestDevelopShaAfterDeploy = adapters.getOriginDevelopSha();
+    const completedAt = new Date().toISOString();
+    const finalPatch = {
+      currentProductionSha: targetSha,
+      latestDevelopSha: latestDevelopShaAfterDeploy,
+      lastSuccessfulDeploymentSha: targetSha,
+      lastSuccessfulDeploymentAt: completedAt,
+      lastDeploymentWorkflowUrl: workflowRunUrl(env),
+      sourcePush: 'success',
+      deploymentUpdate: 'success',
+      smokeTest: 'success',
+      lastFailureStage: '',
+      failureMessage: '',
+      updatedAt: completedAt,
+    };
+    if (latestDevelopShaAfterDeploy === targetSha) {
+      state = markProductionDeployState(state, 'deployed', {
+        ...finalPatch,
+        commitsBehindDevelop: '0 commits',
+      });
+    } else {
+      state = markProductionDeployState(state, 'not-deployed', {
+        ...finalPatch,
+        developAdvancedAfterSourcePush: true,
+        commitsBehindDevelop: calculateCommitsBehind({
+          adapters,
+          currentProductionSha: targetSha,
+          latestDevelopSha: latestDevelopShaAfterDeploy,
+        }),
+      });
+    }
+    currentStage = 'status-recording';
+    await updateManagedProductionStatusIssue({ adapters, env, state });
+    return {
+      phase: 'mutation',
+      state,
+    };
+  } catch (error) {
+    if (error instanceof ExpectedProductionDeployRejection) {
+      adapters.writeStepSummary(renderExpectedRejectionSummary({ state, error }));
+      throw error;
+    }
+
+    const failedState = failProductionDeployState(state || createInitialProductionDeployState({
+      dryRun,
+      force,
+      workflowRunUrl: workflowRunUrl(env),
+    }), currentStage, error);
+    if (sourcePushSucceeded && currentStage !== 'source-push') {
+      failedState.sourcePush = 'success';
+    }
+    adapters.writeStepSummary(renderProductionStatusIssue(failedState));
+    if (statusIssueReadSucceeded) {
+      await safelyRecordFailure({ adapters, env, state: failedState });
+    }
+    throw error;
+  } finally {
+    adapters.cleanupProductionClaspFiles(claspFiles);
+  }
+}
+
+async function runProductionDeploy({ env, adapters, cwd = process.cwd() }) {
+  const phase = env.PRODUCTION_DEPLOY_PHASE || 'all';
+  if (phase === 'preflight') {
+    return runProductionPreflight({ env, adapters, cwd });
+  }
+  if (phase === 'mutation') {
+    return runProductionMutation({ env, adapters, cwd });
+  }
+  return runProductionDeployAll({ env, adapters, cwd });
+}
+
 module.exports = {
   DEFAULT_REQUIRED_CHECKS,
   ExpectedProductionDeployRejection,
@@ -475,8 +833,12 @@ module.exports = {
   readManagedProductionStatusIssue,
   requiredCheckNames,
   runProductionDeploy,
+  runProductionDeployAll,
+  runProductionMutation,
+  runProductionPreflight,
   safelyRecordFailure,
   safeUpdateStatusIssue,
+  assertMutationPreflightOutputs,
   validateManagedStatusIssue,
   validateRequiredChecks,
 };
