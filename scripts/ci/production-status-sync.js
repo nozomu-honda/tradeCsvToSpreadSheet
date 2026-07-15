@@ -144,6 +144,8 @@ async function runProductionStatusSync({ env, adapters }) {
     commitsBehindDevelop,
     lastSuccessfulDeploymentSha: parsed.lastSuccessfulDeploymentSha || 'unknown',
     lastSuccessfulDeploymentAt: parsed.lastSuccessfulDeploymentAt || 'unknown',
+    lastVerificationAt: parsed.lastVerificationAt || 'unknown',
+    lastVerificationWorkflowUrl: parsed.lastVerificationWorkflowUrl || 'unknown',
     dryRun: true,
     force: false,
     workflowRunUrl: workflowRunUrl(env),

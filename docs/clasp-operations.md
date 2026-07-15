@@ -9,6 +9,7 @@
 | PRの最終CI | テスト専用Apps Script | GitHub Actions | PRへ `run-final-ci` ラベルを付ける |
 | 本番反映dry-run | 本番Apps Script / 本番Webアプリ | GitHub Actions | マージ済みPRへ `deploy-production-dry-run` ラベルを付ける |
 | 本番反映 | 本番Apps Script / 本番Webアプリ | GitHub Actions | マージ済みPRへ `deploy-production` ラベルを付ける |
+| 更新済み本番のSmoke再検証 | 既存本番Webアプリ | GitHub Actions | `operation=verify-existing`を手動実行する |
 | 本番ソースの確認 | 本番Apps Script | ローカルPC | `npm run gas:production:status` |
 | 本番ソースの手動反映 | 本番Apps Script | ローカルPC | `npm run gas:production:push` |
 | 本番エディタを開く | 本番Apps Script | ローカルPC | `npm run gas:production:open` |
@@ -68,8 +69,8 @@ ChatGPT側からは、developへマージ済みPRへの専用ラベル付与で�
 - 条件を満たした場合だけ、`Deploy production` workflowを `ref: develop` でdispatchする。
 - deploy workflowは `target_sha` と最新 `origin/develop` の一致を確認してから本番処理へ進む。
 
-PR #84をdevelopへマージしただけでは、default branch `main` 上のラベル起動経路はまだ有効になりません。
-正式運用前に、control workflowとdeploy workflow定義を `main` へ同期する後続対応が必要です。
+Workflow inputやjob構成を変更した場合は、default branch `main` 上の手動実行UIとラベル起動経路へ自動反映されません。
+Issue #93の変更後も、control workflowとdeploy workflow定義を `main` へ同期する後続対応が必要です。
 
 基本フロー:
 
@@ -82,6 +83,8 @@ PR #84をdevelopへマージしただけでは、default branch `main` 上のラ
 7. Production Status IssueとGitHub EnvironmentのDeployment履歴を確認する。
 8. developが進んだ場合は、metadata-onlyの `Update production status` workflowがProduction Status Issueを `not-deployed` へ更新する。
 
+Smoke Testだけが失敗し、Production Statusでsource push / deployment updateがともに`success`の場合は、通常deployを再実行せず`operation=verify-existing`を検討します。この経路は`production` Environment承認後に既存本番URLへSmoke Testだけを行い、clasp認証、`.clasp.production.json`、Script ID、Deployment ID、source push、version作成、deployment更新を使用しません。状態やSHAが一致しない場合はSmoke Test前に停止します。
+
 `Update production status` workflowは、Repository Variable `PRODUCTION_STATUS_ISSUE_NUMBER` が未設定または空文字の場合は安全にskipし、Actionsを失敗させません。
 設定済みなのに不正な値、PR、closed Issue、title不一致、markerなしの場合は失敗します。
 
@@ -92,7 +95,7 @@ Environment側には同名の `PRODUCTION_STATUS_ISSUE_NUMBER` Variableを作り
 現在の本番WebアプリはGoogleログイン必須のため、両Environmentの `PRODUCTION_SMOKE_MODE` に `private-login-gated` を設定します。Smoke Testのために匿名公開へ変更してはいけません。
 Repository Variableとして使うのは `PRODUCTION_STATUS_ISSUE_NUMBER` だけです。
 `production-preflight` Environmentはauthenticated dry-runを開始したrunの履歴、required reviewers、deployment protection rulesに使います。
-`production` Environmentは実本番mutationを開始したrunの履歴、required reviewers、deployment protection rules、本番URL表示に使います。
+`production` Environmentは実本番mutationと`verify-existing`を開始したrunの履歴、required reviewers、deployment protection rules、本番URL表示に使います。job名とSummaryで通常deployと検証のみの実行を区別します。
 
 詳細は[`docs/production-deploy.md`](production-deploy.md)を確認します。
 

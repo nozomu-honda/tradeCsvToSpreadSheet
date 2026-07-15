@@ -103,6 +103,7 @@ function verifyDependencyRestoreLeavesCleanWorkingTree() {
 const preflightJob = jobBlock(workflow, 'production-preflight');
 const authenticatedDryRunJob = jobBlock(workflow, 'authenticated-production-dry-run');
 const deployJob = jobBlock(workflow, 'deploy-production');
+const verifyExistingJob = jobBlock(workflow, 'verify-existing-production');
 
 includes(workflow, 'workflow_dispatch:', 'production workflow must be workflow_dispatch driven');
 assert.ok(!workflow.includes('\n  issues:\n    types:'), 'develop deploy workflow must not use issues:labeled');
@@ -111,6 +112,9 @@ assert.ok(!workflow.includes('pull_request:'), 'production workflow must not run
 assert.ok(!workflow.includes('\n  push:'), 'production workflow must not run from push');
 
 includes(workflow, 'dry_run_mode:', 'dry_run_mode input is required');
+includes(workflow, 'operation:', 'operation input is required');
+includes(workflow, '- deploy', 'operation input must allow deploy');
+includes(workflow, '- verify-existing', 'operation input must allow verify-existing');
 includes(workflow, 'target_sha:', 'target_sha input is required');
 includes(workflow, 'source_pr_number:', 'source_pr_number input is required for PR traceability');
 includes(workflow, 'required: true', 'target_sha must be required');
@@ -135,6 +139,7 @@ includes(workflow, 'production-preflight:', 'workflow must have a production pre
 includes(workflow, 'authenticated-production-dry-run:', 'workflow must have an authenticated dry-run Environment job');
 assert.ok(!workflow.includes('static-dry-run:'), 'static dry-run must share the Environment-free preflight job');
 includes(workflow, 'deploy-production:', 'workflow must have a production mutation job');
+includes(workflow, 'verify-existing-production:', 'workflow must have a verify-existing Environment job');
 assert.ok(!preflightJob.includes('environment:'), 'production-preflight must not use the production Environment');
 assert.ok(!preflightJob.includes('secrets.CLASP_PRODUCTION_CREDENTIALS'), 'Environment-free preflight must not read production credentials');
 assert.ok(!preflightJob.includes('secrets.PRODUCTION_SCRIPT_ID'), 'Environment-free preflight must not read production Script ID');
@@ -159,15 +164,33 @@ assert.ok(!authenticatedDryRunJob.includes('smoke-test'), 'authenticated dry-run
 includes(deployJob, 'environment:', 'production mutation job must use the production Environment');
 includes(deployJob, 'name: production', 'workflow Environment name must be production');
 includes(deployJob, 'url: ${{ vars.PRODUCTION_WEB_APP_URL }}', 'only the production mutation Environment may publish the production Web App URL');
+includes(verifyExistingJob, 'environment:', 'verify-existing must use the protected production Environment');
+includes(verifyExistingJob, 'name: production', 'verify-existing must use the production Environment');
+includes(verifyExistingJob, 'url: ${{ vars.PRODUCTION_WEB_APP_URL }}', 'verify-existing Environment must expose the verified production URL');
 assert.strictEqual(
   (workflow.match(/url: \$\{\{ vars\.PRODUCTION_WEB_APP_URL \}\}/g) || []).length,
-  1,
-  'only deploy-production may use PRODUCTION_WEB_APP_URL as an Environment URL',
+  2,
+  'only deploy-production and verify-existing-production may use PRODUCTION_WEB_APP_URL as an Environment URL',
 );
-assert.strictEqual((workflow.match(/\n    environment:\n/g) || []).length, 2, 'only authenticated dry-run and production mutation jobs may enter protected Environments');
+assert.strictEqual((workflow.match(/\n    environment:\n/g) || []).length, 3, 'only authenticated dry-run, production mutation, and verify-existing jobs may enter protected Environments');
 includes(preflightJob, 'PRODUCTION_DEPLOY_PHASE: preflight', 'preflight job must run the preflight phase');
 includes(deployJob, 'PRODUCTION_DEPLOY_PHASE: mutation', 'deploy job must run the mutation phase');
+includes(verifyExistingJob, 'PRODUCTION_DEPLOY_PHASE: verify-existing', 'verify job must run the verify-existing phase');
+includes(verifyExistingJob, "inputs.operation == 'verify-existing'", 'verify job must require operation=verify-existing');
+includes(verifyExistingJob, 'inputs.dry_run == false', 'verify job must reject dry_run=true');
+includes(verifyExistingJob, "needs.production-preflight.outputs.should_verify_existing == 'true'", 'verify job must require trusted verify preflight output');
+assert.ok(!verifyExistingJob.includes('CLASP_PRODUCTION_CREDENTIALS'), 'verify-existing must not receive clasp credentials');
+assert.ok(!verifyExistingJob.includes('PRODUCTION_SCRIPT_ID'), 'verify-existing must not receive production Script ID');
+assert.ok(!verifyExistingJob.includes('PRODUCTION_DEPLOYMENT_ID'), 'verify-existing must not receive production Deployment ID');
+assert.ok(!verifyExistingJob.includes('actions/download-artifact'), 'verify-existing must not restore deploy dependencies');
+assert.ok(!verifyExistingJob.includes('production-node-modules'), 'verify-existing must not use the deploy dependency artifact');
+assert.ok(!verifyExistingJob.includes('npm ci'), 'verify-existing must not install dependencies');
+assert.ok(!verifyExistingJob.includes('gas:production:push'), 'verify-existing must not invoke source push');
+assert.ok(!verifyExistingJob.includes('deployment-update'), 'verify-existing must not contain a deployment update step');
+assert.ok(!verifyExistingJob.includes('writeProductionClaspFiles'), 'verify-existing must not create clasp config');
 includes(deployJob, 'inputs.dry_run == false', 'production Environment job must run only for dry_run=false');
+includes(deployJob, "inputs.operation == 'deploy'", 'production mutation job must require operation=deploy');
+includes(authenticatedDryRunJob, "inputs.operation == 'deploy'", 'authenticated dry-run job must require operation=deploy');
 assert.ok(!deployJob.includes("inputs.dry_run == true"), 'production mutation job must skip dry_run=true');
 includes(deployJob, "needs.production-preflight.result == 'success'", 'production Environment job must require preflight success');
 includes(deployJob, "needs.production-preflight.outputs.should_deploy == 'true'", 'production Environment job must skip duplicate/dry-run preflight results');
@@ -177,6 +200,8 @@ includes(workflow, 'TARGET_SHA: ${{ inputs.target_sha }}', 'deploy job must use 
 includes(workflow, 'SOURCE_PR_NUMBER: ${{ inputs.source_pr_number }}', 'deploy job must preserve source PR number');
 includes(workflow, 'node scripts/ci/run-production-deploy.js', 'workflow must call the production deploy orchestrator');
 includes(workflow, 'PREFLIGHT_TARGET_SHA: ${{ needs.production-preflight.outputs.target_sha }}', 'deploy job must receive target_sha from preflight outputs');
+includes(workflow, 'PREFLIGHT_OPERATION: ${{ needs.production-preflight.outputs.operation }}', 'Environment jobs must receive the trusted operation output');
+includes(workflow, 'PREFLIGHT_SHOULD_VERIFY_EXISTING: ${{ needs.production-preflight.outputs.should_verify_existing }}', 'Environment jobs must receive the trusted verify decision');
 includes(workflow, 'PREFLIGHT_REQUIRED_CHECKS_VERIFIED: ${{ needs.production-preflight.outputs.required_checks_verified }}', 'deploy job must receive required-check verification from preflight outputs');
 includes(workflow, 'static_boundary_verified: ${{ steps.preflight.outputs.static_boundary_verified }}', 'preflight job must expose static boundary verification');
 includes(workflow, 'PREFLIGHT_STATIC_BOUNDARY_VERIFIED: ${{ needs.production-preflight.outputs.static_boundary_verified }}', 'Environment jobs must receive static-boundary verification from preflight outputs');
@@ -184,6 +209,11 @@ includes(preflightJob, 'mkdir -p "${RUNNER_TEMP}/production-dependencies"', 'pre
 includes(preflightJob, 'tar -czf "${RUNNER_TEMP}/production-dependencies/production-node-modules.tgz" node_modules', 'preflight job must package validated dependencies outside the repository and production Environment');
 includes(preflightJob, 'actions/upload-artifact@v4', 'preflight job must upload validated dependencies for the production mutation job');
 includes(preflightJob, 'path: ${{ runner.temp }}/production-dependencies/production-node-modules.tgz', 'preflight upload must read the archive from the runner temporary directory');
+assert.strictEqual(
+  (preflightJob.match(/if: \$\{\{ inputs\.operation == 'deploy' && steps\.preflight\.outputs\.preflight_passed == 'true'/g) || []).length,
+  2,
+  'preflight dependency pack and upload steps must run only for operation=deploy',
+);
 includes(authenticatedDryRunJob, 'actions/download-artifact@v4', 'authenticated dry-run job must restore dependencies from the preflight artifact');
 includes(deployJob, 'actions/download-artifact@v4', 'deploy job must restore dependencies from the preflight artifact');
 assertDependencyArtifactCleanup(authenticatedDryRunJob, 'authenticated dry-run job');
@@ -221,8 +251,8 @@ assert.ok(!gitignore.split(/\r?\n/).map((line) => line.trim()).includes('*.tgz')
 ].forEach((name) => {
   assert.strictEqual(
     (workflow.match(new RegExp(`${name}: \\\$\\{\\{ vars\\.${name} \\}\\}`, 'g')) || []).length,
-    2,
-    `${name} must be read only by authenticated dry-run and production mutation Environment jobs`,
+    3,
+    `${name} must be read only by authenticated dry-run, production mutation, and verify-existing Environment jobs`,
   );
 });
 
@@ -238,6 +268,7 @@ includes(controlWorkflow, 'pull request merge commit is not the latest develop H
 includes(controlWorkflow, 'removeLabel', 'control workflow must remove trigger labels for re-runability');
 includes(controlWorkflow, 'target_sha: pr.merge_commit_sha', 'control workflow must pass the actual develop merge commit');
 includes(controlWorkflow, 'source_pr_number: String(pr.number)', 'control workflow must pass source PR number');
+includes(controlWorkflow, "operation: 'deploy'", 'existing production labels must explicitly dispatch operation=deploy');
 
 includes(statusWorkflow, '\n  push:', 'status sync workflow must run on develop push');
 includes(statusWorkflow, '- develop', 'status sync workflow must be scoped to develop');

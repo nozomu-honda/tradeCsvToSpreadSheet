@@ -31,6 +31,7 @@ function baseEnv(overrides = {}) {
     GITHUB_SERVER_URL: 'https://github.com',
     GITHUB_RUN_ID: '1',
     TARGET_SHA: targetSha,
+    PRODUCTION_DEPLOY_OPERATION: 'deploy',
     DRY_RUN: 'true',
     DRY_RUN_MODE: 'static',
     FORCE: 'false',
@@ -59,9 +60,11 @@ function mutationEnv(overrides = {}) {
     PRODUCTION_DEPLOY_PHASE: 'mutation',
     SOURCE_PR_NUMBER: '10',
     PREFLIGHT_TARGET_SHA: targetSha,
+    PREFLIGHT_OPERATION: 'deploy',
     PREFLIGHT_SOURCE_PR_NUMBER: '10',
     PREFLIGHT_PASSED: 'true',
     PREFLIGHT_SHOULD_DEPLOY: 'true',
+    PREFLIGHT_SHOULD_VERIFY_EXISTING: 'false',
     PREFLIGHT_CURRENT_PRODUCTION_SHA: previousSha,
     PREFLIGHT_PRODUCTION_STATUS_ISSUE_NUMBER: '123',
     PREFLIGHT_REQUIRED_CHECKS_VERIFIED: 'true',
@@ -77,15 +80,38 @@ function authenticatedDryRunEnv(overrides = {}) {
     PRODUCTION_DEPLOY_PHASE: 'authenticated-dry-run',
     SOURCE_PR_NUMBER: '10',
     PREFLIGHT_TARGET_SHA: targetSha,
+    PREFLIGHT_OPERATION: 'deploy',
     PREFLIGHT_SOURCE_PR_NUMBER: '10',
     PREFLIGHT_PASSED: 'true',
     PREFLIGHT_SHOULD_DEPLOY: 'false',
+    PREFLIGHT_SHOULD_VERIFY_EXISTING: 'false',
     PREFLIGHT_CURRENT_PRODUCTION_SHA: previousSha,
     PREFLIGHT_PRODUCTION_STATUS_ISSUE_NUMBER: '123',
     PREFLIGHT_REQUIRED_CHECKS_VERIFIED: 'true',
     PREFLIGHT_STATIC_BOUNDARY_VERIFIED: 'true',
     ...overrides,
   });
+}
+
+function verifyExistingEnv(overrides = {}) {
+  return withoutProductionCredentials(baseEnv({
+    PRODUCTION_DEPLOY_OPERATION: 'verify-existing',
+    DRY_RUN: 'false',
+    FORCE: 'false',
+    PRODUCTION_DEPLOY_PHASE: 'verify-existing',
+    SOURCE_PR_NUMBER: '10',
+    PREFLIGHT_OPERATION: 'verify-existing',
+    PREFLIGHT_TARGET_SHA: targetSha,
+    PREFLIGHT_SOURCE_PR_NUMBER: '10',
+    PREFLIGHT_PASSED: 'true',
+    PREFLIGHT_SHOULD_DEPLOY: 'false',
+    PREFLIGHT_SHOULD_VERIFY_EXISTING: 'true',
+    PREFLIGHT_CURRENT_PRODUCTION_SHA: targetSha,
+    PREFLIGHT_PRODUCTION_STATUS_ISSUE_NUMBER: '123',
+    PREFLIGHT_REQUIRED_CHECKS_VERIFIED: 'true',
+    PREFLIGHT_STATIC_BOUNDARY_VERIFIED: 'true',
+    ...overrides,
+  }));
 }
 
 function withoutProductionCredentials(env) {
@@ -103,6 +129,21 @@ function withoutProductionEnvironmentConfig(env) {
   delete copy.PRODUCTION_SMOKE_EXPECTED_MARKER;
   delete copy.PRODUCTION_REQUIRED_CHECKS;
   return copy;
+}
+
+function verifyExistingStatusOptions(overrides = {}) {
+  return {
+    productionStatus: 'failed',
+    currentProductionSha: targetSha,
+    statusTargetSha: targetSha,
+    statusLatestDevelopSha: targetSha,
+    sourcePushResult: 'success',
+    deploymentUpdateResult: 'success',
+    smokeTestResult: 'failed',
+    lastFailureStage: 'smoke-test',
+    lastSuccessfulDeploymentSha: previousSha,
+    ...overrides,
+  };
 }
 
 function createAdapters(options = {}) {
@@ -223,17 +264,31 @@ function createAdapters(options = {}) {
       if (apiPath === '/repos/owner/repo/pulls/10') {
         return {
           number: 10,
-          merged_at: '2026-07-14T00:00:00Z',
-          merge_commit_sha: targetSha,
-          head: { sha: prHeadSha },
+          merged_at: options.sourcePrMerged === false ? null : '2026-07-14T00:00:00Z',
+          merge_commit_sha: options.sourcePrMergeSha || targetSha,
+          base: {
+            ref: options.sourcePrBase || 'develop',
+            repo: { full_name: 'owner/repo' },
+          },
+          head: {
+            sha: prHeadSha,
+            repo: { full_name: options.sourcePrHeadRepo || 'owner/repo' },
+          },
         };
       }
       if (apiPath.includes('/pulls?')) {
         return [{
           number: 10,
-          merged_at: '2026-07-14T00:00:00Z',
-          merge_commit_sha: targetSha,
-          head: { sha: prHeadSha },
+          merged_at: options.sourcePrMerged === false ? null : '2026-07-14T00:00:00Z',
+          merge_commit_sha: options.sourcePrMergeSha || targetSha,
+          base: {
+            ref: options.sourcePrBase || 'develop',
+            repo: { full_name: 'owner/repo' },
+          },
+          head: {
+            sha: prHeadSha,
+            repo: { full_name: options.sourcePrHeadRepo || 'owner/repo' },
+          },
         }];
       }
       if (apiPath === `/repos/owner/repo/commits/${prHeadSha}/check-runs?per_page=100`) {
@@ -261,14 +316,18 @@ function createAdapters(options = {}) {
             '',
             `- 状態: \`${options.productionStatus || 'deployed'}\``,
             `- 本番commit: \`${currentProductionSha}\``,
-            `- 最新develop: \`${targetSha}\``,
+            `- 反映対象commit: \`${options.statusTargetSha || targetSha}\``,
+            `- 最新develop: \`${options.statusLatestDevelopSha || targetSha}\``,
             '- developとの差分: `1 commits`',
-            '- 最終本番反映 source push: `success`',
-            '- 最終本番反映 deployment update: `success`',
-            '- 最終本番反映 smoke test: `success`',
+            `- 最終本番反映 source push: \`${options.sourcePushResult || 'success'}\``,
+            `- 最終本番反映 deployment update: \`${options.deploymentUpdateResult || 'success'}\``,
+            `- 最終本番反映 smoke test: \`${options.smokeTestResult || 'success'}\``,
             `- 最終成功本番反映commit: \`${lastSuccessfulDeploymentSha}\``,
             '- 最終成功deployment日時: `2026-07-13T00:00:00.000Z`',
+            '- 最終本番検証日時: `2026-07-14T00:00:00.000Z`',
+            `- 最終失敗ステージ: \`${options.lastFailureStage || 'none'}\``,
             '- 最終本番反映workflow: https://github.com/owner/repo/actions/runs/999',
+            '- 最終本番検証workflow: https://github.com/owner/repo/actions/runs/777',
             '- 最終status同期workflow: https://github.com/owner/repo/actions/runs/888',
             '<!-- production-status:managed-by-github-actions -->',
           ].join('\n');
@@ -278,7 +337,7 @@ function createAdapters(options = {}) {
         state.statusIssueBody = issueBody;
         return {
           title: '本番反映ステータス',
-          state: 'open',
+          state: options.statusIssueClosed ? 'closed' : 'open',
           body: issueBody,
         };
       }
@@ -317,6 +376,14 @@ function assertPreservedProductionInfo(body, {
   if (lastFailureStage) {
     assert.ok(body.includes(`- 最終失敗ステージ: \`${lastFailureStage}\``), `failure stage should be ${lastFailureStage}`);
   }
+}
+
+function assertNoVerifyExistingMutation(adapters) {
+  assert.ok(!adapters.calls.includes('npm-ci'), 'verify-existing must not run npm ci');
+  assert.ok(!adapters.calls.includes('write-clasp'), 'verify-existing must not write clasp config');
+  assert.ok(!adapters.calls.includes('production-status'), 'verify-existing must not run clasp status');
+  assert.ok(!adapters.calls.includes('source-push'), 'verify-existing must not push source');
+  assert.ok(!adapters.calls.includes('deployment-update'), 'verify-existing must not update deployment');
 }
 
 async function assertRejectsWith(fn, pattern) {
@@ -399,6 +466,148 @@ async function assertRejectsWith(fn, pattern) {
     assert.ok(!adapters.calls.includes('deployment-update'));
     assert.ok(!adapters.calls.includes('smoke-test'));
     assert.ok(!adapters.calls.includes('status-issue-update'));
+  }
+
+  {
+    const adapters = createAdapters(verifyExistingStatusOptions());
+    const result = await runProductionDeploy({
+      env: withoutProductionEnvironmentConfig(baseEnv({
+        PRODUCTION_DEPLOY_OPERATION: 'verify-existing',
+        DRY_RUN: 'false',
+        FORCE: 'false',
+        PRODUCTION_DEPLOY_PHASE: 'preflight',
+        SOURCE_PR_NUMBER: '10',
+      })),
+      adapters,
+    });
+    assert.strictEqual(result.phase, 'preflight');
+    assert.strictEqual(result.outputs.operation, 'verify-existing');
+    assert.strictEqual(result.outputs.should_deploy, 'false');
+    assert.strictEqual(result.outputs.should_verify_existing, 'true');
+    assert.strictEqual(result.outputs.current_production_sha, targetSha);
+    assertNoVerifyExistingMutation(adapters);
+    assert.ok(!adapters.calls.includes('smoke-test'));
+    assert.ok(!adapters.calls.includes('status-issue-update'));
+    assert.ok(adapters.state.stepSummaries.at(-1).includes('Production verify-existing preflight'));
+  }
+
+  {
+    const adapters = createAdapters(verifyExistingStatusOptions());
+    const result = await runProductionDeploy({
+      env: verifyExistingEnv(),
+      adapters,
+    });
+    assert.strictEqual(result.phase, 'verify-existing');
+    assertNoVerifyExistingMutation(adapters);
+    assert.ok(adapters.calls.includes('smoke-test'));
+    assert.strictEqual(adapters.state.issuePatchBodies.length, 1, 'successful verify-existing must write only its final status');
+    const finalBody = adapters.state.issuePatchBodies.at(-1);
+    assert.ok(finalBody.includes('- 状態: `deployed`'));
+    assert.ok(finalBody.includes(`- 本番commit: \`${targetSha}\``));
+    assert.ok(finalBody.includes('- 最終本番反映 source push: `success`'));
+    assert.ok(finalBody.includes('- 最終本番反映 deployment update: `success`'));
+    assert.ok(finalBody.includes('- 最終本番反映 smoke test: `success`'));
+    assert.ok(finalBody.includes(`- 最終成功本番反映commit: \`${targetSha}\``));
+    assert.ok(finalBody.includes('- 最終成功deployment日時: `2026-07-13T00:00:00.000Z`'), 'verify-only must preserve deployment timestamp');
+    assert.ok(finalBody.includes('- 最終本番反映workflow: https://github.com/owner/repo/actions/runs/999'), 'verify-only must preserve deployment workflow');
+    assert.ok(finalBody.includes('- 最終本番検証workflow: https://github.com/owner/repo/actions/runs/1'));
+    assert.ok(adapters.state.stepSummaries.at(-1).includes('Production verify-existing completed'));
+  }
+
+  {
+    const adapters = createAdapters(verifyExistingStatusOptions({ failSmokeTest: true }));
+    await assertRejectsWith(() => runProductionDeploy({
+      env: verifyExistingEnv(),
+      adapters,
+    }), /smoke failed/);
+    assertNoVerifyExistingMutation(adapters);
+    assert.ok(adapters.calls.includes('smoke-test'));
+    const finalBody = adapters.state.issuePatchBodies.at(-1);
+    assert.ok(finalBody.includes('- 状態: `failed`'));
+    assert.ok(finalBody.includes(`- 本番commit: \`${targetSha}\``));
+    assert.ok(finalBody.includes('- 最終本番反映 source push: `success`'));
+    assert.ok(finalBody.includes('- 最終本番反映 deployment update: `success`'));
+    assert.ok(finalBody.includes('- 最終本番反映 smoke test: `failed`'));
+    assert.ok(finalBody.includes('- 最終失敗ステージ: `smoke-test`'));
+    assert.ok(finalBody.includes(`- 最終成功本番反映commit: \`${previousSha}\``));
+    assert.ok(finalBody.includes('- 最終成功deployment日時: `2026-07-13T00:00:00.000Z`'));
+    assert.ok(finalBody.includes('- 最終本番検証workflow: https://github.com/owner/repo/actions/runs/1'));
+  }
+
+  {
+    const adapters = createAdapters(verifyExistingStatusOptions({ developAdvancesBeforePush: true }));
+    await assertRejectsWith(() => runProductionDeploy({
+      env: verifyExistingEnv(),
+      adapters,
+    }), /develop advanced before verify-existing Smoke Test/);
+    assertNoVerifyExistingMutation(adapters);
+    assert.ok(!adapters.calls.includes('smoke-test'));
+    assert.strictEqual(adapters.state.issuePatchBodies.length, 0);
+  }
+
+  for (const [name, options, pattern] of [
+    ['source push incomplete', { sourcePushResult: 'failed' }, /source push/],
+    ['deployment update incomplete', { deploymentUpdateResult: 'not-started' }, /deployment update/],
+    ['smoke result mismatch', { smokeTestResult: 'success' }, /smoke test/],
+    ['failure stage mismatch', { lastFailureStage: 'deployment-update' }, /last failure stage/],
+    ['current production mismatch', { currentProductionSha: previousSha }, /Current production SHA changed|current production SHA/],
+    ['status target mismatch', { statusTargetSha: previousSha }, /status target SHA/],
+    ['status latest develop mismatch', { statusLatestDevelopSha: previousSha }, /status latest develop SHA/],
+    ['already deployed', { productionStatus: 'deployed', smokeTestResult: 'success', lastFailureStage: 'none' }, /status/],
+    ['source PR merge SHA mismatch', { sourcePrMergeSha: previousSha }, /merged PR/],
+    ['source PR is not merged', { sourcePrMerged: false }, /merged PR/],
+    ['source PR base mismatch', { sourcePrBase: 'main' }, /target develop/],
+    ['source PR repository mismatch', { sourcePrHeadRepo: 'external/repo' }, /same repository/],
+    ['required checks incomplete', { requiredCheckFails: true }, /Required checks/],
+    ['managed marker missing', { statusIssueMissingMarker: true }, /managed marker/],
+    ['status issue closed', { statusIssueClosed: true }, /must be open/],
+  ]) {
+    const adapters = createAdapters(verifyExistingStatusOptions(options));
+    await assertRejectsWith(() => runProductionDeploy({
+      env: verifyExistingEnv(),
+      adapters,
+    }), pattern);
+    assertNoVerifyExistingMutation(adapters);
+    assert.ok(!adapters.calls.includes('smoke-test'), `${name} must stop before Smoke Test`);
+    assert.strictEqual(adapters.state.issuePatchBodies.length, 0, `${name} must not update Production Status`);
+  }
+
+  for (const [name, envOverrides, pattern] of [
+    ['source PR number missing', { SOURCE_PR_NUMBER: '', PREFLIGHT_SOURCE_PR_NUMBER: '' }, /positive SOURCE_PR_NUMBER/],
+    ['target SHA differs from latest develop', { TARGET_SHA: previousSha, PREFLIGHT_TARGET_SHA: previousSha }, /latest origin\/develop/],
+    ['status issue number missing', { PRODUCTION_STATUS_ISSUE_NUMBER: '', PREFLIGHT_PRODUCTION_STATUS_ISSUE_NUMBER: '' }, /Missing required production deploy configuration/],
+  ]) {
+    const adapters = createAdapters(verifyExistingStatusOptions());
+    await assertRejectsWith(() => runProductionDeploy({
+      env: verifyExistingEnv(envOverrides),
+      adapters,
+    }), pattern);
+    assertNoVerifyExistingMutation(adapters);
+    assert.ok(!adapters.calls.includes('smoke-test'), `${name} must stop before Smoke Test`);
+    assert.strictEqual(adapters.state.issuePatchBodies.length, 0, `${name} must not update Production Status`);
+  }
+
+  for (const invalidOperation of ['', 'verify', 'smoke', 'verification', 'true']) {
+    const adapters = createAdapters(verifyExistingStatusOptions());
+    await assertRejectsWith(() => runProductionDeploy({
+      env: verifyExistingEnv({ PRODUCTION_DEPLOY_OPERATION: invalidOperation }),
+      adapters,
+    }), /PRODUCTION_DEPLOY_OPERATION/);
+    assertNoVerifyExistingMutation(adapters);
+    assert.ok(!adapters.calls.includes('smoke-test'));
+  }
+
+  for (const invalidCombination of [
+    { DRY_RUN: 'true' },
+    { FORCE: 'true' },
+  ]) {
+    const adapters = createAdapters(verifyExistingStatusOptions());
+    await assertRejectsWith(() => runProductionDeploy({
+      env: verifyExistingEnv(invalidCombination),
+      adapters,
+    }), /verify-existing/);
+    assertNoVerifyExistingMutation(adapters);
+    assert.ok(!adapters.calls.includes('smoke-test'));
   }
 
   {
@@ -623,6 +832,7 @@ async function assertRejectsWith(fn, pattern) {
     assert.ok(finalBody.includes('- 最終本番反映 source push: `success`'));
     assert.ok(finalBody.includes('- 最終本番反映 deployment update: `success`'));
     assert.ok(finalBody.includes(`- 最終成功本番反映commit: \`${previousSha}\``));
+    assert.ok(finalBody.includes('- 最終本番検証workflow: https://github.com/owner/repo/actions/runs/1'));
     assert.ok(!adapters.state.issuePatchBodies.some((body) => body.includes('- 状態: `not-deployed`')), 'smoke failure must remain failed, not not-deployed');
   }
 
