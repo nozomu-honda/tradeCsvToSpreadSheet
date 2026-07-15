@@ -202,6 +202,21 @@ function assertPushCleanWorkingTreeBoundary() {
     process.stderr.write(cleanPush.stderr || '');
     fail('production push fixture with only ignored clasp config must pass the clean working tree check');
   }
+  const cleanPushCalls = readFakeClaspCalls(ignoredProjectWorkspace.fakeLogPath);
+  assertDeepEqual(
+    cleanPushCalls[1],
+    [
+      '--user',
+      'production',
+      '--project',
+      '.clasp.production.json',
+      '--ignore',
+      '.clasp.productionignore',
+      'push',
+      '--force',
+    ],
+    'production push args',
+  );
 
   const unexpectedWorkspace = createWorkspace('push-unexpected-file', [
     'src/test/**',
@@ -293,7 +308,7 @@ if (command === 'open-script') {
   console.log('fake open script');
   process.exit(0);
 }
-if (command === 'push') {
+if (hasCommand('push')) {
   console.log('fake push');
   process.exit(0);
 }

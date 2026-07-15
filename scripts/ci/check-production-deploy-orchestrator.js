@@ -23,6 +23,15 @@ const validStatusOutput = JSON.stringify({
     'src/test/test_runner.gs',
   ],
 });
+const fakeBundleManifest = [
+  'Index.html',
+  'appsscript.json',
+  'src/app/e2e_runtime_support.gs',
+  'src/app/import.gs',
+].map((relativePath, index) => ({
+  relativePath,
+  sha256: String(index + 1).repeat(64),
+}));
 
 function baseEnv(overrides = {}) {
   return {
@@ -35,8 +44,8 @@ function baseEnv(overrides = {}) {
     DRY_RUN_MODE: 'static',
     FORCE: 'false',
     PRODUCTION_SCRIPT_ID: 'script_id_for_test_only',
-    PRODUCTION_DEPLOYMENT_ID: 'deployment_id_for_test_only',
-    PRODUCTION_WEB_APP_URL: 'https://script.google.com/macros/s/test/exec',
+    PRODUCTION_DEPLOYMENT_ID: 'deployment_fixture_value',
+    PRODUCTION_WEB_APP_URL: 'https://script.google.com/macros/s/deployment_fixture_value/exec',
     PRODUCTION_SMOKE_MODE: 'public-marker',
     PRODUCTION_STATUS_ISSUE_NUMBER: '123',
     CLASP_PRODUCTION_CREDENTIALS: JSON.stringify({
@@ -126,6 +135,7 @@ function createAdapters(options = {}) {
       'test:production-deploy-state',
       'test:production-deploy-orchestrator',
       'test:production-status-parser',
+      'test:production-runtime-verification',
       'test:production-smoke-test',
       'test:production-deploy-control',
       'test:production-status-sync',
@@ -192,6 +202,24 @@ function createAdapters(options = {}) {
       calls.push('production-status');
       return options.badStatusOutput || validStatusOutput;
     },
+    buildLocalProductionBundleManifest(trackedFiles) {
+      calls.push('local-bundle-manifest');
+      assert.deepStrictEqual([...trackedFiles].sort(), fakeBundleManifest.map((entry) => entry.relativePath));
+      if (options.failLocalBundleManifest) {
+        throw new Error('local bundle manifest failed');
+      }
+      return fakeBundleManifest;
+    },
+    getProductionDeploymentSnapshot() {
+      calls.push('deployment-target-verification');
+      if (options.failDeploymentTargetVerification) {
+        throw new Error('deployment target verification failed');
+      }
+      return {
+        deploymentCount: 2,
+        versionNumber: 8,
+      };
+    },
     runProductionSourcePush() {
       calls.push('source-push');
       state.sourcePushCount += 1;
@@ -199,10 +227,27 @@ function createAdapters(options = {}) {
         throw new Error('source push failed');
       }
     },
+    verifyRemoteProductionSource(expectedManifest, versionNumber) {
+      assert.strictEqual(expectedManifest, fakeBundleManifest);
+      calls.push(`remote-source-verification:${versionNumber === undefined ? 'head' : versionNumber}`);
+      if (options.failRemoteSourceVerification) {
+        throw new Error('remote source verification failed');
+      }
+    },
     updateAppsScriptDeployment() {
       calls.push('deployment-update');
       if (options.failDeploymentUpdate) {
         throw new Error('deployment update failed');
+      }
+      return { versionNumber: 9 };
+    },
+    verifyProductionDeploymentUpdate(before, update, expectedManifest) {
+      calls.push('deployment-verification');
+      assert.strictEqual(before.versionNumber, 8);
+      assert.strictEqual(update.versionNumber, 9);
+      assert.strictEqual(expectedManifest, fakeBundleManifest);
+      if (options.failDeploymentVerification) {
+        throw new Error('deployment verification failed');
       }
     },
     async runSmokeTest() {
@@ -410,6 +455,7 @@ async function assertRejectsWith(fn, pattern) {
     assert.strictEqual(result.phase, 'authenticated-dry-run');
     assert.ok(adapters.calls.includes('write-clasp'), 'authenticated dry-run must write clasp config inside the protected Environment');
     assert.ok(adapters.calls.includes('production-status'), 'authenticated dry-run must run clasp status inside the protected Environment');
+    assert.ok(adapters.calls.includes('local-bundle-manifest'));
     assert.ok(!adapters.calls.includes('source-push'));
     assert.ok(!adapters.calls.includes('deployment-update'));
     assert.ok(!adapters.calls.includes('smoke-test'));
@@ -521,10 +567,18 @@ async function assertRejectsWith(fn, pattern) {
       env: mutationEnv(),
       adapters,
     });
+    assert.ok(adapters.calls.includes('deployment-target-verification'));
+    assert.ok(adapters.calls.includes('local-bundle-manifest'));
     assert.ok(adapters.calls.includes('source-push'));
+    assert.ok(adapters.calls.includes('remote-source-verification:head'));
     assert.ok(adapters.calls.includes('deployment-update'));
+    assert.ok(adapters.calls.includes('deployment-verification'));
     assert.ok(adapters.calls.includes('smoke-test'));
     assert.ok(adapters.state.issuePatchBodies.some((body) => body.includes('- 状態: `deployed`')));
+    const finalBody = adapters.state.issuePatchBodies.at(-1);
+    assert.ok(finalBody.includes('- 最終本番反映 remote source verification: `success`'));
+    assert.ok(finalBody.includes('- 最終本番反映 deployment verification: `success`'));
+    assert.ok(finalBody.includes('- 最終本番反映 web access gate verification: `success`'));
   }
 
   {
@@ -558,6 +612,33 @@ async function assertRejectsWith(fn, pattern) {
   }
 
   {
+    const mismatchedDeploymentId = 'different_fixture_value';
+    const adapters = createAdapters();
+    await assertRejectsWith(() => runProductionDeploy({
+      env: mutationEnv({ PRODUCTION_DEPLOYMENT_ID: mismatchedDeploymentId }),
+      adapters,
+    }), /configuration do not match/);
+    assert.ok(!adapters.calls.includes('deployment-target-verification'));
+    assert.ok(!adapters.calls.includes('source-push'));
+    assert.ok(!adapters.calls.includes('deployment-update'));
+    assert.ok(!adapters.calls.includes('smoke-test'));
+    const summaries = adapters.state.stepSummaries.join('\n');
+    assert.ok(!summaries.includes(mismatchedDeploymentId));
+    assert.ok(!summaries.includes('https://script.google.com/macros/s/'));
+  }
+
+  {
+    const adapters = createAdapters({ failDeploymentTargetVerification: true });
+    await assertRejectsWith(() => runProductionDeploy({
+      env: mutationEnv(),
+      adapters,
+    }), /deployment target verification failed/);
+    assert.ok(!adapters.calls.includes('source-push'));
+    assert.ok(!adapters.calls.includes('deployment-update'));
+    assert.ok(!adapters.calls.includes('smoke-test'));
+  }
+
+  {
     const adapters = createAdapters({ failSourcePush: true });
     await assertRejectsWith(() => runProductionDeploy({
       env: mutationEnv(),
@@ -572,6 +653,26 @@ async function assertRejectsWith(fn, pattern) {
     assert.ok(adapters.state.issuePatchBodies.some((body) => body.includes('- 最終本番反映 source push: `failed`')));
     const finalBody = adapters.state.issuePatchBodies.at(-1);
     assert.ok(finalBody.includes(`- 本番commit: \`${previousSha}\``));
+  }
+
+  {
+    const adapters = createAdapters({ failRemoteSourceVerification: true });
+    await assertRejectsWith(() => runProductionDeploy({
+      env: mutationEnv(),
+      adapters,
+    }), /remote source verification failed/);
+    assert.ok(adapters.calls.includes('source-push'));
+    assert.ok(adapters.calls.includes('remote-source-verification:head'));
+    assert.ok(!adapters.calls.includes('deployment-update'));
+    assert.ok(!adapters.calls.includes('smoke-test'));
+    const finalBody = adapters.state.issuePatchBodies.at(-1);
+    assert.ok(finalBody.includes('- 最終本番反映 source push: `success`'));
+    assert.ok(finalBody.includes('- 最終本番反映 remote source verification: `failed`'));
+    assert.ok(finalBody.includes('- 最終本番反映 deployment update: `not-started`'));
+    assert.ok(finalBody.includes('- 最終本番反映 deployment verification: `not-started`'));
+    assert.ok(finalBody.includes('- 最終本番反映 web access gate verification: `not-started`'));
+    assert.ok(finalBody.includes('- 状態: `failed`'));
+    assert.ok(!finalBody.includes('- 状態: `deployed`'));
   }
 
   {
@@ -612,6 +713,48 @@ async function assertRejectsWith(fn, pattern) {
   }
 
   {
+    const adapters = createAdapters({ failDeploymentVerification: true });
+    await assertRejectsWith(() => runProductionDeploy({
+      env: mutationEnv(),
+      adapters,
+    }), /deployment verification failed/);
+    assert.ok(adapters.calls.includes('deployment-update'));
+    assert.ok(adapters.calls.includes('deployment-verification'));
+    assert.ok(!adapters.calls.includes('smoke-test'));
+    const finalBody = adapters.state.issuePatchBodies.at(-1);
+    assert.ok(finalBody.includes('- 最終本番反映 deployment update: `success`'));
+    assert.ok(finalBody.includes('- 最終本番反映 deployment verification: `failed`'));
+    assert.ok(finalBody.includes('- 最終本番反映 web access gate verification: `not-started`'));
+    assert.ok(finalBody.includes('- 本番commit: `unknown`'));
+    assert.ok(!finalBody.includes(`- 本番commit: \`${targetSha}\``));
+    assert.ok(!finalBody.includes(`- 本番commit: \`${previousSha}\``));
+    assert.ok(finalBody.includes(`- 最終成功本番反映commit: \`${previousSha}\``));
+    assert.ok(finalBody.includes('- 状態: `failed`'));
+    assert.ok(!finalBody.includes('- 状態: `deployed`'));
+  }
+
+  {
+    const adapters = createAdapters({ failDeploymentVerification: true });
+    await assertRejectsWith(() => runProductionDeploy({
+      env: baseEnv({ DRY_RUN: 'false', SOURCE_PR_NUMBER: '10' }),
+      adapters,
+    }), /deployment verification failed/);
+    assert.ok(adapters.calls.includes('deployment-update'));
+    assert.ok(adapters.calls.includes('deployment-verification'));
+    assert.ok(!adapters.calls.includes('smoke-test'));
+    const finalBody = adapters.state.issuePatchBodies.at(-1);
+    assert.ok(finalBody.includes('- 最終本番反映 deployment update: `success`'));
+    assert.ok(finalBody.includes('- 最終本番反映 deployment verification: `failed`'));
+    assert.ok(finalBody.includes('- 最終本番反映 web access gate verification: `not-started`'));
+    assert.ok(finalBody.includes('- 本番commit: `unknown`'));
+    assert.ok(!finalBody.includes(`- 本番commit: \`${targetSha}\``));
+    assert.ok(!finalBody.includes(`- 本番commit: \`${previousSha}\``));
+    assert.ok(finalBody.includes(`- 最終成功本番反映commit: \`${previousSha}\``));
+    assert.ok(finalBody.includes('- 状態: `failed`'));
+    assert.ok(!finalBody.includes('- 状態: `deployed`'));
+  }
+
+  {
     const adapters = createAdapters({ failSmokeTest: true });
     await assertRejectsWith(() => runProductionDeploy({
       env: baseEnv({ DRY_RUN: 'false', SOURCE_PR_NUMBER: '10' }),
@@ -622,6 +765,9 @@ async function assertRejectsWith(fn, pattern) {
     assert.ok(finalBody.includes(`- 本番commit: \`${targetSha}\``));
     assert.ok(finalBody.includes('- 最終本番反映 source push: `success`'));
     assert.ok(finalBody.includes('- 最終本番反映 deployment update: `success`'));
+    assert.ok(finalBody.includes('- 最終本番反映 remote source verification: `success`'));
+    assert.ok(finalBody.includes('- 最終本番反映 deployment verification: `success`'));
+    assert.ok(finalBody.includes('- 最終本番反映 web access gate verification: `failed`'));
     assert.ok(finalBody.includes(`- 最終成功本番反映commit: \`${previousSha}\``));
     assert.ok(!adapters.state.issuePatchBodies.some((body) => body.includes('- 状態: `not-deployed`')), 'smoke failure must remain failed, not not-deployed');
   }

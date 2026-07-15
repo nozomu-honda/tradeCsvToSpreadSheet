@@ -6,6 +6,13 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 
 const { runProductionSmokeTest } = require('./production-smoke-test');
+const {
+  buildLocalProductionBundleManifest: createLocalProductionBundleManifest,
+  parseDeploymentListOutput,
+  parseDeploymentUpdateOutput,
+  pullAndVerifyProductionRuntimeBundle,
+  verifyDeploymentUpdate,
+} = require('./production-runtime-verification');
 
 const DEFAULT_VALIDATION_SCRIPTS = [
   'test:gas-production-wrapper',
@@ -15,6 +22,7 @@ const DEFAULT_VALIDATION_SCRIPTS = [
   'test:production-deploy-state',
   'test:production-deploy-orchestrator',
   'test:production-status-parser',
+  'test:production-runtime-verification',
   'test:production-smoke-test',
   'test:production-deploy-control',
   'test:production-status-sync',
@@ -71,6 +79,16 @@ function parseProductionCredentials(raw) {
   return parsed;
 }
 
+function validateProductionSourcePushOutput(output) {
+  if (/Skipping push\./i.test(output)) {
+    throw new Error('Production source push was skipped.');
+  }
+  if (!/Pushed\s+(?:no files|one file|\d+ files)|Script is already up to date\./i.test(output)) {
+    throw new Error('Production source push result could not be verified.');
+  }
+  return true;
+}
+
 function createNodeAdapters({
   env = process.env,
   cwd = process.cwd(),
@@ -97,6 +115,37 @@ function createNodeAdapters({
 
   function git(args) {
     return run('git', args, { capture: true });
+  }
+
+  function runProductionClasp(args) {
+    return run(claspCommand(cwd), args, {
+      capture: true,
+      redactValues,
+    });
+  }
+
+  function getProductionDeploymentSnapshot() {
+    const output = runProductionClasp([
+      '--user',
+      'production',
+      '--project',
+      '.clasp.production.json',
+      '--ignore',
+      '.clasp.productionignore',
+      '--json',
+      'list-deployments',
+    ]);
+    return parseDeploymentListOutput(output, env.PRODUCTION_DEPLOYMENT_ID);
+  }
+
+  function verifyRemoteProductionSource(expectedManifest, versionNumber) {
+    return pullAndVerifyProductionRuntimeBundle({
+      expectedManifest,
+      projectTemplatePath: path.join(cwd, '.clasp.production.example.json'),
+      scriptId: env.PRODUCTION_SCRIPT_ID,
+      versionNumber,
+      runClasp: (args) => runProductionClasp(args),
+    });
   }
 
   async function githubRequest(method, apiPath, body) {
@@ -225,32 +274,41 @@ function createNodeAdapters({
         redactValues,
       });
     },
+    buildLocalProductionBundleManifest(trackedFiles) {
+      return createLocalProductionBundleManifest({ rootDir: cwd, trackedFiles });
+    },
     runProductionSourcePush() {
       const output = run(npmCommand(), ['run', 'gas:production:push'], {
         input: 'PRODUCTION PUSH\n',
         capture: true,
         redactValues,
       });
-      process.stdout.write(`${redactText(output, redactValues)}\n`);
+      validateProductionSourcePushOutput(output);
+      process.stdout.write('Production source push command completed.\n');
     },
+    getProductionDeploymentSnapshot,
+    verifyRemoteProductionSource,
     updateAppsScriptDeployment(targetSha) {
-      const output = run(claspCommand(cwd), [
+      const output = runProductionClasp([
         '--user',
         'production',
         '--project',
         '.clasp.production.json',
         '--ignore',
         '.clasp.productionignore',
-        'deploy',
-        '--deploymentId',
+        '--json',
+        'update-deployment',
         env.PRODUCTION_DEPLOYMENT_ID,
         '--description',
         `production ${targetSha.slice(0, 12)} ${new Date().toISOString()}`,
-      ], {
-        capture: true,
-        redactValues,
-      });
-      process.stdout.write(`${redactText(output, redactValues)}\n`);
+      ]);
+      return parseDeploymentUpdateOutput(output, env.PRODUCTION_DEPLOYMENT_ID);
+    },
+    verifyProductionDeploymentUpdate(before, update, expectedManifest) {
+      const after = getProductionDeploymentSnapshot();
+      verifyDeploymentUpdate({ before, after, update });
+      verifyRemoteProductionSource(expectedManifest, update.versionNumber);
+      return after;
     },
     runSmokeTest() {
       return runProductionSmokeTest({
@@ -269,4 +327,5 @@ module.exports = {
   createNodeAdapters,
   parseProductionCredentials,
   redactText,
+  validateProductionSourcePushOutput,
 };

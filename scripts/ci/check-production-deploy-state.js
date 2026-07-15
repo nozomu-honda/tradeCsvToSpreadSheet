@@ -36,16 +36,19 @@ let state = createInitialProductionDeployState({
 });
 assert.strictEqual(state.status, 'preflight');
 assert.strictEqual(state.sourcePush, 'not-started');
+assert.strictEqual(state.remoteSourceVerification, 'not-started');
 assert.strictEqual(state.currentProductionSha, 'unknown');
 assert.strictEqual(state.lastDeploymentWorkflowUrl, 'unknown');
 
 state = markProductionDeployState(state, 'source-pushed');
 assert.strictEqual(state.status, 'source-pushed');
 assert.strictEqual(state.sourcePush, 'success');
+assert.strictEqual(state.remoteSourceVerification, 'success');
 
 state = markProductionDeployState(state, 'deployment-updated');
 assert.strictEqual(state.status, 'deployment-updated');
 assert.strictEqual(state.deploymentUpdate, 'success');
+assert.strictEqual(state.deploymentVerification, 'success');
 assert.strictEqual(state.currentProductionSha, shaA, 'deployment update makes the target SHA the currently published production commit');
 
 state = markProductionDeployState(state, 'deployed');
@@ -54,6 +57,7 @@ assert.strictEqual(state.currentProductionSha, shaA);
 assert.strictEqual(state.lastSuccessfulDeploymentSha, shaA);
 assert.strictEqual(state.lastDeploymentWorkflowUrl, 'https://github.example/actions/runs/1');
 assert.strictEqual(state.smokeTest, 'success');
+assert.strictEqual(state.webAccessGateVerification, 'success');
 assert.strictEqual(state.lastFailureStage, '');
 
 const failed = failProductionDeployState(state, 'smoke-test', new Error('safe failure'));
@@ -62,6 +66,9 @@ assert.strictEqual(failed.lastFailureStage, 'smoke-test');
 assert.match(failed.failureMessage, /safe failure/);
 assert.strictEqual(failed.sourcePush, 'success');
 assert.strictEqual(failed.deploymentUpdate, 'success');
+assert.strictEqual(failed.remoteSourceVerification, 'success');
+assert.strictEqual(failed.deploymentVerification, 'success');
+assert.strictEqual(failed.webAccessGateVerification, 'failed');
 assert.strictEqual(failed.smokeTest, 'failed');
 assert.strictEqual(failed.currentProductionSha, shaA, 'smoke failure must retain the deployment-updated target SHA');
 assert.strictEqual(failed.lastSuccessfulDeploymentSha, shaA, 'a previous successful deployment SHA must be preserved');
@@ -84,6 +91,9 @@ assert.strictEqual(partialSmokeFailure.status, 'failed');
 assert.strictEqual(partialSmokeFailure.currentProductionSha, shaA);
 assert.strictEqual(partialSmokeFailure.sourcePush, 'success');
 assert.strictEqual(partialSmokeFailure.deploymentUpdate, 'success');
+assert.strictEqual(partialSmokeFailure.remoteSourceVerification, 'success');
+assert.strictEqual(partialSmokeFailure.deploymentVerification, 'success');
+assert.strictEqual(partialSmokeFailure.webAccessGateVerification, 'failed');
 assert.strictEqual(partialSmokeFailure.smokeTest, 'failed');
 assert.strictEqual(partialSmokeFailure.lastSuccessfulDeploymentSha, shaB, 'smoke failure must not advance the last successful deployment SHA');
 assert.strictEqual(partialSmokeFailure.lastSuccessfulDeploymentAt, '2026-07-14T00:00:00.000Z');
@@ -107,6 +117,42 @@ assert.strictEqual(sourceFailed.sourcePush, 'failed');
 assert.strictEqual(sourceFailed.deploymentUpdate, 'not-started');
 assert.strictEqual(sourceFailed.smokeTest, 'not-started');
 assert.notStrictEqual(sourceFailed.currentProductionSha, shaA, 'failed source push must not publish the target SHA');
+
+const remoteSourceFailed = failProductionDeployState(
+  createInitialProductionDeployState({ targetSha: shaA }),
+  'remote-source-verification',
+  new Error('remote runtime missing'),
+);
+assert.strictEqual(remoteSourceFailed.sourcePush, 'success');
+assert.strictEqual(remoteSourceFailed.remoteSourceVerification, 'failed');
+assert.strictEqual(remoteSourceFailed.deploymentUpdate, 'not-started');
+assert.strictEqual(remoteSourceFailed.deploymentVerification, 'not-started');
+assert.strictEqual(remoteSourceFailed.webAccessGateVerification, 'not-started');
+assert.strictEqual(remoteSourceFailed.status, 'failed');
+
+const deploymentVerificationFailed = failProductionDeployState(
+  markProductionDeployState(
+    createInitialProductionDeployState({
+      targetSha: shaA,
+      previousProductionSha: shaB,
+      currentProductionSha: shaB,
+      lastSuccessfulDeploymentSha: shaB,
+      lastSuccessfulDeploymentAt: '2026-07-14T00:00:00.000Z',
+    }),
+    'source-pushed',
+  ),
+  'deployment-verification',
+  new Error('deployment version mismatch'),
+);
+assert.strictEqual(deploymentVerificationFailed.sourcePush, 'success');
+assert.strictEqual(deploymentVerificationFailed.remoteSourceVerification, 'success');
+assert.strictEqual(deploymentVerificationFailed.deploymentUpdate, 'success');
+assert.strictEqual(deploymentVerificationFailed.deploymentVerification, 'failed');
+assert.strictEqual(deploymentVerificationFailed.webAccessGateVerification, 'not-started');
+assert.strictEqual(deploymentVerificationFailed.status, 'failed');
+assert.strictEqual(deploymentVerificationFailed.currentProductionSha, 'unknown');
+assert.strictEqual(deploymentVerificationFailed.lastSuccessfulDeploymentSha, shaB);
+assert.strictEqual(deploymentVerificationFailed.lastSuccessfulDeploymentAt, '2026-07-14T00:00:00.000Z');
 
 assert.deepStrictEqual(
   shouldBlockDuplicateDeployment({
@@ -149,7 +195,10 @@ const parsed = parseProductionStatusIssue([
   `- 最新develop: \`${shaB}\``,
   '- developとの差分: `2 commits`',
   '- 最終本番反映 source push: `success`',
+  '- 最終本番反映 remote source verification: `success`',
   '- 最終本番反映 deployment update: `success`',
+  '- 最終本番反映 deployment verification: `success`',
+  '- 最終本番反映 web access gate verification: `success`',
   '- 最終本番反映 smoke test: `success`',
   `- 最終成功本番反映commit: \`${shaA}\``,
   '- 最終成功deployment日時: `2026-07-14T00:00:00.000Z`',
@@ -162,7 +211,10 @@ assert.strictEqual(parsed.currentProductionSha, shaA);
 assert.strictEqual(parsed.latestDevelopSha, shaB);
 assert.strictEqual(parsed.commitsBehindDevelop, '2 commits');
 assert.strictEqual(parsed.sourcePush, 'success');
+assert.strictEqual(parsed.remoteSourceVerification, 'success');
 assert.strictEqual(parsed.deploymentUpdate, 'success');
+assert.strictEqual(parsed.deploymentVerification, 'success');
+assert.strictEqual(parsed.webAccessGateVerification, 'success');
 assert.strictEqual(parsed.smokeTest, 'success');
 assert.strictEqual(parsed.lastSuccessfulDeploymentSha, shaA);
 assert.strictEqual(parsed.lastSuccessfulDeploymentAt, '2026-07-14T00:00:00.000Z');

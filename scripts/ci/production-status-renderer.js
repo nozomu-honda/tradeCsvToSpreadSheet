@@ -21,7 +21,10 @@ function latestDevelopDeploymentStatus(state) {
   if (
     productionSha === latestDevelopSha
     && state.sourcePush === 'success'
+    && state.remoteSourceVerification === 'success'
     && state.deploymentUpdate === 'success'
+    && state.deploymentVerification === 'success'
+    && state.webAccessGateVerification === 'success'
     && state.smokeTest === 'success'
   ) {
     return 'deployed';
@@ -68,7 +71,10 @@ function renderProductionStatusIssue(state) {
     `- developとの差分: \`${commitsBehindDevelop}\``,
     `- 最新develop反映: \`${latestDevelopStatus}\``,
     `- 最終本番反映 source push: \`${formatValue(state.sourcePush)}\``,
+    `- 最終本番反映 remote source verification: \`${formatValue(state.remoteSourceVerification)}\``,
     `- 最終本番反映 deployment update: \`${formatValue(state.deploymentUpdate)}\``,
+    `- 最終本番反映 deployment verification: \`${formatValue(state.deploymentVerification)}\``,
+    `- 最終本番反映 web access gate verification: \`${formatValue(state.webAccessGateVerification)}\``,
     `- 最終本番反映 smoke test: \`${formatValue(state.smokeTest)}\``,
     `- 最終成功本番反映commit: \`${lastSuccessfulDeploymentSha}\``,
     `- 最終成功本番反映commit短縮: \`${shortSha(lastSuccessfulDeploymentSha)}\``,
@@ -91,7 +97,7 @@ function renderProductionStatusIssue(state) {
     '- `source-pushed`: Apps Scriptソースpush済み。',
     '- `deployment-updated`: 既存Webアプリdeployment更新済み。',
     '- `verifying`: smoke確認中。',
-    '- `deployed`: 本番commitが最新developと一致し、source push / deployment update / smoke testがすべて成功済み。',
+    '- `deployed`: 本番commitが最新developと一致し、source push / remote source / deployment version / Web access gateがすべて検証成功済み。',
     '- `failed`: いずれかの段階で失敗。',
     '',
     '<!-- production-status:managed-by-github-actions -->',

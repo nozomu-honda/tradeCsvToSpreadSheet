@@ -1,6 +1,6 @@
 # Current Status
 
-最終更新: 2026-07-14
+最終更新: 2026-07-15
 
 このファイルは、最新 `develop` とGitHub上のIssue/PR状態を前提に、次の作業判断に必要な現状だけをまとめる。
 長い履歴や古い推測は残さず、完了済み・未反映・次候補が分かる状態を維持する。
@@ -16,7 +16,9 @@
   - 2026-07-14時点のGitHub APIではIssue自体はOPENのため、必要なら人間がクローズ確認する。
 - PR #82「本番bundleからE2E helper除外後の参照切れを修正」は `develop` にSquash Merge済み。
 - Issue #83「本番反映のGitHub Actions化と本番状態追跡を実装する」は対応中。
-- 本番Apps Scriptへの再pushと本番Webアプリの既存deployment更新は、PR #82マージ後まだ未実施。
+- PR #84の本番反映基盤は `develop` へマージ済み。PR #87、PR #90、PR #92でcontrol/deploy workflowをdefault branch `main` へ同期済み。
+- PR #95は、本番pushの暗黙skip防止、リモートHEAD／deployment versionと対象SHAの本番bundle完全一致検証を追加するDraft PRとして対応中。
+- Production Status Issue #88は本番反映workflowにより `deployed` と記録されたが、実際の本番Webアプリではページ初期表示からruntime参照エラーが発生しているため、この成功記録を正常稼働の根拠にしない。
 
 ## 完了済みの主な範囲
 
@@ -91,8 +93,8 @@
   - 正式経路は、developへマージ済みPRへの `deploy-production-dry-run` / `deploy-production` / `deploy-production-force` ラベル付与。
   - default branch `main` 上のcontrol workflowがPRラベルを検証し、`deploy-production.yml` を `ref: develop` でdispatchする。
   - deploy workflow本体は `workflow_dispatch` のみで起動し、`HEAD == origin/develop == target_sha` を確認してから進む。
-  - PR #84をdevelopへマージしただけでは、default branch `main` 上のラベル起動経路はまだ有効にならない。
-  - 正式運用前に、control workflowとdeploy workflow定義を `main` へ同期する後続対応が必要。
+  - control workflowとdeploy workflowはPR #87で `main` へ初回同期し、PR #90とPR #92で後続修正も同期済み。
+  - 今後develop側の本番workflow定義を変更した場合は、マージ後に別PRで `main` へ同期する必要がある。developからcheckoutされるスクリプトだけの変更は追加同期不要。
   - `Deploy production` workflow内では、Environmentなしの `production-preflight` job、`production-preflight` Environment付きの authenticated dry-run job、`production` Environment付きの `deploy-production` mutation jobを分離する。
   - Static dry-runは本番Secretsなし、Authenticated dry-runは `production-preflight` Environment承認後に本番認証と `gas:production:status` まで確認する。
   - duplicate拒否、required checks / `npm ci` / validation / bundle境界 / Status Issue読込のEnvironmentなしpreflight失敗では、Environment Deployment履歴を作らない。
@@ -145,6 +147,8 @@
 - `src/app/e2e_runtime_support.gs` と `src/app/e2e_helpers.gs` の二重定義は避けている。
 - 本番bundle境界テストを追加済み。
 - PR #82の最新headで `Push test GAS project and run tests` と `Deploy test Web app and run Playwright E2E` は成功済み。
+- 通常Web関数のうち `listRecentImportsFromWebApp()` はページ初期化時の `loadRecentImports()` からユーザー操作なしで呼ばれる。
+- 本番runtimeで `assertCiE2eTokenForWebAppIfConfigured_` が欠落すると、最近の取込一覧だけでなく、DBを開く、DBリセット、ロールバック、取込、一次受け枠作成を含む通常Web操作が業務処理前に失敗する。
 
 ### ドキュメント / 運用ルール
 
@@ -157,12 +161,14 @@
 
 ## 本番反映の現状
 
-- PR #82マージ後の最新 `develop` は、本番Apps Scriptへまだ再pushしていない。
-- 本番Webアプリの既存deployment更新もまだ実施していない。
-- 現在の本番Webアプリには、Issue #81修正前のbundleが反映されている可能性がある。
-- 本番復旧には、最新 `develop` を本番Apps Scriptへ再反映し、既存Webアプリdeploymentを新バージョンへ更新する必要がある。
+- 本番Webアプリの初期表示で `ReferenceError: assertCiE2eTokenForWebAppIfConfigured_ is not defined` が発生している。
+- `DOMContentLoaded` が `loadRecentImports()` を呼ぶため、ロールバックボタンを押した場合だけではなく、ページを開いただけで発生する。
+- エラーはDB変更やロールバック本体より前に発生するため、この画面表示だけではDB変更やロールバックは実行されていない。
+- 根本原因は、本番workflowの `clasp push` が非対話manifest確認で `Skipping push.` を出しながら終了コード0となり、workflowがsource push成功と誤認したこと。
+- その後、古いリモートHEADから新versionが作られて既存deploymentが更新され、`private-login-gated` がログインredirectだけを確認したため、runtime参照切れを検知できないままIssue #88が `deployed` になった。
+- 本番復旧には、本修正をマージした最新 `develop` でAuthenticated dry-runを確認し、同じ本番Apps Script・既存deployment・Web App URLへ再反映する必要がある。
 - Issue #83対応後は、原則としてマージ済みPRへのラベル付与で `Deploy production` workflowを起動し、dry-run確認後に本番反映する。
-- 初回運用前に、人間がGitHub Environment `production-preflight` / `production`、Environment Secrets / Variables、Repository Variable `PRODUCTION_STATUS_ISSUE_NUMBER`、Production Status Issue、起動ラベル、default branch `main` へのcontrol/deploy workflow同期を確認する必要がある。
+- GitHub Environment、Secrets / Variables、Production Status Issue、起動ラベル、`main` のcontrol/deploy workflowは本番run起動済みのため設定経路自体は利用可能。今回の修正はdevelop側スクリプトだけの変更なので、マージ後に追加のmain同期をせず再確認できる。
 
 手動fallbackの基本手順:
 
@@ -175,7 +181,10 @@ npm run gas:production:push
 ```
 
 その後、人間がApps Script管理画面で既存Webアプリdeploymentを新バージョンへ更新する。
-GitHub Actions経由では、`clasp deploy --deploymentId` で既存deploymentを更新し、既存WebアプリURLを維持する。
+GitHub Actions経由では、URL内deployment IDとの一致、push後リモートHEADと対象SHAのローカル本番bundleの完全一致、既存deploymentのversion更新、更新versionとの完全一致を確認してから既存WebアプリURLを維持したまま更新する。
+
+- runtime helperや必須関数の存在だけでは業務コード全体が対象SHAと一致することを保証できないため、claspの `filesToPush` を正本に全ファイルのpathとSHA-256を比較する。
+- remote HEAD不一致ではdeployment更新前に停止する。deployment version不一致では更新済みの事実を保持したままSmoke Testへ進まず、現在の本番commitを `unknown`、Status Issueを `failed` とし、最終成功本番反映commitを更新しない。
 
 本番push前の確認:
 
@@ -190,13 +199,10 @@ GitHub Actions経由では、`clasp deploy --deploymentId` で既存deployment�
 
 - 本番Apps Scriptへの `npm run gas:production:push`。
 - 本番Webアプリの既存deployment更新。
-- 本番Webアプリの主要画面確認。
-- GitHub Environment `production-preflight` / `production` の作成。
-- 本番反映workflow用Environment Secrets / VariablesとRepository Variable `PRODUCTION_STATUS_ISSUE_NUMBER` の登録。
-- 管理marker付きProduction Status Issueの作成とRepository Variable `PRODUCTION_STATUS_ISSUE_NUMBER` 設定。
-- 起動ラベル `deploy-production-dry-run` / `deploy-production` / `deploy-production-force` の作成。
-- default branch `main` へcontrol workflowとdeploy workflow定義を同期する後続対応。
-- default branch `main` でPRラベル起動workflowが有効になるかの確認。
+- 修正版workflowによるAuthenticated dry-runと本番再反映。
+- 本番Webアプリを人間がログイン後に開き、初期表示と最近の取込一覧でReferenceErrorが出ないことの確認。
+- DBを開く、DBリセット、ロールバック、CSV・スプレッドシート取込、一次受け枠作成の通常操作確認。破壊的操作は対象と権限を確認した上で人間が実施する。
+- 今回の修正を `develop` へマージした後、Authenticated dry-runから再確認すること。workflow YAMLを後続変更する場合だけdefault branch `main` へ同期する。
 - `Deploy production` workflowのStatic dry-run / Authenticated dry-run確認。
 - dry-run成功後の本番反映実行。
 - Issue #76 / Issue #81 は実装対応済みだが、GitHub Issue自体はOPENの場合があるため、必要なら人間がクローズ確認する。

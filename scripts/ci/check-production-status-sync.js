@@ -151,9 +151,28 @@ function createAdapters(options = {}) {
 }
 
 assert.strictEqual(resolveNextStatus({
-  parsed: { currentProductionSha: shaA, productionStatus: 'deployed', sourcePush: 'success', deploymentUpdate: 'success', smokeTest: 'success' },
+  parsed: {
+    currentProductionSha: shaA,
+    productionStatus: 'deployed',
+    sourcePush: 'success',
+    remoteSourceVerification: 'success',
+    deploymentUpdate: 'success',
+    deploymentVerification: 'success',
+    webAccessGateVerification: 'success',
+    smokeTest: 'success',
+  },
   latestDevelopSha: shaA,
 }), 'deployed');
+assert.strictEqual(resolveNextStatus({
+  parsed: {
+    currentProductionSha: shaA,
+    productionStatus: 'deployed',
+    sourcePush: 'success',
+    deploymentUpdate: 'success',
+    smokeTest: 'success',
+  },
+  latestDevelopSha: shaA,
+}), 'unknown', 'legacy success fields alone must not certify the runtime boundary');
 assert.strictEqual(resolveNextStatus({
   parsed: { currentProductionSha: shaA, productionStatus: 'deployed', smokeTest: 'success' },
   latestDevelopSha: shaB,

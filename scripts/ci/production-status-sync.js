@@ -68,7 +68,10 @@ function resolveNextStatus({ parsed, latestDevelopSha }) {
   if (
     currentProductionSha === latestDevelopSha
     && parsed.sourcePush === 'success'
+    && parsed.remoteSourceVerification === 'success'
     && parsed.deploymentUpdate === 'success'
+    && parsed.deploymentVerification === 'success'
+    && parsed.webAccessGateVerification === 'success'
     && parsed.smokeTest === 'success'
   ) {
     return 'deployed';
@@ -153,7 +156,10 @@ async function runProductionStatusSync({ env, adapters }) {
   });
 
   nextState.sourcePush = parsed.sourcePush || 'not-started';
+  nextState.remoteSourceVerification = parsed.remoteSourceVerification || 'not-started';
   nextState.deploymentUpdate = parsed.deploymentUpdate || 'not-started';
+  nextState.deploymentVerification = parsed.deploymentVerification || 'not-started';
+  nextState.webAccessGateVerification = parsed.webAccessGateVerification || 'not-started';
   nextState.smokeTest = parsed.smokeTest || 'not-started';
   nextState.lastFailureStage = parsed.lastFailureStage || '';
   nextState.failureMessage = parsed.failureMessage || '';

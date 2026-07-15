@@ -24,6 +24,9 @@ const {
   assertAllowedHttpsUrl,
   normalizeProductionSmokeMode,
 } = require('./production-smoke-test');
+const {
+  validateProductionDeploymentConfiguration,
+} = require('./production-runtime-verification');
 
 const STATUS_MARKER = '<!-- production-status:managed-by-github-actions -->';
 const DEFAULT_REQUIRED_CHECKS = [
@@ -223,7 +226,10 @@ function hydrateStateFromProductionStatusIssue(state, parsed) {
     lastDeploymentWorkflowUrl: parsed.lastDeploymentWorkflowUrl || 'unknown',
     lastStatusSyncWorkflowUrl: parsed.lastStatusSyncWorkflowUrl || 'unknown',
     sourcePush: parsed.sourcePush || state.sourcePush,
+    remoteSourceVerification: parsed.remoteSourceVerification || state.remoteSourceVerification,
     deploymentUpdate: parsed.deploymentUpdate || state.deploymentUpdate,
+    deploymentVerification: parsed.deploymentVerification || state.deploymentVerification,
+    webAccessGateVerification: parsed.webAccessGateVerification || state.webAccessGateVerification,
     smokeTest: parsed.smokeTest || state.smokeTest,
   };
 }
@@ -357,8 +363,12 @@ async function runProductionDeployAll({ env, adapters, cwd = process.cwd() }) {
   let state;
   let currentStage = 'preflight';
   let claspFiles;
+  let deploymentBefore;
+  let localProductionBundleManifest;
   let sourcePushSucceeded = false;
+  let remoteSourceVerified = false;
   let deploymentUpdateSucceeded = false;
+  let deploymentVerified = false;
   let smokeTestSucceeded = false;
   let statusIssueReadSucceeded = false;
 
@@ -437,9 +447,16 @@ async function runProductionDeployAll({ env, adapters, cwd = process.cwd() }) {
 
     currentStage = 'production-status';
     const smokeMode = validateProductionSmokeConfig(env);
+    validateProductionDeploymentConfiguration({
+      webAppUrl: env.PRODUCTION_WEB_APP_URL,
+      deploymentId: env.PRODUCTION_DEPLOYMENT_ID,
+    });
     claspFiles = adapters.writeProductionClaspFiles();
     const rawStatus = adapters.runProductionStatusCheck();
     const parsedStatus = parseAndValidateProductionStatusOutput(rawStatus);
+    localProductionBundleManifest = adapters.buildLocalProductionBundleManifest(parsedStatus.trackedFiles);
+    currentStage = 'deployment-target-verification';
+    deploymentBefore = adapters.getProductionDeploymentSnapshot();
 
     const preflightSummary = dryRun
       ? renderDryRunSummary(state)
@@ -459,6 +476,8 @@ async function runProductionDeployAll({ env, adapters, cwd = process.cwd() }) {
       `- required checks SHA: \`${requiredCheckResult.checkedSha}\``,
       `- production tracked files: \`${parsedStatus.trackedCount}\``,
       `- production untracked files: \`${parsedStatus.untrackedCount}\``,
+      '- production URL / deployment ID: `verified`',
+      '- deployment target: `verified`',
       `- dry_run_mode: \`${dryRunMode}\``,
       `- production smoke mode: \`${smokeMode}\``,
     ].join('\n'));
@@ -475,7 +494,12 @@ async function runProductionDeployAll({ env, adapters, cwd = process.cwd() }) {
     assertDevelopUnchanged(adapters, targetSha);
     adapters.runProductionSourcePush();
     sourcePushSucceeded = true;
-    state = markProductionDeployState(state, 'source-pushed');
+    currentStage = 'remote-source-verification';
+    adapters.verifyRemoteProductionSource(localProductionBundleManifest);
+    remoteSourceVerified = true;
+    state = markProductionDeployState(state, 'source-pushed', {
+      remoteSourceVerification: 'success',
+    });
     await safeUpdateStatusIssue({ adapters, env, state });
 
     currentStage = 'deployment-update';
@@ -485,13 +509,24 @@ async function runProductionDeployAll({ env, adapters, cwd = process.cwd() }) {
       state.developAdvancedAfterSourcePush = true;
       adapters.warn(error.message);
     }
-    adapters.updateAppsScriptDeployment(targetSha);
+    const deploymentUpdate = adapters.updateAppsScriptDeployment(targetSha);
     deploymentUpdateSucceeded = true;
-    state = markProductionDeployState(state, 'deployment-updated');
+    currentStage = 'deployment-verification';
+    adapters.verifyProductionDeploymentUpdate(
+      deploymentBefore,
+      deploymentUpdate,
+      localProductionBundleManifest,
+    );
+    deploymentVerified = true;
+    state = markProductionDeployState(state, 'deployment-updated', {
+      deploymentVerification: 'success',
+    });
     await safeUpdateStatusIssue({ adapters, env, state });
 
     currentStage = 'smoke-test';
-    state = markProductionDeployState(state, 'verifying');
+    state = markProductionDeployState(state, 'verifying', {
+      webAccessGateVerification: 'running',
+    });
     await safeUpdateStatusIssue({ adapters, env, state });
     await adapters.runSmokeTest();
     smokeTestSucceeded = true;
@@ -507,7 +542,10 @@ async function runProductionDeployAll({ env, adapters, cwd = process.cwd() }) {
       lastSuccessfulDeploymentAt: completedAt,
       lastDeploymentWorkflowUrl: workflowRunUrl(env),
       sourcePush: 'success',
+      remoteSourceVerification: 'success',
       deploymentUpdate: 'success',
+      deploymentVerification: 'success',
+      webAccessGateVerification: 'success',
       smokeTest: 'success',
       lastFailureStage: '',
       failureMessage: '',
@@ -546,11 +584,20 @@ async function runProductionDeployAll({ env, adapters, cwd = process.cwd() }) {
     if (sourcePushSucceeded) {
       failedState.sourcePush = 'success';
     }
+    if (remoteSourceVerified) {
+      failedState.remoteSourceVerification = 'success';
+    }
     if (deploymentUpdateSucceeded) {
-      failedState.currentProductionSha = failedState.targetSha;
       failedState.deploymentUpdate = 'success';
     }
+    if (deploymentVerified) {
+      failedState.currentProductionSha = failedState.targetSha;
+      failedState.deploymentVerification = 'success';
+    } else if (deploymentUpdateSucceeded) {
+      failedState.currentProductionSha = 'unknown';
+    }
     if (smokeTestSucceeded) {
+      failedState.webAccessGateVerification = 'success';
       failedState.smokeTest = 'success';
     }
     adapters.writeStepSummary(renderProductionStatusIssue(failedState));
@@ -778,15 +825,24 @@ async function runAuthenticatedProductionDryRun({ env, adapters }) {
 
     currentStage = 'production-status';
     const smokeMode = validateProductionSmokeConfig(env);
+    validateProductionDeploymentConfiguration({
+      webAppUrl: env.PRODUCTION_WEB_APP_URL,
+      deploymentId: env.PRODUCTION_DEPLOYMENT_ID,
+    });
     claspFiles = adapters.writeProductionClaspFiles();
     const rawStatus = adapters.runProductionStatusCheck();
     const parsedStatus = parseAndValidateProductionStatusOutput(rawStatus);
+    adapters.buildLocalProductionBundleManifest(parsedStatus.trackedFiles);
+    currentStage = 'deployment-target-verification';
+    adapters.getProductionDeploymentSnapshot();
 
     adapters.writeStepSummary([
       renderDryRunSummary(state),
       '',
       `- production tracked files: \`${parsedStatus.trackedCount}\``,
       `- production untracked files: \`${parsedStatus.untrackedCount}\``,
+      '- production URL / deployment ID: `verified`',
+      '- deployment target: `verified`',
       '- dry_run_mode: `authenticated`',
       `- production smoke mode: \`${smokeMode}\``,
       '- production mutation: `disabled`',
@@ -825,8 +881,12 @@ async function runProductionMutation({ env, adapters, cwd = process.cwd() }) {
   let state;
   let currentStage = 'preflight';
   let claspFiles;
+  let deploymentBefore;
+  let localProductionBundleManifest;
   let sourcePushSucceeded = false;
+  let remoteSourceVerified = false;
   let deploymentUpdateSucceeded = false;
+  let deploymentVerified = false;
   let smokeTestSucceeded = false;
   let statusIssueReadSucceeded = false;
 
@@ -893,9 +953,16 @@ async function runProductionMutation({ env, adapters, cwd = process.cwd() }) {
 
     currentStage = 'production-status';
     const smokeMode = validateProductionSmokeConfig(env);
+    validateProductionDeploymentConfiguration({
+      webAppUrl: env.PRODUCTION_WEB_APP_URL,
+      deploymentId: env.PRODUCTION_DEPLOYMENT_ID,
+    });
     claspFiles = adapters.writeProductionClaspFiles();
     const rawStatus = adapters.runProductionStatusCheck();
     const parsedStatus = parseAndValidateProductionStatusOutput(rawStatus);
+    localProductionBundleManifest = adapters.buildLocalProductionBundleManifest(parsedStatus.trackedFiles);
+    currentStage = 'deployment-target-verification';
+    deploymentBefore = adapters.getProductionDeploymentSnapshot();
     adapters.writeStepSummary([
       '## Production deploy Environment pre-mutation check',
       '',
@@ -903,6 +970,8 @@ async function runProductionMutation({ env, adapters, cwd = process.cwd() }) {
       `- previous production: \`${state.previousProductionSha}\``,
       `- production tracked files: \`${parsedStatus.trackedCount}\``,
       `- production untracked files: \`${parsedStatus.untrackedCount}\``,
+      '- production URL / deployment ID: `verified`',
+      '- deployment target: `verified`',
       `- production smoke mode: \`${smokeMode}\``,
       '- production mutation: `ready`',
     ].join('\n'));
@@ -914,7 +983,12 @@ async function runProductionMutation({ env, adapters, cwd = process.cwd() }) {
     assertDevelopUnchanged(adapters, targetSha);
     adapters.runProductionSourcePush();
     sourcePushSucceeded = true;
-    state = markProductionDeployState(state, 'source-pushed');
+    currentStage = 'remote-source-verification';
+    adapters.verifyRemoteProductionSource(localProductionBundleManifest);
+    remoteSourceVerified = true;
+    state = markProductionDeployState(state, 'source-pushed', {
+      remoteSourceVerification: 'success',
+    });
     await safeUpdateStatusIssue({ adapters, env, state });
 
     currentStage = 'deployment-update';
@@ -924,13 +998,24 @@ async function runProductionMutation({ env, adapters, cwd = process.cwd() }) {
       state.developAdvancedAfterSourcePush = true;
       adapters.warn(error.message);
     }
-    adapters.updateAppsScriptDeployment(targetSha);
+    const deploymentUpdate = adapters.updateAppsScriptDeployment(targetSha);
     deploymentUpdateSucceeded = true;
-    state = markProductionDeployState(state, 'deployment-updated');
+    currentStage = 'deployment-verification';
+    adapters.verifyProductionDeploymentUpdate(
+      deploymentBefore,
+      deploymentUpdate,
+      localProductionBundleManifest,
+    );
+    deploymentVerified = true;
+    state = markProductionDeployState(state, 'deployment-updated', {
+      deploymentVerification: 'success',
+    });
     await safeUpdateStatusIssue({ adapters, env, state });
 
     currentStage = 'smoke-test';
-    state = markProductionDeployState(state, 'verifying');
+    state = markProductionDeployState(state, 'verifying', {
+      webAccessGateVerification: 'running',
+    });
     await safeUpdateStatusIssue({ adapters, env, state });
     await adapters.runSmokeTest();
     smokeTestSucceeded = true;
@@ -946,7 +1031,10 @@ async function runProductionMutation({ env, adapters, cwd = process.cwd() }) {
       lastSuccessfulDeploymentAt: completedAt,
       lastDeploymentWorkflowUrl: workflowRunUrl(env),
       sourcePush: 'success',
+      remoteSourceVerification: 'success',
       deploymentUpdate: 'success',
+      deploymentVerification: 'success',
+      webAccessGateVerification: 'success',
       smokeTest: 'success',
       lastFailureStage: '',
       failureMessage: '',
@@ -988,11 +1076,20 @@ async function runProductionMutation({ env, adapters, cwd = process.cwd() }) {
     if (sourcePushSucceeded) {
       failedState.sourcePush = 'success';
     }
+    if (remoteSourceVerified) {
+      failedState.remoteSourceVerification = 'success';
+    }
     if (deploymentUpdateSucceeded) {
-      failedState.currentProductionSha = failedState.targetSha;
       failedState.deploymentUpdate = 'success';
     }
+    if (deploymentVerified) {
+      failedState.currentProductionSha = failedState.targetSha;
+      failedState.deploymentVerification = 'success';
+    } else if (deploymentUpdateSucceeded) {
+      failedState.currentProductionSha = 'unknown';
+    }
     if (smokeTestSucceeded) {
+      failedState.webAccessGateVerification = 'success';
       failedState.smokeTest = 'success';
     }
     adapters.writeStepSummary(renderProductionStatusIssue(failedState));
