@@ -4,8 +4,8 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
-const EXPECTED_WEB_APP_ACCESS = 'ANYONE';
-const EXPECTED_WEB_APP_EXECUTE_AS = 'USER_ACCESSING';
+const EXPECTED_WEB_APP_ACCESS = 'MYSELF';
+const EXPECTED_WEB_APP_EXECUTE_AS = 'USER_DEPLOYING';
 const MANIFEST_CONFIGURATION_ERROR = 'Production Web App manifest configuration is invalid.';
 const WEB_APP_ENTRY_POINT_ERROR = 'Production deployment is not a Web App.';
 const WEB_APP_VERIFICATION_ERROR = 'Production Web App entry point verification failed.';

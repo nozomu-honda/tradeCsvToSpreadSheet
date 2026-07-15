@@ -127,13 +127,25 @@ function createApi({ deployment = validDeployment(), pages, getError, listError 
 
 (async () => {
   const repoRoot = path.resolve(__dirname, '..', '..');
+  assert.strictEqual(EXPECTED_WEB_APP_ACCESS, 'MYSELF');
+  assert.strictEqual(EXPECTED_WEB_APP_EXECUTE_AS, 'USER_DEPLOYING');
   assert.strictEqual(validateProductionWebAppManifest(repoRoot), true);
+
+  const invalidWebAppConfigs = [
+    { access: 'ANYONE', executeAs: 'USER_DEPLOYING' },
+    { access: 'MYSELF', executeAs: 'USER_ACCESSING' },
+    { access: 'ANYONE', executeAs: 'USER_ACCESSING' },
+    { access: 'ANYONE_ANONYMOUS', executeAs: 'USER_DEPLOYING' },
+    { access: 'UNKNOWN_ACCESS', executeAs: EXPECTED_WEB_APP_EXECUTE_AS },
+    { access: EXPECTED_WEB_APP_ACCESS, executeAs: 'UNKNOWN_EXECUTE_AS' },
+    { access: 'DOMAIN', executeAs: EXPECTED_WEB_APP_EXECUTE_AS },
+  ];
 
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'production-web-app-deployment-'));
   try {
     for (const manifest of [
       {},
-      { webapp: { access: 'ANYONE_ANONYMOUS', executeAs: 'USER_DEPLOYING' } },
+      ...invalidWebAppConfigs.map((webapp) => ({ webapp })),
       { webapp: { access: EXPECTED_WEB_APP_ACCESS } },
     ]) {
       fs.writeFileSync(path.join(tempRoot, 'appsscript.json'), JSON.stringify(manifest));
@@ -192,12 +204,7 @@ function createApi({ deployment = validDeployment(), pages, getError, listError 
     expectedWebAppUrl: 'https://script.google.com/macros/s/different_fixture_value/exec',
   }), WEB_APP_CONFIGURATION_ERROR);
 
-  for (const config of [
-    { access: 'UNKNOWN_ACCESS', executeAs: EXPECTED_WEB_APP_EXECUTE_AS },
-    { access: EXPECTED_WEB_APP_ACCESS, executeAs: 'UNKNOWN_EXECUTE_AS' },
-    { access: 'DOMAIN', executeAs: EXPECTED_WEB_APP_EXECUTE_AS },
-    { access: EXPECTED_WEB_APP_ACCESS, executeAs: 'USER_DEPLOYING' },
-  ]) {
+  for (const config of invalidWebAppConfigs) {
     const deployment = validDeployment();
     deployment.entryPoints[0].webApp.entryPointConfig = config;
     assertSafeFailure(() => snapshot(deployment), WEB_APP_CONFIGURATION_ERROR);
@@ -293,8 +300,8 @@ function createApi({ deployment = validDeployment(), pages, getError, listError 
     { after: { ...after, webAppEntryPointCount: 0 }, update: { versionNumber: 9 } },
     { after: { ...after, webAppUrlFingerprint: '0'.repeat(64) }, update: { versionNumber: 9 } },
     { after: { ...after, entryPointTypes: ['EXECUTION_API', 'WEB_APP'] }, update: { versionNumber: 9 } },
-    { after: { ...after, webAppAccess: 'DOMAIN' }, update: { versionNumber: 9 } },
-    { after: { ...after, webAppExecuteAs: 'USER_DEPLOYING' }, update: { versionNumber: 9 } },
+    { after: { ...after, webAppAccess: 'ANYONE' }, update: { versionNumber: 9 } },
+    { after: { ...after, webAppExecuteAs: 'USER_ACCESSING' }, update: { versionNumber: 9 } },
     { after: { ...after, versionNumber: 8 }, update: { versionNumber: 8 } },
     { after, update: { versionNumber: 10 } },
   ];

@@ -187,7 +187,7 @@ PRODUCTION PUSH
 
 GitHub Actions経由ではさらに、push出力、リモートHEAD、更新後deployment versionを検証します。`Script is already up to date.` は、リモートHEADが対象SHAのローカル本番bundleと完全一致した場合だけ成功扱いです。リモート検証用sourceはrunner一時領域へpullし、成功・失敗のどちらでも削除します。manifest、hash一覧、ファイル内容全体、Script ID、Deployment ID、Web App URL、OAuth tokenはログへ出しません。
 
-リポジトリの `appsscript.json` には、本番Webアプリの構成として `webapp.access = ANYONE` と `webapp.executeAs = USER_ACCESSING` を保持します。これを削除したversionへ既存deploymentを更新すると、Web App entry pointが消失するため、Environmentなしpreflightでも静的に必須確認します。テスト用Web E2Eではrunner上の一時manifestだけを `ANYONE_ANONYMOUS` / `USER_DEPLOYING` へ変換し、リポジトリ上の本番設定は変更しません。
+リポジトリの `appsscript.json` には、本番Webアプリの構成として `webapp.access = MYSELF` と `webapp.executeAs = USER_DEPLOYING` を保持します。これは手動で正常表示を確認した「所有者本人のみアクセス可能」「デプロイしたユーザーとして実行」の設定です。公開範囲を広げず、アクセスユーザーの権限では実行しません。これを削除したversionへ既存deploymentを更新すると、Web App entry pointが消失するため、Environmentなしpreflightでも静的に必須確認します。テスト用Web E2Eではrunner上の一時manifestだけを `ANYONE_ANONYMOUS` / `USER_DEPLOYING` へ変換し、リポジトリ上の本番設定は変更しません。
 
 ### 公開中Webアプリへ反映する
 
