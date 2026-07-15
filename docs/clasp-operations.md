@@ -88,7 +88,8 @@ PR #84をdevelopへマージしただけでは、default branch `main` 上のラ
 Production Status Issue番号はRepository Variableだけを正本にします。
 Environment側には同名の `PRODUCTION_STATUS_ISSUE_NUMBER` Variableを作りません。
 本番workflow用の `CLASP_PRODUCTION_CREDENTIALS`、`PRODUCTION_SCRIPT_ID`、`PRODUCTION_DEPLOYMENT_ID` はRepository Secretsへ置かず、`production-preflight` と `production` の各Environment Secretsへ設定します。
-`PRODUCTION_WEB_APP_URL`、任意の `PRODUCTION_SMOKE_EXPECTED_MARKER` / `PRODUCTION_REQUIRED_CHECKS` はRepository Variablesへ置かず、`production-preflight` と `production` の各Environment Variablesへ設定します。
+`PRODUCTION_WEB_APP_URL`、`PRODUCTION_SMOKE_MODE`、任意の `PRODUCTION_SMOKE_EXPECTED_MARKER` / `PRODUCTION_REQUIRED_CHECKS` はRepository Variablesへ置かず、`production-preflight` と `production` の各Environment Variablesへ設定します。
+現在の本番WebアプリはGoogleログイン必須のため、両Environmentの `PRODUCTION_SMOKE_MODE` に `private-login-gated` を設定します。Smoke Testのために匿名公開へ変更してはいけません。
 Repository Variableとして使うのは `PRODUCTION_STATUS_ISSUE_NUMBER` だけです。
 `production-preflight` Environmentはauthenticated dry-runを開始したrunの履歴、required reviewers、deployment protection rulesに使います。
 `production` Environmentは実本番mutationを開始したrunの履歴、required reviewers、deployment protection rules、本番URL表示に使います。

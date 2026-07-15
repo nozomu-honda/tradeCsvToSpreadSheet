@@ -46,6 +46,7 @@ assert.strictEqual(state.sourcePush, 'success');
 state = markProductionDeployState(state, 'deployment-updated');
 assert.strictEqual(state.status, 'deployment-updated');
 assert.strictEqual(state.deploymentUpdate, 'success');
+assert.strictEqual(state.currentProductionSha, shaA, 'deployment update makes the target SHA the currently published production commit');
 
 state = markProductionDeployState(state, 'deployed');
 assert.strictEqual(state.status, 'deployed');
@@ -62,6 +63,30 @@ assert.match(failed.failureMessage, /safe failure/);
 assert.strictEqual(failed.sourcePush, 'success');
 assert.strictEqual(failed.deploymentUpdate, 'success');
 assert.strictEqual(failed.smokeTest, 'failed');
+assert.strictEqual(failed.currentProductionSha, shaA, 'smoke failure must retain the deployment-updated target SHA');
+assert.strictEqual(failed.lastSuccessfulDeploymentSha, shaA, 'a previous successful deployment SHA must be preserved');
+
+const partialSmokeFailure = failProductionDeployState(
+  markProductionDeployState(
+    markProductionDeployState(createInitialProductionDeployState({
+      targetSha: shaA,
+      currentProductionSha: shaB,
+      previousProductionSha: shaB,
+      lastSuccessfulDeploymentSha: shaB,
+      lastSuccessfulDeploymentAt: '2026-07-14T00:00:00.000Z',
+    }), 'source-pushed'),
+    'deployment-updated',
+  ),
+  'smoke-test',
+  new Error('smoke failed after deployment update'),
+);
+assert.strictEqual(partialSmokeFailure.status, 'failed');
+assert.strictEqual(partialSmokeFailure.currentProductionSha, shaA);
+assert.strictEqual(partialSmokeFailure.sourcePush, 'success');
+assert.strictEqual(partialSmokeFailure.deploymentUpdate, 'success');
+assert.strictEqual(partialSmokeFailure.smokeTest, 'failed');
+assert.strictEqual(partialSmokeFailure.lastSuccessfulDeploymentSha, shaB, 'smoke failure must not advance the last successful deployment SHA');
+assert.strictEqual(partialSmokeFailure.lastSuccessfulDeploymentAt, '2026-07-14T00:00:00.000Z');
 
 const deploymentFailed = failProductionDeployState(
   markProductionDeployState(createInitialProductionDeployState({ targetSha: shaA }), 'source-pushed'),
@@ -71,6 +96,7 @@ const deploymentFailed = failProductionDeployState(
 assert.strictEqual(deploymentFailed.sourcePush, 'success');
 assert.strictEqual(deploymentFailed.deploymentUpdate, 'failed');
 assert.strictEqual(deploymentFailed.smokeTest, 'not-started');
+assert.notStrictEqual(deploymentFailed.currentProductionSha, shaA, 'failed deployment update must not publish the target SHA');
 
 const sourceFailed = failProductionDeployState(
   createInitialProductionDeployState({ targetSha: shaA }),
@@ -80,6 +106,7 @@ const sourceFailed = failProductionDeployState(
 assert.strictEqual(sourceFailed.sourcePush, 'failed');
 assert.strictEqual(sourceFailed.deploymentUpdate, 'not-started');
 assert.strictEqual(sourceFailed.smokeTest, 'not-started');
+assert.notStrictEqual(sourceFailed.currentProductionSha, shaA, 'failed source push must not publish the target SHA');
 
 assert.deepStrictEqual(
   shouldBlockDuplicateDeployment({
@@ -141,6 +168,27 @@ assert.strictEqual(parsed.lastSuccessfulDeploymentSha, shaA);
 assert.strictEqual(parsed.lastSuccessfulDeploymentAt, '2026-07-14T00:00:00.000Z');
 assert.strictEqual(parsed.lastDeploymentWorkflowUrl, 'https://github.example/actions/runs/10');
 assert.strictEqual(parsed.lastStatusSyncWorkflowUrl, 'https://github.example/actions/runs/11');
+
+const parsedSmokeFailure = parseProductionStatusIssue([
+  '# 本番反映ステータス',
+  '',
+  '- 状態: `failed`',
+  `- 本番commit: \`${shaA}\``,
+  `- 最新develop: \`${shaA}\``,
+  '- 最終本番反映 source push: `success`',
+  '- 最終本番反映 deployment update: `success`',
+  '- 最終本番反映 smoke test: `failed`',
+  `- 最終成功本番反映commit: \`${shaB}\``,
+  '- 最終成功deployment日時: `2026-07-14T00:00:00.000Z`',
+  '- 最終失敗ステージ: `smoke-test`',
+].join('\n'));
+assert.strictEqual(parsedSmokeFailure.productionStatus, 'failed');
+assert.strictEqual(parsedSmokeFailure.currentProductionSha, shaA);
+assert.strictEqual(parsedSmokeFailure.sourcePush, 'success');
+assert.strictEqual(parsedSmokeFailure.deploymentUpdate, 'success');
+assert.strictEqual(parsedSmokeFailure.smokeTest, 'failed');
+assert.strictEqual(parsedSmokeFailure.lastSuccessfulDeploymentSha, shaB);
+assert.strictEqual(parsedSmokeFailure.lastFailureStage, 'smoke-test');
 
 assert.strictEqual(
   calculateBehindDevelop({

@@ -140,6 +140,7 @@ assert.ok(!preflightJob.includes('secrets.CLASP_PRODUCTION_CREDENTIALS'), 'Envir
 assert.ok(!preflightJob.includes('secrets.PRODUCTION_SCRIPT_ID'), 'Environment-free preflight must not read production Script ID');
 assert.ok(!preflightJob.includes('secrets.PRODUCTION_DEPLOYMENT_ID'), 'Environment-free preflight must not read production Deployment ID');
 assert.ok(!preflightJob.includes('PRODUCTION_WEB_APP_URL'), 'Environment-free preflight must not read production Web App URL');
+assert.ok(!preflightJob.includes('PRODUCTION_SMOKE_MODE'), 'Environment-free preflight must not read production smoke mode');
 assert.ok(!preflightJob.includes('PRODUCTION_SMOKE_EXPECTED_MARKER'), 'Environment-free preflight must not read production smoke marker');
 assert.ok(!preflightJob.includes('PRODUCTION_REQUIRED_CHECKS'), 'Environment-free preflight must not read Environment-scoped required checks');
 includes(authenticatedDryRunJob, 'environment:', 'authenticated dry-run must use a protected Environment');
@@ -214,6 +215,7 @@ assert.ok(!gitignore.split(/\r?\n/).map((line) => line.trim()).includes('*.tgz')
 
 [
   'PRODUCTION_WEB_APP_URL',
+  'PRODUCTION_SMOKE_MODE',
   'PRODUCTION_SMOKE_EXPECTED_MARKER',
   'PRODUCTION_REQUIRED_CHECKS',
 ].forEach((name) => {
@@ -252,6 +254,7 @@ includes(statusWorkflow, 'node scripts/ci/sync-production-status.js', 'status sy
   'PRODUCTION_DEPLOYMENT_ID',
   'PRODUCTION_WEB_APP_URL',
   'PRODUCTION_STATUS_ISSUE_NUMBER',
+  'PRODUCTION_SMOKE_MODE',
   'PRODUCTION_SMOKE_EXPECTED_MARKER',
 ].forEach((name) => includes(`${workflow}\n${orchestrator}`, name, `${name} must be wired into production deploy logic`));
 
@@ -265,6 +268,7 @@ assert.ok(!orchestrator.includes('createGitHubDeployment'), 'orchestrator must n
 includes(adapters, 'gas:production:status', 'adapters must run the production status wrapper');
 includes(adapters, "'--json'", 'production status must use clasp JSON output');
 includes(adapters, 'collectJsonLeafValues', 'adapters must mask JSON leaf values, not raw multiline secrets');
+includes(adapters, 'mode: env.PRODUCTION_SMOKE_MODE', 'production smoke adapter must pass the Environment smoke mode');
 
 [
   'test:production-deploy-workflow',

@@ -255,6 +255,7 @@ function createNodeAdapters({
     runSmokeTest() {
       return runProductionSmokeTest({
         url: env.PRODUCTION_WEB_APP_URL,
+        mode: env.PRODUCTION_SMOKE_MODE,
         expectedMarker: env.PRODUCTION_SMOKE_EXPECTED_MARKER || 'CSV / スプレッドシートから6シート生成',
       });
     },

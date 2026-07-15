@@ -3,7 +3,11 @@
 
 const assert = require('assert');
 
-const { createInitialProductionDeployState, markProductionDeployState } = require('./production-deploy-state');
+const {
+  createInitialProductionDeployState,
+  failProductionDeployState,
+  markProductionDeployState,
+} = require('./production-deploy-state');
 const { renderDryRunSummary, renderProductionStatusIssue } = require('./production-status-renderer');
 
 const shaA = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
@@ -52,6 +56,30 @@ assert.ok(deployedBody.includes(`- 最終成功本番反映commit: \`${shaA}\``)
 assert.ok(deployedBody.includes('- developとの差分: `0 commits`'));
 assert.ok(deployedBody.includes('- 最終成功deployment日時: `'));
 assert.ok(deployedBody.includes('- 最終失敗ステージ: `none`'));
+
+const smokeFailed = failProductionDeployState(
+  markProductionDeployState(
+    markProductionDeployState(createInitialProductionDeployState({
+      targetSha: shaA,
+      latestDevelopSha: shaA,
+      previousProductionSha: shaB,
+      currentProductionSha: shaB,
+      lastSuccessfulDeploymentSha: shaB,
+      lastSuccessfulDeploymentAt: '2026-07-14T00:00:00.000Z',
+    }), 'source-pushed'),
+    'deployment-updated',
+  ),
+  'smoke-test',
+  new Error('private login boundary mismatch'),
+);
+const smokeFailedBody = renderProductionStatusIssue(smokeFailed);
+assert.ok(smokeFailedBody.includes('- 状態: `failed`'));
+assert.ok(smokeFailedBody.includes(`- 本番commit: \`${shaA}\``));
+assert.ok(smokeFailedBody.includes('- 最終本番反映 source push: `success`'));
+assert.ok(smokeFailedBody.includes('- 最終本番反映 deployment update: `success`'));
+assert.ok(smokeFailedBody.includes('- 最終本番反映 smoke test: `failed`'));
+assert.ok(smokeFailedBody.includes(`- 最終成功本番反映commit: \`${shaB}\``));
+assert.ok(smokeFailedBody.includes('- 最終失敗ステージ: `smoke-test`'));
 
 const dryRunSummary = renderDryRunSummary(preflight);
 assert.ok(dryRunSummary.includes('Production deploy dry-run summary'));

@@ -3,7 +3,11 @@
 
 const assert = require('assert');
 
-const { createInitialProductionDeployState, markProductionDeployState } = require('./production-deploy-state');
+const {
+  createInitialProductionDeployState,
+  failProductionDeployState,
+  markProductionDeployState,
+} = require('./production-deploy-state');
 const { renderProductionStatusIssue } = require('./production-status-renderer');
 const {
   resolveStatusIssueNumber,
@@ -76,6 +80,21 @@ function failedIssueBody() {
   state.lastFailureStage = 'deployment-update';
   state.failureMessage = 'safe failure';
   return bodyFor(state);
+}
+
+function smokeFailedIssueBody() {
+  const state = markProductionDeployState(
+    markProductionDeployState(createInitialProductionDeployState({
+      targetSha: shaA,
+      latestDevelopSha: shaA,
+      currentProductionSha: shaC,
+      previousProductionSha: shaC,
+      lastSuccessfulDeploymentSha: shaC,
+      lastSuccessfulDeploymentAt: '2026-07-13T00:00:00.000Z',
+    }), 'source-pushed'),
+    'deployment-updated',
+  );
+  return bodyFor(failProductionDeployState(state, 'smoke-test', new Error('smoke failed')));
 }
 
 function createAdapters(options = {}) {
@@ -198,6 +217,18 @@ assert.strictEqual(resolveNextStatus({
     assert.ok(adapters.state.patchedBody.includes('- 失敗内容: `safe failure`'));
     assert.ok(adapters.state.patchedBody.includes('- 最新develop反映: `failed`'));
     assert.ok(adapters.state.patchedBody.includes('- 最終本番反映workflow: https://github.com/owner/repo/actions/runs/90'));
+  }
+
+  {
+    const adapters = createAdapters({ latestDevelopSha: shaA, body: smokeFailedIssueBody(), commitCount: 0 });
+    const result = await runProductionStatusSync({ env: baseEnv(), adapters });
+    assert.strictEqual(result.status, 'failed');
+    assert.ok(adapters.state.patchedBody.includes(`- 本番commit: \`${shaA}\``));
+    assert.ok(adapters.state.patchedBody.includes('- 最終本番反映 source push: `success`'));
+    assert.ok(adapters.state.patchedBody.includes('- 最終本番反映 deployment update: `success`'));
+    assert.ok(adapters.state.patchedBody.includes('- 最終本番反映 smoke test: `failed`'));
+    assert.ok(adapters.state.patchedBody.includes(`- 最終成功本番反映commit: \`${shaC}\``));
+    assert.ok(adapters.state.patchedBody.includes('- 最終失敗ステージ: `smoke-test`'));
   }
 
   for (const inProgressStatus of ['preflight', 'source-pushed', 'deployment-updated', 'verifying']) {
