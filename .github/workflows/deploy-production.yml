@@ -108,14 +108,17 @@ jobs:
       - name: Pack preflight dependencies
         if: ${{ steps.preflight.outputs.preflight_passed == 'true' && (steps.preflight.outputs.should_deploy == 'true' || inputs.dry_run_mode == 'authenticated') }}
         shell: bash
-        run: tar -czf production-node-modules.tgz node_modules
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/production-dependencies"
+          tar -czf "${RUNNER_TEMP}/production-dependencies/production-node-modules.tgz" node_modules
 
       - name: Upload preflight dependencies
         if: ${{ steps.preflight.outputs.preflight_passed == 'true' && (steps.preflight.outputs.should_deploy == 'true' || inputs.dry_run_mode == 'authenticated') }}
         uses: actions/upload-artifact@v4
         with:
           name: production-node-modules
-          path: production-node-modules.tgz
+          path: ${{ runner.temp }}/production-dependencies/production-node-modules.tgz
           retention-days: 1
 
   authenticated-production-dry-run:
@@ -178,11 +181,25 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: production-node-modules
-          path: .
+          path: ${{ runner.temp }}/production-dependencies
 
       - name: Restore preflight dependencies
         shell: bash
-        run: tar -xzf production-node-modules.tgz
+        run: |
+          set -euo pipefail
+          tar -xzf "${RUNNER_TEMP}/production-dependencies/production-node-modules.tgz"
+          rm -rf "${RUNNER_TEMP}/production-dependencies"
+
+      - name: Verify clean working tree after dependency restore
+        shell: bash
+        run: |
+          set -euo pipefail
+          status="$(git status --porcelain=v1 --untracked-files=normal)"
+          if [[ -n "${status}" ]]; then
+            echo "::error::Working tree is not clean after restoring preflight dependencies."
+            printf '%s\n' "${status}"
+            exit 1
+          fi
 
       - name: Run authenticated production dry-run
         shell: bash
@@ -249,11 +266,25 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: production-node-modules
-          path: .
+          path: ${{ runner.temp }}/production-dependencies
 
       - name: Restore preflight dependencies
         shell: bash
-        run: tar -xzf production-node-modules.tgz
+        run: |
+          set -euo pipefail
+          tar -xzf "${RUNNER_TEMP}/production-dependencies/production-node-modules.tgz"
+          rm -rf "${RUNNER_TEMP}/production-dependencies"
+
+      - name: Verify clean working tree after dependency restore
+        shell: bash
+        run: |
+          set -euo pipefail
+          status="$(git status --porcelain=v1 --untracked-files=normal)"
+          if [[ -n "${status}" ]]; then
+            echo "::error::Working tree is not clean after restoring preflight dependencies."
+            printf '%s\n' "${status}"
+            exit 1
+          fi
 
       - name: Deploy production mutation
         shell: bash
