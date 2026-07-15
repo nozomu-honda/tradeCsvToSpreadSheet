@@ -1,0 +1,135 @@
+name: Main workflow bootstrap check
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  main-workflow-bootstrap-check:
+    name: Push test GAS project and run tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR merge commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate main workflow bootstrap scope
+        shell: bash
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          BASE_REPOSITORY: ${{ github.repository }}
+          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          GITHUB_TOKEN: ${{ github.token }}
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+
+          allowed_files=(
+            ".github/workflows/production-deploy-control.yml"
+            ".github/workflows/deploy-production.yml"
+            ".github/workflows/update-production-status.yml"
+            ".github/workflows/main-workflow-bootstrap-check.yml"
+          )
+          synced_workflows=(
+            ".github/workflows/production-deploy-control.yml"
+            ".github/workflows/deploy-production.yml"
+            ".github/workflows/update-production-status.yml"
+          )
+
+          fail() {
+            echo "::error::$1"
+            {
+              echo "## Main workflow bootstrap check"
+              echo ""
+              echo "- Result: FAIL"
+              echo "- Reason: $1"
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          }
+
+          read_current_head_sha() {
+            curl --fail --silent --show-error \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" \
+              | python3 -c 'import json, sys; print(json.load(sys.stdin)["head"]["sha"])'
+          }
+
+          assert_head_unchanged() {
+            local current_head_sha
+            current_head_sha="$(read_current_head_sha)"
+            if [[ "${current_head_sha}" != "${EXPECTED_HEAD_SHA}" ]]; then
+              fail "PR head changed during bootstrap check. Expected ${EXPECTED_HEAD_SHA}, got ${current_head_sha}."
+            fi
+          }
+
+          if [[ "${BASE_REF}" != "main" ]]; then
+            fail "This lightweight check is only valid for PRs targeting main."
+          fi
+          if [[ "${HEAD_REPOSITORY}" != "${BASE_REPOSITORY}" ]]; then
+            fail "This lightweight check is disabled for fork or external PRs."
+          fi
+
+          assert_head_unchanged
+
+          git fetch --no-tags origin main develop
+
+          mapfile -t changed_files < <(git diff --name-only origin/main...HEAD | sort)
+          if [[ "${#changed_files[@]}" -eq 0 ]]; then
+            fail "No changed files were detected for this main bootstrap PR."
+          fi
+
+          for changed_file in "${changed_files[@]}"; do
+            allowed=false
+            for allowed_file in "${allowed_files[@]}"; do
+              if [[ "${changed_file}" == "${allowed_file}" ]]; then
+                allowed=true
+                break
+              fi
+            done
+            if [[ "${allowed}" != "true" ]]; then
+              fail "Unexpected file in main bootstrap PR: ${changed_file}"
+            fi
+          done
+
+          for workflow_file in "${synced_workflows[@]}"; do
+            if [[ ! -f "${workflow_file}" ]]; then
+              fail "Required workflow is missing: ${workflow_file}"
+            fi
+            if ! diff -u <(git show "origin/develop:${workflow_file}") "${workflow_file}"; then
+              fail "${workflow_file} does not match origin/develop."
+            fi
+          done
+
+          assert_head_unchanged
+
+          {
+            echo "## Main workflow bootstrap check"
+            echo ""
+            echo "- Result: PASS"
+            echo "- Required check: \`Push test GAS project and run tests\`"
+            echo "- Base branch: \`${BASE_REF}\`"
+            echo "- Head SHA: \`${EXPECTED_HEAD_SHA}\`"
+            echo "- Same repository PR: \`true\`"
+            echo "- Heavy GAS Tests: not executed"
+            echo "- Web E2E: not executed"
+            echo "- Apps Script access: none"
+            echo ""
+            echo "### Changed files"
+            for changed_file in "${changed_files[@]}"; do
+              echo "- \`${changed_file}\`"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
