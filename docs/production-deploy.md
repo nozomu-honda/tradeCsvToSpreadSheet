@@ -22,6 +22,7 @@ PR #84はIssue #83の一部対応です。main同期、初回設定、authentica
   - `resolve-production-status-config`、`production-preflight`、`authenticated-production-dry-run`、`deploy-production` で構成する。
   - `production-preflight` はEnvironmentを参照せず、本番credentialやEnvironment Variablesも受け取らない。duplicate guard、既定required checks、ローカル検証、安全なpreflight outputs作成まで行う。
   - `production-preflight` は検証済みの `node_modules` を短期artifactとして渡し、Environment job内では `npm ci` を再実行しない。
+  - artifact archiveはrunner一時領域で作成・復元し、`node_modules` 展開後にarchiveを削除する。復元直後と本番push前のworking tree clean確認は維持し、Workflow自身の一時ファイルをリポジトリ内へ残さない。
   - `authenticated-production-dry-run` は `dry_run=true` かつ `dry_run_mode=authenticated` の場合だけ起動し、`production-preflight` Environment内で本番credential、Environment Variables、clasp status境界まで確認する。
   - `deploy-production` は `dry_run=false` かつpreflight成功かつ `should_deploy=true` の場合だけ起動し、このjobだけが `production` Environmentを参照する。
   - 本番mutation直前にも `HEAD == origin/develop == target_sha` を再確認する。

@@ -3,7 +3,9 @@
 
 const assert = require('assert');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
+const { spawnSync } = require('child_process');
 
 const repoRoot = path.resolve(__dirname, '..', '..');
 const workflowPath = path.join(repoRoot, '.github', 'workflows', 'deploy-production.yml');
@@ -12,6 +14,8 @@ const statusWorkflowPath = path.join(repoRoot, '.github', 'workflows', 'update-p
 const orchestratorPath = path.join(repoRoot, 'scripts', 'ci', 'production-deploy-orchestrator.js');
 const adaptersPath = path.join(repoRoot, 'scripts', 'ci', 'production-deploy-adapters.js');
 const packagePath = path.join(repoRoot, 'package.json');
+const gasProductionPath = path.join(repoRoot, 'scripts', 'gas-production.js');
+const gitignorePath = path.join(repoRoot, '.gitignore');
 
 const workflow = fs.readFileSync(workflowPath, 'utf8');
 const controlWorkflow = fs.readFileSync(controlWorkflowPath, 'utf8');
@@ -19,6 +23,8 @@ const statusWorkflow = fs.readFileSync(statusWorkflowPath, 'utf8');
 const orchestrator = fs.readFileSync(orchestratorPath, 'utf8');
 const adapters = fs.readFileSync(adaptersPath, 'utf8');
 const packageJson = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
+const gasProduction = fs.readFileSync(gasProductionPath, 'utf8');
+const gitignore = fs.readFileSync(gitignorePath, 'utf8');
 
 function includes(text, pattern, message) {
   assert.ok(text.includes(pattern), message || `Expected to find: ${pattern}`);
@@ -30,6 +36,68 @@ function jobBlock(yaml, jobName) {
   const rest = yaml.slice(start + 1);
   const next = rest.search(/\n  [a-zA-Z0-9_-]+:\n/);
   return next >= 0 ? rest.slice(0, next) : rest;
+}
+
+function assertDependencyArtifactCleanup(job, label) {
+  const archive = '${RUNNER_TEMP}/production-dependencies/production-node-modules.tgz';
+  const cleanup = 'rm -rf "${RUNNER_TEMP}/production-dependencies"';
+  const cleanCheck = 'git status --porcelain=v1 --untracked-files=normal';
+
+  includes(job, 'path: ${{ runner.temp }}/production-dependencies', `${label} must download the artifact outside the repository`);
+  includes(job, `tar -xzf "${archive}"`, `${label} must unpack the artifact from the runner temporary directory`);
+  includes(job, cleanup, `${label} must remove its downloaded archive after extraction`);
+  includes(job, 'Verify clean working tree after dependency restore', `${label} must verify the working tree after artifact cleanup`);
+  includes(job, cleanCheck, `${label} must retain the full clean working tree check`);
+
+  const restoreIndex = job.indexOf(`tar -xzf "${archive}"`);
+  const cleanupIndex = job.indexOf(cleanup);
+  const cleanCheckIndex = job.indexOf(cleanCheck);
+  const orchestratorIndex = job.indexOf('node scripts/ci/run-production-deploy.js');
+  assert.ok(restoreIndex < cleanupIndex, `${label} must clean up after extracting the archive`);
+  assert.ok(cleanupIndex < cleanCheckIndex, `${label} must remove the archive before checking the working tree`);
+  assert.ok(cleanCheckIndex < orchestratorIndex, `${label} must verify a clean working tree before production logic runs`);
+}
+
+function runOrThrow(command, args, cwd) {
+  const result = spawnSync(command, args, { cwd, encoding: 'utf8' });
+  assert.strictEqual(
+    result.status,
+    0,
+    `${command} ${args.join(' ')} failed\n${result.stdout || ''}${result.stderr || ''}`,
+  );
+  return result;
+}
+
+function verifyDependencyRestoreLeavesCleanWorkingTree() {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'production-artifact-cleanup-'));
+  const workspace = path.join(tempRoot, 'workspace');
+  const artifactDirectory = path.join(tempRoot, 'runner-temp', 'production-dependencies');
+  const archivePath = path.join(artifactDirectory, 'production-node-modules.tgz');
+
+  try {
+    fs.mkdirSync(path.join(workspace, 'node_modules', 'fixture-package'), { recursive: true });
+    fs.mkdirSync(artifactDirectory, { recursive: true });
+    fs.writeFileSync(path.join(workspace, '.gitignore'), 'node_modules/\n');
+    fs.writeFileSync(path.join(workspace, 'tracked.txt'), 'tracked\n');
+    fs.writeFileSync(path.join(workspace, 'node_modules', 'fixture-package', 'index.js'), 'module.exports = true;\n');
+
+    runOrThrow('git', ['init'], workspace);
+    runOrThrow('git', ['config', 'user.email', 'ci@example.invalid'], workspace);
+    runOrThrow('git', ['config', 'user.name', 'CI Fixture'], workspace);
+    runOrThrow('git', ['add', '.gitignore', 'tracked.txt'], workspace);
+    runOrThrow('git', ['commit', '-m', 'fixture'], workspace);
+
+    runOrThrow('tar', ['-czf', archivePath, 'node_modules'], workspace);
+    fs.rmSync(path.join(workspace, 'node_modules'), { recursive: true, force: true });
+    runOrThrow('tar', ['-xzf', archivePath], workspace);
+    fs.rmSync(artifactDirectory, { recursive: true, force: true });
+
+    assert.ok(!fs.existsSync(archivePath), 'restored dependency archive must be deleted');
+    const status = runOrThrow('git', ['status', '--porcelain=v1', '--untracked-files=normal'], workspace);
+    assert.strictEqual(status.stdout.trim(), '', 'dependency restore must leave the repository working tree clean');
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
 }
 
 const preflightJob = jobBlock(workflow, 'production-preflight');
@@ -111,14 +179,26 @@ includes(workflow, 'PREFLIGHT_TARGET_SHA: ${{ needs.production-preflight.outputs
 includes(workflow, 'PREFLIGHT_REQUIRED_CHECKS_VERIFIED: ${{ needs.production-preflight.outputs.required_checks_verified }}', 'deploy job must receive required-check verification from preflight outputs');
 includes(workflow, 'static_boundary_verified: ${{ steps.preflight.outputs.static_boundary_verified }}', 'preflight job must expose static boundary verification');
 includes(workflow, 'PREFLIGHT_STATIC_BOUNDARY_VERIFIED: ${{ needs.production-preflight.outputs.static_boundary_verified }}', 'Environment jobs must receive static-boundary verification from preflight outputs');
-includes(preflightJob, 'tar -czf production-node-modules.tgz node_modules', 'preflight job must package validated dependencies outside the production Environment');
+includes(preflightJob, 'mkdir -p "${RUNNER_TEMP}/production-dependencies"', 'preflight job must create its artifact in the runner temporary directory');
+includes(preflightJob, 'tar -czf "${RUNNER_TEMP}/production-dependencies/production-node-modules.tgz" node_modules', 'preflight job must package validated dependencies outside the repository and production Environment');
 includes(preflightJob, 'actions/upload-artifact@v4', 'preflight job must upload validated dependencies for the production mutation job');
+includes(preflightJob, 'path: ${{ runner.temp }}/production-dependencies/production-node-modules.tgz', 'preflight upload must read the archive from the runner temporary directory');
 includes(authenticatedDryRunJob, 'actions/download-artifact@v4', 'authenticated dry-run job must restore dependencies from the preflight artifact');
-includes(authenticatedDryRunJob, 'tar -xzf production-node-modules.tgz', 'authenticated dry-run job must unpack preflight dependencies');
 includes(deployJob, 'actions/download-artifact@v4', 'deploy job must restore dependencies from the preflight artifact');
-includes(deployJob, 'tar -xzf production-node-modules.tgz', 'deploy job must unpack preflight dependencies');
+assertDependencyArtifactCleanup(authenticatedDryRunJob, 'authenticated dry-run job');
+assertDependencyArtifactCleanup(deployJob, 'deploy job');
+assert.throws(
+  () => assertDependencyArtifactCleanup(
+    authenticatedDryRunJob.replace('rm -rf "${RUNNER_TEMP}/production-dependencies"', 'cleanup intentionally missing'),
+    'cleanup regression fixture',
+  ),
+  /remove its downloaded archive/,
+  'workflow regression check must fail when artifact cleanup is missing',
+);
 assert.ok(!authenticatedDryRunJob.includes('npm ci'), 'authenticated dry-run Environment job must not run npm ci');
 assert.ok(!deployJob.includes('npm ci'), 'production Environment job must not run npm ci');
+includes(gasProduction, "git(['status', '--porcelain=v1', '--untracked-files=normal'])", 'production push must retain the full clean working tree check');
+assert.ok(!gitignore.split(/\r?\n/).map((line) => line.trim()).includes('*.tgz'), '.gitignore must not hide dependency archives with a broad *.tgz rule');
 
 [
   'CLASP_PRODUCTION_CREDENTIALS',
@@ -201,5 +281,7 @@ includes(adapters, 'collectJsonLeafValues', 'adapters must mask JSON leaf values
 ].forEach((scriptName) => {
   assert.ok(packageJson.scripts[scriptName], `package.json must define ${scriptName}`);
 });
+
+verifyDependencyRestoreLeavesCleanWorkingTree();
 
 console.log('production deploy workflow static checks passed');
