@@ -102,6 +102,7 @@ function markProductionDeployState(state, status, patch = {}) {
     next.sourcePush = patch.sourcePush || 'success';
   }
   if (status === 'deployment-updated') {
+    next.currentProductionSha = patch.currentProductionSha || state.targetSha || state.currentProductionSha || 'unknown';
     next.deploymentUpdate = patch.deploymentUpdate || 'success';
   }
   if (status === 'verifying') {

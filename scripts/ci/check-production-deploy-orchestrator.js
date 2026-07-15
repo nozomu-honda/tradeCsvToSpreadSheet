@@ -37,6 +37,7 @@ function baseEnv(overrides = {}) {
     PRODUCTION_SCRIPT_ID: 'script_id_for_test_only',
     PRODUCTION_DEPLOYMENT_ID: 'deployment_id_for_test_only',
     PRODUCTION_WEB_APP_URL: 'https://script.google.com/macros/s/test/exec',
+    PRODUCTION_SMOKE_MODE: 'public-marker',
     PRODUCTION_STATUS_ISSUE_NUMBER: '123',
     CLASP_PRODUCTION_CREDENTIALS: JSON.stringify({
       tokens: {
@@ -98,6 +99,7 @@ function withoutProductionCredentials(env) {
 function withoutProductionEnvironmentConfig(env) {
   const copy = withoutProductionCredentials(env);
   delete copy.PRODUCTION_WEB_APP_URL;
+  delete copy.PRODUCTION_SMOKE_MODE;
   delete copy.PRODUCTION_SMOKE_EXPECTED_MARKER;
   delete copy.PRODUCTION_REQUIRED_CHECKS;
   return copy;
@@ -257,7 +259,7 @@ function createAdapters(options = {}) {
           : [
             '# 本番反映ステータス',
             '',
-            '- 状態: `deployed`',
+            `- 状態: \`${options.productionStatus || 'deployed'}\``,
             `- 本番commit: \`${currentProductionSha}\``,
             `- 最新develop: \`${targetSha}\``,
             '- developとの差分: `1 commits`',
@@ -413,6 +415,28 @@ async function assertRejectsWith(fn, pattern) {
     assert.ok(!adapters.calls.includes('smoke-test'));
     assert.ok(!adapters.calls.includes('status-issue-update'));
     assert.strictEqual(adapters.state.cleanupCount, 1, 'authenticated dry-run must cleanup clasp files');
+    assert.ok(adapters.state.stepSummaries.at(-1).includes('- production smoke mode: `public-marker`'));
+    assert.ok(adapters.state.stepSummaries.at(-1).includes('- smoke test: `skipped`'));
+  }
+
+  {
+    const adapters = createAdapters();
+    await runProductionDeploy({
+      env: authenticatedDryRunEnv({ PRODUCTION_SMOKE_MODE: 'private-login-gated' }),
+      adapters,
+    });
+    assert.ok(adapters.state.stepSummaries.at(-1).includes('- production smoke mode: `private-login-gated`'));
+    assert.ok(!adapters.calls.includes('smoke-test'), 'authenticated dry-run validates private mode without performing HTTP smoke');
+  }
+
+  {
+    const adapters = createAdapters();
+    await assertRejectsWith(() => runProductionDeploy({
+      env: authenticatedDryRunEnv({ PRODUCTION_SMOKE_MODE: 'private' }),
+      adapters,
+    }), /PRODUCTION_SMOKE_MODE/);
+    assert.ok(!adapters.calls.includes('write-clasp'), 'invalid smoke mode must stop before credential files are generated');
+    assert.ok(!adapters.calls.includes('smoke-test'));
   }
 
   {
@@ -546,6 +570,8 @@ async function assertRejectsWith(fn, pattern) {
     assert.ok(adapters.calls.includes('environment-failure'), 'mutation failure should be recorded as an Environment failure when supported');
     assert.ok(adapters.state.issuePatchBodies.some((body) => body.includes('- 状態: `failed`')));
     assert.ok(adapters.state.issuePatchBodies.some((body) => body.includes('- 最終本番反映 source push: `failed`')));
+    const finalBody = adapters.state.issuePatchBodies.at(-1);
+    assert.ok(finalBody.includes(`- 本番commit: \`${previousSha}\``));
   }
 
   {
@@ -580,7 +606,9 @@ async function assertRejectsWith(fn, pattern) {
       adapters,
     }), /deployment update failed/);
     assert.ok(!adapters.calls.includes('smoke-test'));
-    assert.ok(adapters.state.issuePatchBodies.some((body) => body.includes('- 最終本番反映 deployment update: `failed`')));
+    const finalBody = adapters.state.issuePatchBodies.at(-1);
+    assert.ok(finalBody.includes('- 最終本番反映 deployment update: `failed`'));
+    assert.ok(finalBody.includes(`- 本番commit: \`${previousSha}\``));
   }
 
   {
@@ -589,8 +617,27 @@ async function assertRejectsWith(fn, pattern) {
       env: baseEnv({ DRY_RUN: 'false', SOURCE_PR_NUMBER: '10' }),
       adapters,
     }), /smoke failed/);
-    assert.ok(adapters.state.issuePatchBodies.some((body) => body.includes('- 最終本番反映 smoke test: `failed`')));
+    const finalBody = adapters.state.issuePatchBodies.at(-1);
+    assert.ok(finalBody.includes('- 最終本番反映 smoke test: `failed`'));
+    assert.ok(finalBody.includes(`- 本番commit: \`${targetSha}\``));
+    assert.ok(finalBody.includes('- 最終本番反映 source push: `success`'));
+    assert.ok(finalBody.includes('- 最終本番反映 deployment update: `success`'));
+    assert.ok(finalBody.includes(`- 最終成功本番反映commit: \`${previousSha}\``));
     assert.ok(!adapters.state.issuePatchBodies.some((body) => body.includes('- 状態: `not-deployed`')), 'smoke failure must remain failed, not not-deployed');
+  }
+
+  {
+    const adapters = createAdapters({
+      currentProductionSha: targetSha,
+      productionStatus: 'failed',
+    });
+    await runProductionDeploy({
+      env: mutationEnv({ PREFLIGHT_CURRENT_PRODUCTION_SHA: targetSha }),
+      adapters,
+    });
+    assert.ok(adapters.calls.includes('source-push'), 'failed status at the target SHA must remain retryable');
+    assert.ok(adapters.calls.includes('deployment-update'));
+    assert.ok(adapters.calls.includes('smoke-test'));
   }
 
   {

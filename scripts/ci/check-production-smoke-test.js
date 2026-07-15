@@ -60,6 +60,25 @@ function assertRejectsWith(promise, pattern) {
   return assert.rejects(promise, pattern);
 }
 
+function response({ status, url, location = '', contentType = 'text/html', body = '' }) {
+  return {
+    status,
+    url,
+    headers: {
+      get(name) {
+        if (String(name).toLowerCase() === 'location') {
+          return location;
+        }
+        if (String(name).toLowerCase() === 'content-type') {
+          return contentType;
+        }
+        return '';
+      },
+    },
+    text: async () => body,
+  };
+}
+
 (async () => {
   const server = await startServer();
   const allowedHosts = ['127.0.0.1'];
@@ -77,10 +96,12 @@ function assertRejectsWith(promise, pattern) {
 
     const ok = await runProductionSmokeTest({
       url: httpsUrl('/ok'),
+      mode: 'public-marker',
       allowedHosts,
       fetchImpl: fetchLocal,
     });
     assert.strictEqual(ok.status, 200);
+    assert.strictEqual(ok.mode, 'public-marker');
 
     await runProductionSmokeTest({
       url: httpsUrl('/json'),
@@ -127,6 +148,80 @@ function assertRejectsWith(promise, pattern) {
         text: async () => '<html>CSV / スプレッドシートから6シート生成</html>',
       }),
     }), /Google login/);
+
+    const productionUrl = 'https://script.google.com/macros/s/test/exec';
+    const validLoginLocation = `https://accounts.google.com/ServiceLogin?continue=${encodeURIComponent(productionUrl)}&followup=${encodeURIComponent(productionUrl)}`;
+    let privateRedirectMode = '';
+    const privateResult = await runProductionSmokeTest({
+      url: productionUrl,
+      mode: ' Private-Login-Gated ',
+      fetchImpl: async (url, options) => {
+        privateRedirectMode = options.redirect;
+        return response({
+          status: 302,
+          url,
+          location: validLoginLocation,
+        });
+      },
+    });
+    assert.strictEqual(privateRedirectMode, 'manual');
+    assert.strictEqual(privateResult.status, 302);
+    assert.strictEqual(privateResult.mode, 'private-login-gated');
+    assert.strictEqual(privateResult.loginHost, 'accounts.google.com');
+
+    await assertRejectsWith(runProductionSmokeTest({
+      url: productionUrl,
+      mode: 'private-login-gated',
+      fetchImpl: async (url) => response({
+        status: 302,
+        url,
+        location: `https://accounts.google.com/ServiceLogin?continue=${encodeURIComponent('https://example.com/unrelated')}`,
+      }),
+    }), /did not return to the configured/);
+
+    await assertRejectsWith(runProductionSmokeTest({
+      url: productionUrl,
+      mode: 'private-login-gated',
+      fetchImpl: async (url) => response({
+        status: 302,
+        url,
+        location: `https://example.com/login?continue=${encodeURIComponent(productionUrl)}`,
+      }),
+    }), /allowed Google login host/);
+
+    await assertRejectsWith(runProductionSmokeTest({
+      url: 'https://example.com/not-apps-script',
+      mode: 'private-login-gated',
+      fetchImpl: async () => {
+        throw new Error('fetch must not run for a forbidden production host');
+      },
+    }), /host is not allowed/);
+
+    await assertRejectsWith(runProductionSmokeTest({
+      url: productionUrl,
+      mode: 'private',
+      fetchImpl: async () => {
+        throw new Error('fetch must not run for an invalid smoke mode');
+      },
+    }), /PRODUCTION_SMOKE_MODE/);
+
+    for (const status of [404, 500]) {
+      await assertRejectsWith(runProductionSmokeTest({
+        url: productionUrl,
+        mode: 'private-login-gated',
+        fetchImpl: async (url) => response({ status, url, body: 'Apps Script error' }),
+      }), /expected an HTTP redirect/);
+    }
+
+    await assertRejectsWith(runProductionSmokeTest({
+      url: productionUrl,
+      mode: 'private-login-gated',
+      fetchImpl: async (url) => response({
+        status: 200,
+        url,
+        body: 'You need permission',
+      }),
+    }), /expected an HTTP redirect/);
 
     await assertRejectsWith(runProductionSmokeTest({
       url: 'https://script.google.com/macros/s/test/exec',

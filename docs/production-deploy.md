@@ -274,6 +274,7 @@ markerがないIssueは絶対に上書きしません。
 `deployed` は、現在の本番commitが最新developと一致し、かつ最後の本番反映のsource push、deployment update、smoke testがすべて成功済みである状態だけを表します。
 `not-deployed` は、前回本番反映が成功していても、現在の本番commitが最新developと一致しない状態を表します。
 `failed` は本番反映処理が失敗した状態です。status syncでdevelopが進んでも、失敗ステージと失敗内容は消しません。
+既存deployment更新後にSmoke Testだけ失敗した場合は、状態を `failed` のままにしつつ、本番commitを反映対象SHAとして記録します。source push / deployment updateは `success`、smoke testは `failed` とし、最終成功本番反映commitと最終成功deployment日時は更新しません。
 Authenticated dry-runと本番deployのEnvironmentなしpreflightでは、required checks、`npm ci`、validationより前にStatus Issueを読みます。
 preflight jobはStatus IssueをPATCHしません。
 このため、preflight中に失敗しても、現在の本番commit、最終成功deployment、最終本番反映workflow、前回工程結果は`unknown`で上書きしません。
@@ -314,6 +315,13 @@ Static dry-runでは、Status Issueを読まず、本番Secretsも要求しま�
 ## Smoke Test
 
 本番DBやDriveを変更しないHTTP GETだけを行います。
+本番Webアプリのアクセス設定をSmoke Testのために匿名公開へ変更してはいけません。
+
+Environment Variable `PRODUCTION_SMOKE_MODE` で次の2モードを選びます。前後空白と大文字小文字は正規化し、未設定時は従来互換の `public-marker`、未定義値はfail closedです。
+
+### `public-marker`
+
+匿名HTTP GETでアプリ本文を取得できるWebアプリ向けです。
 
 制約:
 
@@ -333,6 +341,22 @@ CSV / スプレッドシートから6シート生成
 ```
 
 必要ならEnvironment Variable `PRODUCTION_SMOKE_EXPECTED_MARKER` で変更できます。
+
+### `private-login-gated`
+
+Googleログイン必須のprivate Webアプリ向けです。現在の本番環境では、`production-preflight` と `production` の両Environment Variablesへこの値を明示設定します。
+
+- 最初のApps Script URLだけへ `redirect: manual` でHTTP GETする。
+- 最初の応答がHTTP 3xxであることを確認する。
+- `Location` が明示allowlist内のGoogleログインhostと認証系pathを指すことを確認する。
+- `continue` / `followup` / `redirect_uri` などの戻り先が、設定済み本番WebアプリURLと同じhost・pathを指すことを確認する。
+- 単に `accounts.google.com` へ到達しただけでは成功にしない。
+- Cookie、OAuth token、独自認証情報は使用しない。
+- 404、5xx、権限エラーページ、無関係なログインURLは失敗扱いにする。
+
+Authenticated dry-runではSmoke Test自体は行わず、mode、Web App URL、marker設定を検証してStep Summaryへmodeと `smoke test: skipped` を表示します。
+
+Smoke Test失敗時はProduction Status Issueで本番commit、source push、deployment update、smoke test、最終失敗ステージを確認します。deployment updateが成功済みの場合があるため、同じ本番Workflowを安易に再実行せず、工程結果を確認してから次の対応を決めます。
 
 失敗扱いの例:
 
@@ -394,10 +418,12 @@ workflowではJSONのleaf値を個別にmaskし、複数行JSON全体をその�
 6. Repository Secretsには上記3つの本番credentialを置かない。
 7. `production-preflight` Environment Variablesを設定する。
    - `PRODUCTION_WEB_APP_URL`
+   - `PRODUCTION_SMOKE_MODE`
    - 任意: `PRODUCTION_SMOKE_EXPECTED_MARKER`
    - 任意: `PRODUCTION_REQUIRED_CHECKS`
 8. `production` Environment Variablesにも同じVariableを設定する。
    - `PRODUCTION_WEB_APP_URL`
+   - `PRODUCTION_SMOKE_MODE`
    - 任意: `PRODUCTION_SMOKE_EXPECTED_MARKER`
    - 任意: `PRODUCTION_REQUIRED_CHECKS`
 9. Repository Variableを設定する。Repository Variablesとして使うのはこの1つだけ。

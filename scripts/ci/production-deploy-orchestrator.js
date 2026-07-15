@@ -22,6 +22,7 @@ const {
 } = require('./production-status-parser');
 const {
   assertAllowedHttpsUrl,
+  normalizeProductionSmokeMode,
 } = require('./production-smoke-test');
 
 const STATUS_MARKER = '<!-- production-status:managed-by-github-actions -->';
@@ -243,6 +244,7 @@ function renderExpectedRejectionSummary({ state, error }) {
 }
 
 function validateProductionSmokeConfig(env) {
+  const smokeMode = normalizeProductionSmokeMode(env.PRODUCTION_SMOKE_MODE);
   assertAllowedHttpsUrl(env.PRODUCTION_WEB_APP_URL);
   const marker = env.PRODUCTION_SMOKE_EXPECTED_MARKER;
   if (marker && /[\u0000-\u0008\u000B-\u001F\u007F]/.test(String(marker))) {
@@ -251,6 +253,7 @@ function validateProductionSmokeConfig(env) {
   if (marker && String(marker).length > 500) {
     throw new Error('PRODUCTION_SMOKE_EXPECTED_MARKER must be 500 characters or fewer.');
   }
+  return smokeMode;
 }
 
 function createPreflightOutputs({
@@ -355,6 +358,8 @@ async function runProductionDeployAll({ env, adapters, cwd = process.cwd() }) {
   let currentStage = 'preflight';
   let claspFiles;
   let sourcePushSucceeded = false;
+  let deploymentUpdateSucceeded = false;
+  let smokeTestSucceeded = false;
   let statusIssueReadSucceeded = false;
 
   try {
@@ -431,6 +436,7 @@ async function runProductionDeployAll({ env, adapters, cwd = process.cwd() }) {
     }
 
     currentStage = 'production-status';
+    const smokeMode = validateProductionSmokeConfig(env);
     claspFiles = adapters.writeProductionClaspFiles();
     const rawStatus = adapters.runProductionStatusCheck();
     const parsedStatus = parseAndValidateProductionStatusOutput(rawStatus);
@@ -454,6 +460,7 @@ async function runProductionDeployAll({ env, adapters, cwd = process.cwd() }) {
       `- production tracked files: \`${parsedStatus.trackedCount}\``,
       `- production untracked files: \`${parsedStatus.untrackedCount}\``,
       `- dry_run_mode: \`${dryRunMode}\``,
+      `- production smoke mode: \`${smokeMode}\``,
     ].join('\n'));
 
     if (dryRun) {
@@ -479,6 +486,7 @@ async function runProductionDeployAll({ env, adapters, cwd = process.cwd() }) {
       adapters.warn(error.message);
     }
     adapters.updateAppsScriptDeployment(targetSha);
+    deploymentUpdateSucceeded = true;
     state = markProductionDeployState(state, 'deployment-updated');
     await safeUpdateStatusIssue({ adapters, env, state });
 
@@ -486,6 +494,7 @@ async function runProductionDeployAll({ env, adapters, cwd = process.cwd() }) {
     state = markProductionDeployState(state, 'verifying');
     await safeUpdateStatusIssue({ adapters, env, state });
     await adapters.runSmokeTest();
+    smokeTestSucceeded = true;
 
     currentStage = 'post-smoke-develop-check';
     adapters.fetchDevelop();
@@ -534,8 +543,15 @@ async function runProductionDeployAll({ env, adapters, cwd = process.cwd() }) {
       force,
       workflowRunUrl: workflowRunUrl(env),
     }), currentStage, error);
-    if (sourcePushSucceeded && currentStage !== 'source-push') {
+    if (sourcePushSucceeded) {
       failedState.sourcePush = 'success';
+    }
+    if (deploymentUpdateSucceeded) {
+      failedState.currentProductionSha = failedState.targetSha;
+      failedState.deploymentUpdate = 'success';
+    }
+    if (smokeTestSucceeded) {
+      failedState.smokeTest = 'success';
     }
     adapters.writeStepSummary(renderProductionStatusIssue(failedState));
     if (!dryRun && statusIssueReadSucceeded) {
@@ -761,7 +777,7 @@ async function runAuthenticatedProductionDryRun({ env, adapters }) {
     });
 
     currentStage = 'production-status';
-    validateProductionSmokeConfig(env);
+    const smokeMode = validateProductionSmokeConfig(env);
     claspFiles = adapters.writeProductionClaspFiles();
     const rawStatus = adapters.runProductionStatusCheck();
     const parsedStatus = parseAndValidateProductionStatusOutput(rawStatus);
@@ -772,7 +788,9 @@ async function runAuthenticatedProductionDryRun({ env, adapters }) {
       `- production tracked files: \`${parsedStatus.trackedCount}\``,
       `- production untracked files: \`${parsedStatus.untrackedCount}\``,
       '- dry_run_mode: `authenticated`',
+      `- production smoke mode: \`${smokeMode}\``,
       '- production mutation: `disabled`',
+      '- smoke test: `skipped`',
       '- status issue update: `skipped`',
     ].join('\n'));
     adapters.log('dry_run=true: production push, deployment update, smoke test, and status issue update were skipped.');
@@ -808,6 +826,8 @@ async function runProductionMutation({ env, adapters, cwd = process.cwd() }) {
   let currentStage = 'preflight';
   let claspFiles;
   let sourcePushSucceeded = false;
+  let deploymentUpdateSucceeded = false;
+  let smokeTestSucceeded = false;
   let statusIssueReadSucceeded = false;
 
   try {
@@ -872,7 +892,7 @@ async function runProductionMutation({ env, adapters, cwd = process.cwd() }) {
     });
 
     currentStage = 'production-status';
-    validateProductionSmokeConfig(env);
+    const smokeMode = validateProductionSmokeConfig(env);
     claspFiles = adapters.writeProductionClaspFiles();
     const rawStatus = adapters.runProductionStatusCheck();
     const parsedStatus = parseAndValidateProductionStatusOutput(rawStatus);
@@ -883,6 +903,7 @@ async function runProductionMutation({ env, adapters, cwd = process.cwd() }) {
       `- previous production: \`${state.previousProductionSha}\``,
       `- production tracked files: \`${parsedStatus.trackedCount}\``,
       `- production untracked files: \`${parsedStatus.untrackedCount}\``,
+      `- production smoke mode: \`${smokeMode}\``,
       '- production mutation: `ready`',
     ].join('\n'));
 
@@ -904,6 +925,7 @@ async function runProductionMutation({ env, adapters, cwd = process.cwd() }) {
       adapters.warn(error.message);
     }
     adapters.updateAppsScriptDeployment(targetSha);
+    deploymentUpdateSucceeded = true;
     state = markProductionDeployState(state, 'deployment-updated');
     await safeUpdateStatusIssue({ adapters, env, state });
 
@@ -911,6 +933,7 @@ async function runProductionMutation({ env, adapters, cwd = process.cwd() }) {
     state = markProductionDeployState(state, 'verifying');
     await safeUpdateStatusIssue({ adapters, env, state });
     await adapters.runSmokeTest();
+    smokeTestSucceeded = true;
 
     currentStage = 'post-smoke-develop-check';
     adapters.fetchDevelop();
@@ -962,8 +985,15 @@ async function runProductionMutation({ env, adapters, cwd = process.cwd() }) {
       force,
       workflowRunUrl: workflowRunUrl(env),
     }), currentStage, error);
-    if (sourcePushSucceeded && currentStage !== 'source-push') {
+    if (sourcePushSucceeded) {
       failedState.sourcePush = 'success';
+    }
+    if (deploymentUpdateSucceeded) {
+      failedState.currentProductionSha = failedState.targetSha;
+      failedState.deploymentUpdate = 'success';
+    }
+    if (smokeTestSucceeded) {
+      failedState.smokeTest = 'success';
     }
     adapters.writeStepSummary(renderProductionStatusIssue(failedState));
     if (statusIssueReadSucceeded) {
