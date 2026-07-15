@@ -79,6 +79,8 @@ try {
     assertMissingIgnorePatternFails(command, 'src/app/e2e_helpers.gs');
   }
 
+  assertPushCleanWorkingTreeBoundary();
+
   console.log('gas-production wrapper args ok');
 } finally {
   fs.rmSync(tempRoot, { recursive: true, force: true });
@@ -121,7 +123,7 @@ function createWorkspace(name, productionIgnoreLines) {
   };
 }
 
-function runWrapper(workspace, command, extraArgs = []) {
+function runWrapper(workspace, command, extraArgs = [], input = '') {
   const childEnv = withPrependedPath(process.env, workspace.fakeBinDir);
   return spawnSync(
     process.execPath,
@@ -133,6 +135,7 @@ function runWrapper(workspace, command, extraArgs = []) {
         ...childEnv,
         FAKE_CLASP_LOG: workspace.fakeLogPath,
       },
+      input,
     }
   );
 }
@@ -162,6 +165,109 @@ function assertMissingIgnorePatternFails(command, missingPattern) {
   }
   if (fs.existsSync(workspace.fakeLogPath) && fs.readFileSync(workspace.fakeLogPath, 'utf8').trim() !== '') {
     fail(`${command} should stop before invoking clasp when ${missingPattern} is missing`);
+  }
+}
+
+function assertPushCleanWorkingTreeBoundary() {
+  const ignoredProjectWorkspace = createWorkspace('push-ignored-project', [
+    'src/test/**',
+    'src/app/e2e_helpers.gs',
+  ]);
+  initializeGitWorkspace(ignoredProjectWorkspace);
+
+  const ignoredCheck = runGit(
+    ignoredProjectWorkspace.workspaceRoot,
+    ['check-ignore', '.clasp.production.json'],
+  );
+  if (ignoredCheck.status !== 0) {
+    fail('.clasp.production.json must remain ignored by the production wrapper fixture');
+  }
+
+  const cleanBeforePush = runGit(
+    ignoredProjectWorkspace.workspaceRoot,
+    ['status', '--porcelain=v1', '--untracked-files=normal'],
+  );
+  if (cleanBeforePush.stdout.trim() !== '') {
+    fail('ignored .clasp.production.json must not dirty the production wrapper fixture');
+  }
+
+  const cleanPush = runWrapper(
+    ignoredProjectWorkspace,
+    'push',
+    [],
+    'PRODUCTION PUSH\n',
+  );
+  if (cleanPush.status !== 0) {
+    process.stderr.write(cleanPush.stdout || '');
+    process.stderr.write(cleanPush.stderr || '');
+    fail('production push fixture with only ignored clasp config must pass the clean working tree check');
+  }
+
+  const unexpectedWorkspace = createWorkspace('push-unexpected-file', [
+    'src/test/**',
+    'src/app/e2e_helpers.gs',
+  ]);
+  initializeGitWorkspace(unexpectedWorkspace);
+  fs.writeFileSync(
+    path.join(unexpectedWorkspace.workspaceRoot, 'unexpected-production-file.txt'),
+    'unexpected\n',
+  );
+
+  const unexpectedPush = runWrapper(
+    unexpectedWorkspace,
+    'push',
+    [],
+    'PRODUCTION PUSH\n',
+  );
+  const output = `${unexpectedPush.stdout || ''}\n${unexpectedPush.stderr || ''}`;
+  if (unexpectedPush.status === 0) {
+    fail('production push must fail when a real untracked file exists');
+  }
+  if (!output.includes('working treeに未コミット変更があります')) {
+    fail('unexpected untracked file failure must come from the clean working tree guard');
+  }
+  if (fs.existsSync(unexpectedWorkspace.fakeLogPath)) {
+    fail('production push must stop before clasp authentication when a real untracked file exists');
+  }
+}
+
+function initializeGitWorkspace(workspace) {
+  fs.writeFileSync(
+    path.join(workspace.workspaceRoot, '.gitignore'),
+    '.clasp.production.json\nnode_modules/\n',
+  );
+
+  assertGitSuccess(workspace.workspaceRoot, ['init']);
+  assertGitSuccess(workspace.workspaceRoot, ['checkout', '-B', 'develop']);
+  assertGitSuccess(workspace.workspaceRoot, ['config', 'user.email', 'ci@example.invalid']);
+  assertGitSuccess(workspace.workspaceRoot, ['config', 'user.name', 'CI Fixture']);
+  assertGitSuccess(workspace.workspaceRoot, ['add', '.']);
+  assertGitSuccess(workspace.workspaceRoot, ['commit', '-m', 'fixture']);
+
+  const remotePath = path.join(tempRoot, `${path.basename(workspace.workspaceRoot)}-origin.git`);
+  const cloneResult = spawnSync(
+    'git',
+    ['clone', '--bare', workspace.workspaceRoot, remotePath],
+    { encoding: 'utf8' },
+  );
+  if (cloneResult.status !== 0) {
+    process.stderr.write(cloneResult.stdout || '');
+    process.stderr.write(cloneResult.stderr || '');
+    fail('failed to create local origin for production wrapper fixture');
+  }
+  assertGitSuccess(workspace.workspaceRoot, ['remote', 'add', 'origin', remotePath]);
+}
+
+function runGit(cwd, args) {
+  return spawnSync('git', args, { cwd, encoding: 'utf8' });
+}
+
+function assertGitSuccess(cwd, args) {
+  const result = runGit(cwd, args);
+  if (result.status !== 0) {
+    process.stderr.write(result.stdout || '');
+    process.stderr.write(result.stderr || '');
+    fail(`git ${args.join(' ')} failed in production wrapper fixture`);
   }
 }
 
