@@ -27,6 +27,9 @@ const {
 const {
   validateProductionDeploymentConfiguration,
 } = require('./production-runtime-verification');
+const {
+  validateProductionWebAppManifest,
+} = require('./production-web-app-deployment');
 
 const STATUS_MARKER = '<!-- production-status:managed-by-github-actions -->';
 const DEFAULT_REQUIRED_CHECKS = [
@@ -108,6 +111,7 @@ function validateProductionIgnoreBoundary(cwd = process.cwd()) {
   if (missing.length > 0) {
     throw new Error(`.clasp.productionignore is missing required entries: ${missing.join(', ')}`);
   }
+  validateProductionWebAppManifest(cwd);
 }
 
 function assertDevelopUnchanged(adapters, targetSha, message) {
@@ -456,7 +460,7 @@ async function runProductionDeployAll({ env, adapters, cwd = process.cwd() }) {
     const parsedStatus = parseAndValidateProductionStatusOutput(rawStatus);
     localProductionBundleManifest = adapters.buildLocalProductionBundleManifest(parsedStatus.trackedFiles);
     currentStage = 'deployment-target-verification';
-    deploymentBefore = adapters.getProductionDeploymentSnapshot();
+    deploymentBefore = await adapters.getProductionDeploymentSnapshot();
 
     const preflightSummary = dryRun
       ? renderDryRunSummary(state)
@@ -512,7 +516,7 @@ async function runProductionDeployAll({ env, adapters, cwd = process.cwd() }) {
     const deploymentUpdate = adapters.updateAppsScriptDeployment(targetSha);
     deploymentUpdateSucceeded = true;
     currentStage = 'deployment-verification';
-    adapters.verifyProductionDeploymentUpdate(
+    await adapters.verifyProductionDeploymentUpdate(
       deploymentBefore,
       deploymentUpdate,
       localProductionBundleManifest,
@@ -834,7 +838,7 @@ async function runAuthenticatedProductionDryRun({ env, adapters }) {
     const parsedStatus = parseAndValidateProductionStatusOutput(rawStatus);
     adapters.buildLocalProductionBundleManifest(parsedStatus.trackedFiles);
     currentStage = 'deployment-target-verification';
-    adapters.getProductionDeploymentSnapshot();
+    await adapters.getProductionDeploymentSnapshot();
 
     adapters.writeStepSummary([
       renderDryRunSummary(state),
@@ -962,7 +966,7 @@ async function runProductionMutation({ env, adapters, cwd = process.cwd() }) {
     const parsedStatus = parseAndValidateProductionStatusOutput(rawStatus);
     localProductionBundleManifest = adapters.buildLocalProductionBundleManifest(parsedStatus.trackedFiles);
     currentStage = 'deployment-target-verification';
-    deploymentBefore = adapters.getProductionDeploymentSnapshot();
+    deploymentBefore = await adapters.getProductionDeploymentSnapshot();
     adapters.writeStepSummary([
       '## Production deploy Environment pre-mutation check',
       '',
@@ -1001,7 +1005,7 @@ async function runProductionMutation({ env, adapters, cwd = process.cwd() }) {
     const deploymentUpdate = adapters.updateAppsScriptDeployment(targetSha);
     deploymentUpdateSucceeded = true;
     currentStage = 'deployment-verification';
-    adapters.verifyProductionDeploymentUpdate(
+    await adapters.verifyProductionDeploymentUpdate(
       deploymentBefore,
       deploymentUpdate,
       localProductionBundleManifest,

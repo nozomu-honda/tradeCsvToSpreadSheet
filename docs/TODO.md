@@ -12,25 +12,27 @@
 - 最新 `develop` では、Issue #81 / PR #82 の本番bundle参照切れ修正は完了済み。
 - Issue #83で、本番反映をGitHub Actions化し、Production Status Issueで本番状態を追跡する対応を進めている。
   - PR #84の基盤はdevelopへマージ済みで、PR #87 / #90 / #92によりdefault branch `main` への同期も実施済み。
-  - Issue #83は今回の本番runtime不具合の復旧と実動作確認が終わるまでopenのままにする。
+  - PR #95のpush暗黙skip防止と対象SHA bundle完全一致検証はdevelopへマージ済み。
+  - Issue #83は今回のWeb App entry point消失の復旧と実動作確認が終わるまでopenのままにする。
 - 楽天DBの専用ヘッダー対応、楽天DBから共通計算モデルへの変換、楽天配当金の手入力列対応は完了済み。
 - Web UIの6シート表記、外債件数表示、タブ順固定、`runStagingSheetFromWebApp` の重複整理は完了済み。
 - `runSmokeTests()` と `runAllTests()` は未実装タスクではなく、既存の手動テスト入口として扱う。
 - Web App E2Eは、野村1ケース + 楽天7ケースの合計8ケースまで完了済み。
-- 本番Webアプリは、ページ初期表示時に `assertCiE2eTokenForWebAppIfConfigured_` のruntime参照エラーが発生している。
-- Production Status Issue #88の `deployed` は、`clasp push` の暗黙skipとログインredirectだけのSmoke Testによる誤判定であり、正常稼働の根拠にしない。
+- PR #95反映後の本番runはsource pushとremote source／deployment version検証まで成功したが、deployment更新後にWeb App entry pointが消失し、Web access gateがHTTP 404で失敗した。
+- Production Status Issue #88は `failed`。本番Webアプリを復旧して更新前後の `WEB_APP`検証を通すまで正常稼働の根拠にしない。
 
 ## 最優先: 本番復旧確認
 
-本番復旧には、本番pushの暗黙skipを拒否し、対象SHAのローカル本番bundleとリモートHEAD／deployment versionを全ファイルで完全一致検証する修正を最新 `develop` へ取り込んだ上で、本番workflowから再反映する必要がある。runtime helperの存在確認だけでは対象SHA一致の根拠にしない。
+本番復旧には、`appsscript.json` のWeb App設定とApps Script APIによる更新前後のentry point検証を最新 `develop` へ取り込み、人間がWebアプリdeploymentを復旧した上で本番workflowから再反映する必要がある。更新前にWebアプリではない場合はsource push前、更新後に `WEB_APP`が消失した場合はSmoke Test前に停止する。
 
 確認順:
 
-1. 修正版の `npm run test:production-runtime-verification` と本番関連テストが成功している。
-2. `deploy-production-dry-run` でAuthenticated dry-runを行い、Web App URLとdeployment ID、既存deployment、Tracked / Untracked境界を確認する。
-3. 人間の承認後に本番反映し、source push、対象SHA bundleとのremote HEAD完全一致、deployment update、対象version完全一致、web access gate verificationがすべて成功していることを確認する。
-4. 人間がログイン後の本番Webアプリを開き、ページ初期表示と最近の取込一覧でReferenceErrorが出ないことを確認する。
-5. DBを開く、DBリセット、ロールバック、取込、一次受け枠作成の通常操作を、対象と権限を確認した上で確認する。
+1. 修正版の `npm run test:production-runtime-verification`、`npm run test:production-web-app-deployment` と本番関連テストが成功している。
+2. 人間がApps Script管理画面で対象deploymentをWebアプリとして復旧する。IDやURLが変わった場合は両Environment設定を更新する。
+3. 必要に応じて `deploy-production-dry-run` でAuthenticated dry-runを行い、Web App URLとdeployment ID、更新前 `WEB_APP`、Tracked / Untracked境界を確認する。
+4. 人間の承認後に本番反映し、source push、対象SHA bundleとのremote HEAD完全一致、deployment update、更新後 `WEB_APP`とURL維持、対象version完全一致、web access gate verificationがすべて成功していることを確認する。
+5. 人間がログイン後の本番Webアプリを開き、ページ初期表示と最近の取込一覧でReferenceErrorが出ないことを確認する。
+6. DBを開く、DBリセット、ロールバック、取込、一次受け枠作成の通常操作を、対象と権限を確認した上で確認する。
 
 `private-login-gated` はログインゲートへの到達だけを保証する。ログイン後の画面初期化とserver function実行は人間の確認を残す。
 
@@ -52,18 +54,20 @@ npm run gas:production:push
 - Tracked filesに `src/app/e2e_helpers.gs` が含まれない。
 - `src/test/**` と `src/app/e2e_helpers.gs` はUntrackedである。
 - 本番対象に `src/app/e2e_runtime_support.gs` が含まれる。
+- `appsscript.json` に `webapp.access = ANYONE` と `webapp.executeAs = USER_ACCESSING` が含まれる。
 - 実Script ID、Deployment ID、Web App URL、Spreadsheet URL、Drive folder ID、OAuth token、GitHub Secrets実値をログやdocsへ残さない。
 
 Issue #83対応後の基本フロー:
 
-1. developへマージ済みPRへ `deploy-production-dry-run` ラベルを付け、Authenticated dry-runを実行する。
+1. 初回設定、Environment / Secret変更、Workflow大規模変更、障害調査時は、developへマージ済みPRへ `deploy-production-dry-run` ラベルを付けてAuthenticated dry-runを実行する。通常反映では省略できる。
 2. default branch `main` 上のcontrol workflowがPRラベルを検証し、`Deploy production` workflowを `ref: develop` でdispatchする。
 3. Environmentなしのpreflight jobで `HEAD == origin/develop == target_sha` を確認し、Production Status Issueを読んで既存本番情報をstateへ反映してから、重複反映ガード、required checks、本番wrapper検証、本番bundle境界検証を行う。このjobでは本番credential、Environment Variables、clasp statusを使わない。
 4. Authenticated dry-runは、`production-preflight` Environment承認後に本番credentialを使い、`npm run gas:production:status -- --json` とTracked / Untracked境界まで確認する。本番push、deployment更新、Smoke Test、Status Issue PATCHは行わない。
-5. 問題がなければ、人間が `deploy-production` ラベルで本番反映を起動する。
+5. 通常運用では、人間が `deploy-production` ラベルを1回付けて本番反映を起動する。dry-runは初回設定、Environment / Secret変更、Workflow大規模変更、障害調査時だけ任意利用する。
 6. `dry_run=false` かつpreflight成功かつ `should_deploy=true` の場合だけ、`production` Environment付きの本番mutation jobが起動する。
-7. Production Status IssueとGitHub EnvironmentのDeployment履歴を確認する。
-8. developが進んだ場合は、metadata-onlyの `Update production status` workflowがProduction Status Issueを `not-deployed` へ更新する。
+7. production jobがApps Script APIで更新前後の `WEB_APP`、URL fingerprint、entry point type、アクセス設定、実行ユーザー、deployment数を確認し、HTTP 404を成功扱いにしていないことを確認する。
+8. Production Status IssueとGitHub EnvironmentのDeployment履歴を確認する。
+9. developが進んだ場合は、metadata-onlyの `Update production status` workflowがProduction Status Issueを `not-deployed` へ更新する。
    - Status Issue番号未設定時は安全にskipする。
    - deploy workflowとstatus sync workflowは共通concurrency `production-state` で並行更新を避ける。
    - deploy中の `preflight` / `source-pushed` / `deployment-updated` / `verifying` はstatus syncが上書きしない。
