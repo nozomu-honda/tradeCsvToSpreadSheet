@@ -45,6 +45,8 @@ function renderProductionStatusIssue(state) {
   const developAdvancedAfterSourcePush = state.developAdvancedAfterSourcePush ? 'true' : 'false';
   const lastSuccessfulDeploymentSha = formatValue(state.lastSuccessfulDeploymentSha || 'unknown');
   const lastSuccessfulDeploymentAt = formatValue(state.lastSuccessfulDeploymentAt || 'unknown');
+  const lastVerificationAt = formatValue(state.lastVerificationAt || 'unknown');
+  const lastVerificationWorkflowUrl = formatValue(state.lastVerificationWorkflowUrl || 'unknown');
   const lastDeploymentWorkflowUrl = formatValue(state.lastDeploymentWorkflowUrl || 'unknown');
   const lastStatusSyncWorkflowUrl = formatValue(state.lastStatusSyncWorkflowUrl || 'unknown');
   const latestDevelopStatus = latestDevelopDeploymentStatus(state);
@@ -73,6 +75,7 @@ function renderProductionStatusIssue(state) {
     `- 最終成功本番反映commit: \`${lastSuccessfulDeploymentSha}\``,
     `- 最終成功本番反映commit短縮: \`${shortSha(lastSuccessfulDeploymentSha)}\``,
     `- 最終成功deployment日時: \`${lastSuccessfulDeploymentAt}\``,
+    `- 最終本番検証日時: \`${lastVerificationAt}\``,
     `- dry_run: \`${dryRun}\``,
     `- force: \`${force}\``,
     `- source push後にdevelop進行: \`${developAdvancedAfterSourcePush}\``,
@@ -80,6 +83,7 @@ function renderProductionStatusIssue(state) {
     `- 失敗内容: \`${failureMessage}\``,
     `- 更新日時: \`${updatedAt}\``,
     `- 最終本番反映workflow: ${lastDeploymentWorkflowUrl === 'unknown' ? 'unknown' : lastDeploymentWorkflowUrl}`,
+    `- 最終本番検証workflow: ${lastVerificationWorkflowUrl === 'unknown' ? 'unknown' : lastVerificationWorkflowUrl}`,
     `- 最終status同期workflow: ${lastStatusSyncWorkflowUrl === 'unknown' ? 'unknown' : lastStatusSyncWorkflowUrl}`,
     `- 現在のworkflow run: ${workflowRunUrl === 'unknown' ? 'unknown' : workflowRunUrl}`,
     '',
@@ -92,6 +96,7 @@ function renderProductionStatusIssue(state) {
     '- `deployment-updated`: 既存Webアプリdeployment更新済み。',
     '- `verifying`: smoke確認中。',
     '- `deployed`: 本番commitが最新developと一致し、source push / deployment update / smoke testがすべて成功済み。',
+    '- 最終本番検証日時／workflowはSmoke Testの最新結果を示し、deployment更新日時とは別に管理する。',
     '- `failed`: いずれかの段階で失敗。',
     '',
     '<!-- production-status:managed-by-github-actions -->',

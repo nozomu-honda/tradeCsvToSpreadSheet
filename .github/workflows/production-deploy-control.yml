@@ -104,6 +104,7 @@ jobs:
                 workflow_id: 'deploy-production.yml',
                 ref: 'develop',
                 inputs: {
+                  operation: 'deploy',
                   dry_run: config.dry_run,
                   dry_run_mode: config.dry_run_mode,
                   force: config.force,

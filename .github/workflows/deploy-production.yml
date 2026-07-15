@@ -3,6 +3,14 @@ name: Deploy production
 on:
   workflow_dispatch:
     inputs:
+      operation:
+        description: 'deployは本番反映、verify-existingは更新済みdeploymentのSmoke Testのみ再実行'
+        required: true
+        default: deploy
+        type: choice
+        options:
+          - deploy
+          - verify-existing
       dry_run:
         description: 'trueの場合は本番push、deployment更新、Status Issue更新を行わない'
         required: true
@@ -32,7 +40,7 @@ on:
         default: ''
         type: string
 
-run-name: Production deploy
+run-name: Production ${{ inputs.operation }}
 
 permissions:
   contents: read
@@ -65,16 +73,19 @@ jobs:
     needs: resolve-production-status-config
     runs-on: ubuntu-latest
     outputs:
+      operation: ${{ steps.preflight.outputs.operation }}
       target_sha: ${{ steps.preflight.outputs.target_sha }}
       source_pr_number: ${{ steps.preflight.outputs.source_pr_number }}
       preflight_passed: ${{ steps.preflight.outputs.preflight_passed }}
       should_deploy: ${{ steps.preflight.outputs.should_deploy }}
+      should_verify_existing: ${{ steps.preflight.outputs.should_verify_existing }}
       current_production_sha: ${{ steps.preflight.outputs.current_production_sha }}
       production_status_issue_number: ${{ steps.preflight.outputs.production_status_issue_number }}
       required_checks_verified: ${{ steps.preflight.outputs.required_checks_verified }}
       static_boundary_verified: ${{ steps.preflight.outputs.static_boundary_verified }}
     env:
       PRODUCTION_DEPLOY_PHASE: preflight
+      PRODUCTION_DEPLOY_OPERATION: ${{ inputs.operation }}
       DRY_RUN: ${{ inputs.dry_run }}
       DRY_RUN_MODE: ${{ inputs.dry_run_mode }}
       FORCE: ${{ inputs.force }}
@@ -106,7 +117,7 @@ jobs:
         run: node scripts/ci/run-production-deploy.js
 
       - name: Pack preflight dependencies
-        if: ${{ steps.preflight.outputs.preflight_passed == 'true' && (steps.preflight.outputs.should_deploy == 'true' || inputs.dry_run_mode == 'authenticated') }}
+        if: ${{ inputs.operation == 'deploy' && steps.preflight.outputs.preflight_passed == 'true' && (steps.preflight.outputs.should_deploy == 'true' || inputs.dry_run_mode == 'authenticated') }}
         shell: bash
         run: |
           set -euo pipefail
@@ -114,7 +125,7 @@ jobs:
           tar -czf "${RUNNER_TEMP}/production-dependencies/production-node-modules.tgz" node_modules
 
       - name: Upload preflight dependencies
-        if: ${{ steps.preflight.outputs.preflight_passed == 'true' && (steps.preflight.outputs.should_deploy == 'true' || inputs.dry_run_mode == 'authenticated') }}
+        if: ${{ inputs.operation == 'deploy' && steps.preflight.outputs.preflight_passed == 'true' && (steps.preflight.outputs.should_deploy == 'true' || inputs.dry_run_mode == 'authenticated') }}
         uses: actions/upload-artifact@v4
         with:
           name: production-node-modules
@@ -129,6 +140,7 @@ jobs:
     runs-on: ubuntu-latest
     if: >-
       ${{
+        inputs.operation == 'deploy' &&
         inputs.dry_run == true &&
         inputs.dry_run_mode == 'authenticated' &&
         needs.production-preflight.result == 'success'
@@ -137,15 +149,18 @@ jobs:
       name: production-preflight
     env:
       PRODUCTION_DEPLOY_PHASE: authenticated-dry-run
+      PRODUCTION_DEPLOY_OPERATION: ${{ inputs.operation }}
       DRY_RUN: ${{ inputs.dry_run }}
       DRY_RUN_MODE: ${{ inputs.dry_run_mode }}
       FORCE: ${{ inputs.force }}
       TARGET_SHA: ${{ inputs.target_sha }}
       SOURCE_PR_NUMBER: ${{ inputs.source_pr_number }}
       PREFLIGHT_TARGET_SHA: ${{ needs.production-preflight.outputs.target_sha }}
+      PREFLIGHT_OPERATION: ${{ needs.production-preflight.outputs.operation }}
       PREFLIGHT_SOURCE_PR_NUMBER: ${{ needs.production-preflight.outputs.source_pr_number }}
       PREFLIGHT_PASSED: ${{ needs.production-preflight.outputs.preflight_passed }}
       PREFLIGHT_SHOULD_DEPLOY: ${{ needs.production-preflight.outputs.should_deploy }}
+      PREFLIGHT_SHOULD_VERIFY_EXISTING: ${{ needs.production-preflight.outputs.should_verify_existing }}
       PREFLIGHT_CURRENT_PRODUCTION_SHA: ${{ needs.production-preflight.outputs.current_production_sha }}
       PREFLIGHT_PRODUCTION_STATUS_ISSUE_NUMBER: ${{ needs.production-preflight.outputs.production_status_issue_number }}
       PREFLIGHT_REQUIRED_CHECKS_VERIFIED: ${{ needs.production-preflight.outputs.required_checks_verified }}
@@ -214,6 +229,7 @@ jobs:
     runs-on: ubuntu-latest
     if: >-
       ${{
+        inputs.operation == 'deploy' &&
         inputs.dry_run == false &&
         needs.production-preflight.result == 'success' &&
         needs.production-preflight.outputs.should_deploy == 'true'
@@ -223,15 +239,18 @@ jobs:
       url: ${{ vars.PRODUCTION_WEB_APP_URL }}
     env:
       PRODUCTION_DEPLOY_PHASE: mutation
+      PRODUCTION_DEPLOY_OPERATION: ${{ inputs.operation }}
       DRY_RUN: ${{ inputs.dry_run }}
       DRY_RUN_MODE: ${{ inputs.dry_run_mode }}
       FORCE: ${{ inputs.force }}
       TARGET_SHA: ${{ inputs.target_sha }}
       SOURCE_PR_NUMBER: ${{ inputs.source_pr_number }}
       PREFLIGHT_TARGET_SHA: ${{ needs.production-preflight.outputs.target_sha }}
+      PREFLIGHT_OPERATION: ${{ needs.production-preflight.outputs.operation }}
       PREFLIGHT_SOURCE_PR_NUMBER: ${{ needs.production-preflight.outputs.source_pr_number }}
       PREFLIGHT_PASSED: ${{ needs.production-preflight.outputs.preflight_passed }}
       PREFLIGHT_SHOULD_DEPLOY: ${{ needs.production-preflight.outputs.should_deploy }}
+      PREFLIGHT_SHOULD_VERIFY_EXISTING: ${{ needs.production-preflight.outputs.should_verify_existing }}
       PREFLIGHT_CURRENT_PRODUCTION_SHA: ${{ needs.production-preflight.outputs.current_production_sha }}
       PREFLIGHT_PRODUCTION_STATUS_ISSUE_NUMBER: ${{ needs.production-preflight.outputs.production_status_issue_number }}
       PREFLIGHT_REQUIRED_CHECKS_VERIFIED: ${{ needs.production-preflight.outputs.required_checks_verified }}
@@ -289,5 +308,67 @@ jobs:
           fi
 
       - name: Deploy production mutation
+        shell: bash
+        run: node scripts/ci/run-production-deploy.js
+
+  verify-existing-production:
+    name: Verify existing production deployment
+    needs:
+      - resolve-production-status-config
+      - production-preflight
+    runs-on: ubuntu-latest
+    if: >-
+      ${{
+        inputs.operation == 'verify-existing' &&
+        inputs.dry_run == false &&
+        needs.production-preflight.result == 'success' &&
+        needs.production-preflight.outputs.should_verify_existing == 'true'
+      }}
+    environment:
+      name: production
+      url: ${{ vars.PRODUCTION_WEB_APP_URL }}
+    env:
+      PRODUCTION_DEPLOY_PHASE: verify-existing
+      PRODUCTION_DEPLOY_OPERATION: ${{ inputs.operation }}
+      DRY_RUN: ${{ inputs.dry_run }}
+      DRY_RUN_MODE: ${{ inputs.dry_run_mode }}
+      FORCE: ${{ inputs.force }}
+      TARGET_SHA: ${{ inputs.target_sha }}
+      SOURCE_PR_NUMBER: ${{ inputs.source_pr_number }}
+      PREFLIGHT_OPERATION: ${{ needs.production-preflight.outputs.operation }}
+      PREFLIGHT_TARGET_SHA: ${{ needs.production-preflight.outputs.target_sha }}
+      PREFLIGHT_SOURCE_PR_NUMBER: ${{ needs.production-preflight.outputs.source_pr_number }}
+      PREFLIGHT_PASSED: ${{ needs.production-preflight.outputs.preflight_passed }}
+      PREFLIGHT_SHOULD_DEPLOY: ${{ needs.production-preflight.outputs.should_deploy }}
+      PREFLIGHT_SHOULD_VERIFY_EXISTING: ${{ needs.production-preflight.outputs.should_verify_existing }}
+      PREFLIGHT_CURRENT_PRODUCTION_SHA: ${{ needs.production-preflight.outputs.current_production_sha }}
+      PREFLIGHT_PRODUCTION_STATUS_ISSUE_NUMBER: ${{ needs.production-preflight.outputs.production_status_issue_number }}
+      PREFLIGHT_REQUIRED_CHECKS_VERIFIED: ${{ needs.production-preflight.outputs.required_checks_verified }}
+      PREFLIGHT_STATIC_BOUNDARY_VERIFIED: ${{ needs.production-preflight.outputs.static_boundary_verified }}
+      PRODUCTION_WEB_APP_URL: ${{ vars.PRODUCTION_WEB_APP_URL }}
+      PRODUCTION_SMOKE_MODE: ${{ vars.PRODUCTION_SMOKE_MODE }}
+      PRODUCTION_SMOKE_EXPECTED_MARKER: ${{ vars.PRODUCTION_SMOKE_EXPECTED_MARKER }}
+      PRODUCTION_STATUS_ISSUE_NUMBER: ${{ needs.resolve-production-status-config.outputs.production_status_issue_number }}
+      PRODUCTION_REQUIRED_CHECKS: ${{ vars.PRODUCTION_REQUIRED_CHECKS }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - name: Checkout trusted develop source
+        uses: actions/checkout@v4
+        with:
+          ref: develop
+          fetch-depth: 0
+
+      - name: Pin local branch to origin/develop
+        run: |
+          git fetch --no-tags origin develop
+          git checkout -B develop origin/develop
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Verify existing production deployment
         shell: bash
         run: node scripts/ci/run-production-deploy.js

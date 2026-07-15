@@ -34,7 +34,9 @@ assert.ok(preflightBody.includes('- 最終本番反映 source push: `not-started
 assert.ok(preflightBody.includes('- 最終本番反映 deployment update: `not-started`'));
 assert.ok(preflightBody.includes('- 最終本番反映 smoke test: `not-started`'));
 assert.ok(preflightBody.includes('- 最終成功deployment日時: `unknown`'));
+assert.ok(preflightBody.includes('- 最終本番検証日時: `unknown`'));
 assert.ok(preflightBody.includes('- 最終本番反映workflow: unknown'));
+assert.ok(preflightBody.includes('- 最終本番検証workflow: unknown'));
 assert.ok(preflightBody.includes('- 最終status同期workflow: unknown'));
 assert.ok(preflightBody.includes('- 現在のworkflow run: https://github.example/nozomu-honda/tradeCsvToSpreadSheet/actions/runs/123'));
 assert.ok(preflightBody.includes('<!-- production-status:managed-by-github-actions -->'));
@@ -55,6 +57,8 @@ assert.ok(deployedBody.includes('- 最終本番反映 smoke test: `success`'));
 assert.ok(deployedBody.includes(`- 最終成功本番反映commit: \`${shaA}\``));
 assert.ok(deployedBody.includes('- developとの差分: `0 commits`'));
 assert.ok(deployedBody.includes('- 最終成功deployment日時: `'));
+assert.ok(deployedBody.includes('- 最終本番検証日時: `'));
+assert.ok(deployedBody.includes('- 最終本番検証workflow: https://github.example/nozomu-honda/tradeCsvToSpreadSheet/actions/runs/123'));
 assert.ok(deployedBody.includes('- 最終失敗ステージ: `none`'));
 
 const smokeFailed = failProductionDeployState(

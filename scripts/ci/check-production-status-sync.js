@@ -53,12 +53,16 @@ function deployedIssueBody({ currentSha = shaA, latestSha = shaA } = {}) {
     lastSuccessfulDeploymentSha: currentSha,
     lastSuccessfulDeploymentAt: '2026-07-14T00:00:00.000Z',
     lastDeploymentWorkflowUrl: 'https://github.com/owner/repo/actions/runs/100',
+    lastVerificationAt: '2026-07-14T01:00:00.000Z',
+    lastVerificationWorkflowUrl: 'https://github.com/owner/repo/actions/runs/101',
     lastStatusSyncWorkflowUrl: 'https://github.com/owner/repo/actions/runs/99',
   }), 'deployed', {
     currentProductionSha: currentSha,
     lastSuccessfulDeploymentSha: currentSha,
     lastSuccessfulDeploymentAt: '2026-07-14T00:00:00.000Z',
     lastDeploymentWorkflowUrl: 'https://github.com/owner/repo/actions/runs/100',
+    lastVerificationAt: '2026-07-14T01:00:00.000Z',
+    lastVerificationWorkflowUrl: 'https://github.com/owner/repo/actions/runs/101',
   }));
 }
 
@@ -176,6 +180,8 @@ assert.strictEqual(resolveNextStatus({
     assert.ok(adapters.state.patchedBody.includes('- developとの差分: `0 commits`'));
     assert.ok(adapters.state.patchedBody.includes('- 最新develop反映: `deployed`'));
     assert.ok(adapters.state.patchedBody.includes('- 最終成功deployment日時: `2026-07-14T00:00:00.000Z`'));
+    assert.ok(adapters.state.patchedBody.includes('- 最終本番検証日時: `2026-07-14T01:00:00.000Z`'));
+    assert.ok(adapters.state.patchedBody.includes('- 最終本番検証workflow: https://github.com/owner/repo/actions/runs/101'));
     assert.ok(adapters.state.patchedBody.includes('- 最終本番反映workflow: https://github.com/owner/repo/actions/runs/100'));
     assert.ok(adapters.state.patchedBody.includes('- 最終status同期workflow: https://github.com/owner/repo/actions/runs/123'));
   }

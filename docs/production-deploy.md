@@ -5,7 +5,7 @@ Issue #83で追加する本番反映workflowの運用手順です。
 
 Codexはこのworkflowの実行、GitHub Environment作成、Secrets / Variables変更、本番Apps Script操作、本番Webアプリ再デプロイを行いません。
 default branch `main` へのcontrol workflow同期メモは [`docs/production-deploy-control.md`](production-deploy-control.md) を参照します。
-PR #84はIssue #83の一部対応です。main同期、初回設定、authenticated dry-run、初回本番反映、本番状態追跡の実動作確認が終わるまでIssue #83はopenのままにします。
+Issue #83の本番反映経路に加え、Issue #93ではdeployment更新済み・Smoke Test失敗時の検証専用経路を追加します。初回設定と実動作確認が終わるまでIssue #83はopenのままにします。
 
 ## 起動経路
 
@@ -19,21 +19,23 @@ PR #84はIssue #83の一部対応です。main同期、初回設定、authentica
 - deploy workflow: `.github/workflows/deploy-production.yml`
   - `workflow_dispatch` だけで起動する。
   - 信頼済みの最新 `develop` をcheckoutする。
-  - `resolve-production-status-config`、`production-preflight`、`authenticated-production-dry-run`、`deploy-production` で構成する。
+  - `resolve-production-status-config`、`production-preflight`、`authenticated-production-dry-run`、`deploy-production`、`verify-existing-production` で構成する。
   - `production-preflight` はEnvironmentを参照せず、本番credentialやEnvironment Variablesも受け取らない。duplicate guard、既定required checks、ローカル検証、安全なpreflight outputs作成まで行う。
-  - `production-preflight` は検証済みの `node_modules` を短期artifactとして渡し、Environment job内では `npm ci` を再実行しない。
+  - `operation=deploy` の `production-preflight` は検証済みの `node_modules` を短期artifactとして渡し、Environment job内では `npm ci` を再実行しない。
   - artifact archiveはrunner一時領域で作成・復元し、`node_modules` 展開後にarchiveを削除する。復元直後と本番push前のworking tree clean確認は維持し、Workflow自身の一時ファイルをリポジトリ内へ残さない。
   - `authenticated-production-dry-run` は `dry_run=true` かつ `dry_run_mode=authenticated` の場合だけ起動し、`production-preflight` Environment内で本番credential、Environment Variables、clasp status境界まで確認する。
-  - `deploy-production` は `dry_run=false` かつpreflight成功かつ `should_deploy=true` の場合だけ起動し、このjobだけが `production` Environmentを参照する。
+  - `deploy-production` は `operation=deploy`、`dry_run=false`、preflight成功、`should_deploy=true` の場合だけ起動する。
+  - `verify-existing-production` は `operation=verify-existing`、`dry_run=false`、部分成功状態のpreflight成功時だけ起動する。
+  - 上記2jobは `production` Environmentを参照するが、verify jobにはclasp credential、Script ID、Deployment IDを渡さない。
   - 本番mutation直前にも `HEAD == origin/develop == target_sha` を再確認する。
 
 正式経路は、developへマージ済みPRへのラベル付与です。
 
 | ラベル | 意味 |
 | --- | --- |
-| `deploy-production-dry-run` | `dry_run=true`、`dry_run_mode=authenticated`、本番操作なし |
-| `deploy-production` | `dry_run=false`、通常の本番反映 |
-| `deploy-production-force` | `dry_run=false`、`force=true`、同一SHA再反映 |
+| `deploy-production-dry-run` | `operation=deploy`、`dry_run=true`、`dry_run_mode=authenticated`、本番操作なし |
+| `deploy-production` | `operation=deploy`、`dry_run=false`、通常の本番反映 |
+| `deploy-production-force` | `operation=deploy`、`dry_run=false`、`force=true`、同一SHA再反映 |
 
 workflow開始時に起動ラベルは削除します。
 同じラベルが残って意図せず再実行されることを避けるためです。
@@ -41,13 +43,25 @@ workflow開始時に起動ラベルは削除します。
 `workflow_dispatch` も残しますが、人間向けfallbackです。
 ChatGPT側は原則としてラベル付与で起動します。
 
+## operation
+
+`Deploy production` workflowには次の明示入力があります。
+
+| operation | 用途 | 許可する組み合わせ |
+| --- | --- | --- |
+| `deploy` | 通常のdry-runまたは本番反映 | 既存の `dry_run` / `dry_run_mode` / `force` を使用 |
+| `verify-existing` | 更新済みdeploymentへのSmoke Testのみ再実行 | `dry_run=false`、`force=false` のみ |
+
+未設定、空文字、`verify` / `smoke`などの未定義値はfail closedです。`verify-existing`と`dry_run=true`または`force=true`の組み合わせも拒否します。
+既存の本番ラベル3種は常に`operation=deploy`をdispatchします。`verify-existing`は汎用監視ではなく、Production StatusがSmoke Testだけ失敗した部分成功状態から復旧する時だけ、人間が`workflow_dispatch`で明示します。
+
 ## default branchについて
 
 このリポジトリのdefault branchは `main` です。
 PRラベルを契機にするworkflowは、default branch上のworkflow定義で評価されます。
 
-そのため、PR #84をdevelopへマージしただけでは、ラベル起動経路はまだ有効になりません。
-正式運用するには、少なくとも次のworkflow定義をdefault branch `main` へ同期する後続対応が必要です。
+Workflow inputやjob構成を変更した場合、`develop`へマージしただけではdefault branchの手動実行UIとcontrol workflowは更新されません。
+Issue #93の変更後も、少なくとも次のworkflow定義をdefault branch `main` へ同期する後続対応が必要です。
 
 - `.github/workflows/production-deploy-control.yml`
 - `.github/workflows/deploy-production.yml`
@@ -78,6 +92,8 @@ control workflowは `deploy-production.yml` を `ref: develop` でdispatchする
 deploy workflow内でも、preflight失敗やduplicate拒否ではproduction Environment jobへ進みません。
 
 ## dry-run
+
+dry-runは`operation=deploy`でだけ利用します。
 
 dry-runには2種類あります。
 
@@ -138,11 +154,52 @@ Environment Deployment履歴:
 
 - `production-preflight` Environmentにはauthenticated dry-run試行として残る可能性がある。
 - `production` Environmentには残らない。
-- `production` EnvironmentのDeployment履歴は実本番mutationの正本として扱う。
+- `production` EnvironmentのDeployment履歴は本番mutationと`verify-existing`試行の履歴として扱い、job名とSummaryで区別する。
+
+## 更新済みdeploymentの検証のみ再実行
+
+`operation=verify-existing`、`dry_run=false`、`force=false`
+
+通常deployでsource pushとdeployment更新が成功し、Smoke Testだけが失敗した場合に限り使用します。通常deployを再実行する前に、Production Status Issueで次をすべて確認します。
+
+- Issueがopenで、管理markerを含む。
+- 状態が`failed`。
+- 最終失敗ステージが`smoke-test`。
+- source pushが`success`。
+- deployment updateが`success`。
+- smoke testが`failed`。
+- 本番commit、反映対象commit、最新develop、workflow入力`target_sha`がすべて同じSHA。
+- source PRがsame-repository、`develop`向け、merged済みで、merge SHAが対象SHAと一致する。
+- 既定checkと`PRODUCTION_REQUIRED_CHECKS`の全checkが成功している。
+
+実行順:
+
+1. EnvironmentなしpreflightでStatus Issue、SHA、source PR、既定required checksを確認する。
+2. `npm ci`、dependency artifact、clasp status、本番bundle境界確認は行わない。
+3. `production` Environmentの承認後、信頼済み`develop`を再checkoutする。
+4. preflight output、Status Issueの部分成功状態、SHA、source PR、追加required checksを再確認する。
+5. Web App URLとSmoke modeを検証する。
+6. 既存本番URLへSmoke Testだけを実行する。
+7. 成功時はStatus Issueを`deployed`へ更新する。再失敗時は`failed / smoke-test`を維持する。
+
+行わないこと:
+
+- `.clasp.production.json`やcredentialファイルの生成。
+- `CLASP_PRODUCTION_CREDENTIALS`、`PRODUCTION_SCRIPT_ID`、`PRODUCTION_DEPLOYMENT_ID`の参照。
+- `npm run gas:production:push`、Apps Script version作成、deployment update。
+- force deployment、本番DB／Drive操作。
+
+状態、SHA、PR、check、Web App設定のどれかが不一致ならSmoke Test前に停止し、Production Status Issueを更新しません。Smoke Test再失敗時は本番commit、source push成功、deployment update成功、前回の最終成功deployment情報を保持します。
+
+成功時は状態、smoke test、最終成功本番反映commitを対象SHAへ更新します。ただし`verify-existing`はdeploymentを更新しないため、`最終成功deployment日時`と`最終本番反映workflow`は既存値を維持し、今回の時刻とrun URLは`最終本番検証日時`と`最終本番検証workflow`へ記録します。再失敗時も検証日時／workflowだけを更新し、既存の部分成功情報を失いません。
+
+エラー時は、Smoke Testが呼ばれていなければ状態・SHA・PR・check・設定の境界不一致として修正してから再実行します。Smoke Testが呼ばれて`smoke-test`で失敗した場合だけ、HTTP応答またはSmoke Test実装を確認します。条件を満たさない状態で通常deployへ切り替えてはいけません。
+
+`verify-existing`も`production` Environmentを使うため、required reviewersの承認後に実行され、Environment Deployment履歴へ`Verify existing production deployment`として残ります。通常deployとの区別はjob名、run名、Step Summaryの`verify-existing`表示で確認します。
 
 ## 本番反映
 
-`dry_run=false`
+`operation=deploy`、`dry_run=false`
 
 実行順:
 
@@ -207,8 +264,8 @@ Trackedに含まれる必要があるもの:
 
 ## GitHub Deployment
 
-GitHub Actionsでは、authenticated dry-run用に `authenticated-production-dry-run` jobだけが `environment: production-preflight` を持ち、実本番用に `deploy-production` jobだけが `environment: production` を持ちます。
-production Environment Deployment履歴は、実際の本番反映を開始したrunだけを記録する正本として扱います。
+GitHub Actionsでは、authenticated dry-run用に `authenticated-production-dry-run` jobだけが `environment: production-preflight` を持ちます。`deploy-production`と`verify-existing-production`は`environment: production`を持ちます。
+production Environment Deployment履歴は、本番mutationまたは既存deployment検証を承認後に開始したrunの正本として扱います。
 スクリプトからGitHub Deployment APIで追加deploymentを作成しません。
 
 これにより、1回の本番反映でDeployment履歴が二重に作られることを避けます。
@@ -219,6 +276,7 @@ Environment Deployment履歴へ記録するもの:
 - `production-preflight` Environment: authenticated dry-runの承認後clasp status確認。
 - `dry_run=false` でpreflightに成功し、production Environment付きの本番mutation jobを開始したrun。
 - 本番mutation開始後のclasp status境界失敗、source push失敗、deployment更新失敗、Smoke Test失敗、Status Issue更新失敗。
+- 部分成功状態のpreflightに成功し、production Environment付きの`verify-existing` jobを開始したrun。
 
 Environment Deployment履歴へ記録しないもの:
 
@@ -266,7 +324,7 @@ markerがないIssueは絶対に上書きしません。
 - 最新 `develop` SHAを取得する。
 - Production Status Issueの現在の本番commitを読む。
 - 本番commitと最新developが異なる場合は `not-deployed` として記録する。
-- 現在の本番commit、最新develop、developとの差分、最終成功deployment日時、最終本番反映workflow、失敗情報を保持・更新する。
+- 現在の本番commit、最新develop、developとの差分、最終成功deployment日時、最終本番反映workflow、最終本番検証日時／workflow、失敗情報を保持・更新する。
 - status sync自身のworkflow URLは `最終status同期workflow` として別に記録する。
 - marker、Issue title、open状態、PRではないことを確認してから更新する。
 - 更新直前にIssueを再読込し、`preflight` / `source-pushed` / `deployment-updated` / `verifying` の場合は上書きせずskipする。
@@ -278,7 +336,7 @@ markerがないIssueは絶対に上書きしません。
 Authenticated dry-runと本番deployのEnvironmentなしpreflightでは、required checks、`npm ci`、validationより前にStatus Issueを読みます。
 preflight jobはStatus IssueをPATCHしません。
 このため、preflight中に失敗しても、現在の本番commit、最終成功deployment、最終本番反映workflow、前回工程結果は`unknown`で上書きしません。
-Production Status Issueへ `preflight`、`source-pushed`、`deployment-updated`、`verifying`、`deployed`、`failed` を記録するのは、production Environment付きの本番mutation jobだけです。
+Production Status Issueへ中間状態を記録するのは、production Environment付きの本番mutation jobです。`verify-existing`は開始時の中間状態をPATCHせず、Smoke Test成功時の`deployed`または再失敗時の`failed`だけを記録します。
 Status Issue読込自体が失敗した場合は、無関係なIssueを更新せずに停止します。
 同一SHAの通常再実行をduplicate guardで拒否した場合も、Production Status Issueは変更せず、`failed` へは変えません。
 Static dry-runでは、Status Issueを読まず、本番Secretsも要求しません。
@@ -299,6 +357,7 @@ Static dry-runでは、Status Issueを読まず、本番Secretsも要求しま�
 - 最終本番反映 smoke test: `not-started`
 - 最終成功本番反映commit: `unknown`
 - 最終成功deployment日時: `unknown`
+- 最終本番検証日時: `unknown`
 - dry_run: `true`
 - force: `false`
 - source push後にdevelop進行: `false`
@@ -306,6 +365,7 @@ Static dry-runでは、Status Issueを読まず、本番Secretsも要求しま�
 - 失敗内容: `none`
 - 更新日時: `unknown`
 - 最終本番反映workflow: unknown
+- 最終本番検証workflow: unknown
 - 最終status同期workflow: unknown
 - 現在のworkflow run: unknown
 
@@ -356,7 +416,7 @@ Googleログイン必須のprivate Webアプリ向けです。現在の本番環
 
 Authenticated dry-runではSmoke Test自体は行わず、mode、Web App URL、marker設定を検証してStep Summaryへmodeと `smoke test: skipped` を表示します。
 
-Smoke Test失敗時はProduction Status Issueで本番commit、source push、deployment update、smoke test、最終失敗ステージを確認します。deployment updateが成功済みの場合があるため、同じ本番Workflowを安易に再実行せず、工程結果を確認してから次の対応を決めます。
+Smoke Test失敗時はProduction Status Issueで本番commit、反映対象commit、最新develop、source push、deployment update、smoke test、最終失敗ステージを確認します。deployment updateまで成功済みでIssue #93の条件を満たす場合は`operation=verify-existing`を使い、通常deployを安易に再実行しません。
 
 失敗扱いの例:
 

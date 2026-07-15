@@ -41,6 +41,7 @@ includes('workflow_id: \'deploy-production.yml\'', 'control workflow must dispat
 includes("ref: 'develop'", 'control workflow must dispatch on develop, not on main or PR head');
 includes('target_sha: pr.merge_commit_sha', 'control workflow must pass the actual target develop SHA');
 includes('source_pr_number: String(pr.number)', 'control workflow must preserve source PR traceability');
+includes("operation: 'deploy'", 'existing production labels must explicitly dispatch the deploy operation');
 includes('removeTriggerLabel', 'control workflow must remove labels so re-labeling can re-run');
 
 assert.ok(!/[A-Za-z0-9_-]{35,}\.apps\.googleusercontent\.com/.test(workflow), 'workflow must not contain OAuth client IDs');

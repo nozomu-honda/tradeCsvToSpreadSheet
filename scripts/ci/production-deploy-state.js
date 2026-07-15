@@ -63,6 +63,8 @@ function createInitialProductionDeployState({
   commitsBehindDevelop = 'unknown',
   lastSuccessfulDeploymentSha = 'unknown',
   lastSuccessfulDeploymentAt = 'unknown',
+  lastVerificationAt = 'unknown',
+  lastVerificationWorkflowUrl = 'unknown',
   status = 'preflight',
 } = {}) {
   assertValidProductionState(status);
@@ -75,6 +77,8 @@ function createInitialProductionDeployState({
     commitsBehindDevelop,
     lastSuccessfulDeploymentSha,
     lastSuccessfulDeploymentAt,
+    lastVerificationAt,
+    lastVerificationWorkflowUrl,
     dryRun: Boolean(dryRun),
     force: Boolean(force),
     workflowRunUrl,
@@ -113,6 +117,8 @@ function markProductionDeployState(state, status, patch = {}) {
     next.lastSuccessfulDeploymentSha = patch.lastSuccessfulDeploymentSha || next.currentProductionSha;
     next.lastSuccessfulDeploymentAt = patch.lastSuccessfulDeploymentAt || next.updatedAt;
     next.lastDeploymentWorkflowUrl = patch.lastDeploymentWorkflowUrl || state.workflowRunUrl || state.lastDeploymentWorkflowUrl || 'unknown';
+    next.lastVerificationAt = patch.lastVerificationAt || next.updatedAt;
+    next.lastVerificationWorkflowUrl = patch.lastVerificationWorkflowUrl || state.workflowRunUrl || state.lastVerificationWorkflowUrl || 'unknown';
     next.sourcePush = patch.sourcePush || 'success';
     next.deploymentUpdate = patch.deploymentUpdate || 'success';
     next.smokeTest = patch.smokeTest || 'success';
@@ -169,6 +175,7 @@ function parseProductionStatusIssue(body) {
   const result = {
     productionStatus: 'unknown',
     currentProductionSha: 'unknown',
+    targetSha: 'unknown',
     latestDevelopSha: 'unknown',
     commitsBehindDevelop: 'unknown',
     lastFailureStage: '',
@@ -178,6 +185,8 @@ function parseProductionStatusIssue(body) {
     failureMessage: '',
     lastSuccessfulDeploymentSha: 'unknown',
     lastSuccessfulDeploymentAt: 'unknown',
+    lastVerificationAt: 'unknown',
+    lastVerificationWorkflowUrl: 'unknown',
     lastDeploymentWorkflowUrl: 'unknown',
     lastStatusSyncWorkflowUrl: 'unknown',
   };
@@ -188,6 +197,7 @@ function parseProductionStatusIssue(body) {
   const normalized = String(body);
   const statusMatch = normalized.match(/^- 状態:\s*`?([a-z-]+)`?/m);
   const productionMatch = normalized.match(/^- 本番commit:\s*`?([0-9a-f]{40}|unknown)`?/im);
+  const targetMatch = normalized.match(/^- 反映対象commit:\s*`?([0-9a-f]{40}|unknown)`?/im);
   const latestMatch = normalized.match(/^- 最新develop:\s*`?([0-9a-f]{40}|unknown)`?/im);
   const behindMatch = normalized.match(/^- developとの差分:\s*`?([^`\n]+)`?/m);
   const failureMatch = normalized.match(/^- 最終失敗ステージ:\s*`?([^`\n]*)`?/m);
@@ -197,6 +207,8 @@ function parseProductionStatusIssue(body) {
   const failureMessageMatch = normalized.match(/^- 失敗内容:\s*`?([^`\n]*)`?/m);
   const lastSuccessfulDeploymentShaMatch = normalized.match(/^- 最終成功本番反映commit:\s*`?([0-9a-f]{40}|unknown)`?/im);
   const lastSuccessfulDeploymentMatch = normalized.match(/^- 最終成功deployment日時:\s*`?([^`\n]*)`?/m);
+  const lastVerificationAtMatch = normalized.match(/^- 最終本番検証日時:\s*`?([^`\n]*)`?/m);
+  const lastVerificationWorkflowMatch = normalized.match(/^- 最終本番検証workflow:\s*(.+)$/m);
   const lastDeploymentWorkflowMatch = normalized.match(/^- 最終本番反映workflow:\s*(.+)$/m);
   const lastStatusSyncWorkflowMatch = normalized.match(/^- 最終status同期workflow:\s*(.+)$/m);
   const lastDeploymentSourcePushMatch = normalized.match(/^- 最終本番反映 source push:\s*`?([^`\n]+)`?/m);
@@ -208,6 +220,9 @@ function parseProductionStatusIssue(body) {
   }
   if (productionMatch) {
     result.currentProductionSha = productionMatch[1];
+  }
+  if (targetMatch) {
+    result.targetSha = targetMatch[1];
   }
   if (latestMatch) {
     result.latestDevelopSha = latestMatch[1];
@@ -243,6 +258,12 @@ function parseProductionStatusIssue(body) {
   }
   if (lastSuccessfulDeploymentMatch) {
     result.lastSuccessfulDeploymentAt = lastSuccessfulDeploymentMatch[1].trim();
+  }
+  if (lastVerificationAtMatch) {
+    result.lastVerificationAt = lastVerificationAtMatch[1].trim();
+  }
+  if (lastVerificationWorkflowMatch) {
+    result.lastVerificationWorkflowUrl = lastVerificationWorkflowMatch[1].trim();
   }
   if (lastDeploymentWorkflowMatch) {
     result.lastDeploymentWorkflowUrl = lastDeploymentWorkflowMatch[1].trim();
