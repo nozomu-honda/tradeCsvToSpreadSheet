@@ -19,6 +19,8 @@
 - `runSmokeTests()` と `runAllTests()` は未実装タスクではなく、既存の手動テスト入口として扱う。
 - Web App E2Eは、野村1ケース + 楽天7ケースの合計8ケースまで完了済み。
 - PR #95反映後の本番runはsource pushとremote source／deployment version検証まで成功したが、deployment更新後にWeb App entry pointが消失し、Web access gateがHTTP 404で失敗した。
+- PR #96のmanifest／更新前後 `WEB_APP`検証は `develop` へマージ済み。本番設定は `access = ANYONE` / `executeAs = USER_ACCESSING` を維持する。
+- PR #96マージ後のAuthenticated dry-run 29436843157は `deployment-target-verification` で失敗したが、抽象エラーだけで原因を分類できなかった。安全なreasonをログとSummaryへ追加してから再確認する。
 - Production Status Issue #88は `failed`。本番Webアプリを復旧して更新前後の `WEB_APP`検証を通すまで正常稼働の根拠にしない。
 - Issue #98の方針によりGitHub Actionsは全面停止中。Issue #99の最終CIレビューゲートをローカル検証し、ユーザーの明示承認まではActions、最終CIラベル、本番workflowを使用しない。
 
@@ -30,7 +32,7 @@
 
 1. 修正版の `npm run test:production-runtime-verification`、`npm run test:production-web-app-deployment` と本番関連テストが成功している。
 2. 人間がApps Script管理画面で対象deploymentをWebアプリとして復旧する。IDやURLが変わった場合は両Environment設定を更新する。
-3. 必要に応じて `deploy-production-dry-run` でAuthenticated dry-runを行い、Web App URLとdeployment ID、更新前 `WEB_APP`、Tracked / Untracked境界を確認する。
+3. 安全なreason分類を反映後、必要に応じて `deploy-production-dry-run` でAuthenticated dry-runを行い、Web App URLとdeployment ID、更新前 `WEB_APP`、Tracked / Untracked境界を確認する。失敗時はActionsログとStep Summaryのreasonから設定またはdeployment状態を確認する。
 4. 人間の承認後に本番反映し、source push、対象SHA bundleとのremote HEAD完全一致、deployment update、更新後 `WEB_APP`とURL維持、対象version完全一致、web access gate verificationがすべて成功していることを確認する。
 5. 人間がログイン後の本番Webアプリを開き、ページ初期表示と最近の取込一覧でReferenceErrorが出ないことを確認する。
 6. DBを開く、DBリセット、ロールバック、取込、一次受け枠作成の通常操作を、対象と権限を確認した上で確認する。
@@ -57,6 +59,7 @@ npm run gas:production:push
 - 本番対象に `src/app/e2e_runtime_support.gs` が含まれる。
 - `appsscript.json` に `webapp.access = ANYONE` と `webapp.executeAs = USER_ACCESSING` が含まれる。
 - 実Script ID、Deployment ID、Web App URL、Spreadsheet URL、Drive folder ID、OAuth token、GitHub Secrets実値をログやdocsへ残さない。
+- Web App検証reasonにURL fingerprint、credential JSON、Apps Script APIレスポンス全文、Google API内部エラー本文を含めない。
 
 Issue #83対応後の基本フロー:
 

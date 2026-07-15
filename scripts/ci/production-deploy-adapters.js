@@ -12,6 +12,8 @@ const {
   pullAndVerifyProductionRuntimeBundle,
 } = require('./production-runtime-verification');
 const {
+  PRODUCTION_WEB_APP_REASONS,
+  createProductionWebAppVerificationError,
   fetchProductionWebAppDeploymentSnapshot,
   verifyProductionWebAppDeploymentUpdate,
 } = require('./production-web-app-deployment');
@@ -139,7 +141,12 @@ function createNodeAdapters({
 
   async function getProductionDeploymentSnapshot() {
     if (!appsScriptApi) {
-      appsScriptApi = appsScriptApiFactory(parseProductionCredentials(env.CLASP_PRODUCTION_CREDENTIALS));
+      const credentials = parseProductionCredentials(env.CLASP_PRODUCTION_CREDENTIALS);
+      try {
+        appsScriptApi = appsScriptApiFactory(credentials);
+      } catch (error) {
+        throw createProductionWebAppVerificationError(PRODUCTION_WEB_APP_REASONS.API_CLIENT_UNAVAILABLE);
+      }
     }
     return fetchProductionWebAppDeploymentSnapshot({
       api: appsScriptApi,

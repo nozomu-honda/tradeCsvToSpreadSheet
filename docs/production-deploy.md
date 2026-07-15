@@ -427,6 +427,24 @@ ReferenceError: assertCiE2eTokenForWebAppIfConfigured_ is not defined
 
 更新前はApps Script APIで対象deploymentが `WEB_APP` であることを確認し、更新後は同じdeployment ID、URL fingerprint、entry point type集合、アクセス設定、実行ユーザー、deployment総数、versionを再確認します。APIレスポンスが不明、`WEB_APP`が0件または複数、URL不一致の場合はfail closedです。URL、ID、token、APIレスポンス全文はログやSummaryへ出しません。
 
+### Web App検証の安全なreason
+
+[Authenticated production dry-run 29436843157](https://github.com/nozomu-honda/tradeCsvToSpreadSheet/actions/runs/29436843157)では、Web App検証が失敗したものの、ログが `Production Web App entry point verification failed.` だけだったため、API呼び出し、deployment存在、entry point、URL、access / executeAsのどこで失敗したか特定できませんでした。
+
+Web App検証エラーは、実値を含まない固定reason codeと固定メッセージへ分類します。ActionsログとStep Summaryでは、たとえば次のように失敗条件を確認できます。
+
+```text
+Production Web App verification failed: deployments.get failed.
+Production Web App verification failed: WEB_APP entry point missing.
+Production Web App verification failed: configured Web App URL mismatch.
+Production Web App verification failed: access mismatch.
+Production Web App update verification failed: Web App URL changed.
+```
+
+Script ID、Deployment ID、Web App URL、URL fingerprint、OAuth token、credential JSON、Apps Script APIレスポンス全文、Google API内部エラー本文はreasonへ含めません。Authenticated dry-runは従来どおりProduction Status Issueを更新せず、Step Summaryのreasonを見てEnvironment設定またはApps Script管理画面のdeployment状態を確認します。本番mutationで同じ失敗が起きた場合だけ、安全なメッセージをProduction Status Issueの `失敗内容` へ保存します。
+
+本番Webアプリ設定は `access = ANYONE` / `executeAs = USER_ACCESSING` を維持します。更新後に `WEB_APP`が消失した場合はSmoke Testへ進まず、HTTP 404も成功扱いにしません。
+
 更新後にWeb App設定が消失しても、新規deployment作成や自動rollbackは行いません。人間が次の順で復旧します。
 
 1. Apps Scriptの「デプロイを管理」で対象deploymentの状態を確認する。

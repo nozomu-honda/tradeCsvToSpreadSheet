@@ -210,9 +210,13 @@ npm run gas:production:open
 
 新しいdeploymentを追加するのではなく、通常は現在の本番deploymentを新バージョンへ更新します。これにより既存のWebアプリURLを維持できます。
 
-### Web App entry pointがない場合
+### Web App検証が失敗した場合
 
-GitHub Actionsの更新前検証で `Production deployment is not a Web App.` となった場合は、source push前に停止しています。更新後検証で失敗した場合は、source pushとdeployment updateは実施済みでもSmoke Testには進まず、Production Statusは `failed`、本番commitは `unknown` になります。自動で新規deploymentを作成したりrollbackしたりしません。
+GitHub Actionsの更新前検証で `Production Web App verification failed: ...` となった場合は、source push前に停止しています。reasonはAPI呼び出し、deployment存在、version、entry point、URL、access / executeAsなどの失敗条件を実値なしで示します。Authenticated dry-runではProduction Status Issueを更新しないため、ActionsログとStep Summaryのreasonを確認します。
+
+更新後検証で `Production Web App update verification failed: ...` となった場合は、source pushとdeployment updateは実施済みでもSmoke Testには進まず、Production Statusは `failed`、本番commitは `unknown` になります。安全なreasonはProduction Status Issueの `失敗内容` に保存します。Script ID、Deployment ID、Web App URL、token、credential、Apps Script APIレスポンス全文はログ、Summary、Status Issueへ出しません。HTTP 404も成功扱いにしません。
+
+本番manifestとdeploymentの正しい設定は `access = ANYONE` / `executeAs = USER_ACCESSING` です。
 
 人間がApps Scriptの「デプロイを管理」で状態を確認し、Webアプリとして修正または再作成します。Deployment IDやURLが変わった場合は、`production-preflight` と `production` の両Environment設定を更新し、Authenticated dry-runで整合性を確認してから通常の本番反映へ進みます。通常の更新は `deploy-production` ラベル1回でpreflightからWebアクセスゲートまで実行し、dry-runは初回設定、Environment / Secret変更、Workflow大規模変更、障害調査時だけ任意利用します。同一SHAを意図して再反映する場合だけ `deploy-production-force` を使います。
 

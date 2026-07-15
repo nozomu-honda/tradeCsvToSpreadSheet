@@ -19,6 +19,8 @@
 - PR #84の本番反映基盤は `develop` へマージ済み。PR #87、PR #90、PR #92でcontrol/deploy workflowをdefault branch `main` へ同期済み。
 - PR #95は、本番pushの暗黙skip防止、リモートHEAD／deployment versionと対象SHAの本番bundle完全一致検証を追加し、`develop` へSquash Merge済み。
 - PR #95反映後の本番runではsource push、remote source、deployment update、deployment version検証まで成功したが、Web access gateがHTTP 404で失敗した。
+- PR #96は、正しい本番設定 `ANYONE` / `USER_ACCESSING` をmanifestへ追加し、Apps Script APIによる更新前後の `WEB_APP`検証を追加して `develop` へマージ済み。
+- PR #96マージ後のAuthenticated dry-run 29436843157は `deployment-target-verification` で失敗した。抽象エラーだけでは失敗条件を特定できなかったため、安全なreason分類を追加中。
 - Production Status Issue #88は `failed`、最終失敗ステージは `smoke-test`。Apps Script管理画面では対象deploymentのWebアプリ設定消失が確認されており、復旧完了まで正常稼働の根拠にしない。
 - Issue #98の方針により、GitHub Actionsは全面停止中。workflow実行、rerun、最終CIラベル、本番workflowは使用しない。
 - Issue #99では、docs-onlyのActions run 0件、現在head/develop base SHAのレビュー完了ゲート、backend GAS-onlyとWeb E2E対象の分離、成功済み同一head/base check再利用を実装中。
@@ -171,7 +173,10 @@
 - PR #95反映後の本番runでは、対象SHAのsource pushとremote source／deployment versionの完全一致は成功した。
 - 同runのdeployment更新後、Web access gateがHTTP 404となり、Apps Script管理画面では対象deploymentがWebアプリではなくなっていた。
 - 根本原因は、リポジトリの `appsscript.json` に `webapp` 設定がなく、source push後の新versionがWeb App構成を持たないまま既存deploymentへ割り当てられたこと。
-- 本修正では `appsscript.json` に `ANYONE` / `USER_ACCESSING` を明示し、Apps Script APIで更新前後の `WEB_APP` entry point、URL fingerprint、version、entry point type、アクセス設定、deployment総数をfail closedで検証する。
+- PR #96で `appsscript.json` に `ANYONE` / `USER_ACCESSING` を明示し、Apps Script APIで更新前後の `WEB_APP` entry point、URL fingerprint、version、entry point type、アクセス設定、deployment総数をfail closedで検証するようにした。
+- Authenticated dry-run 29436843157では `Production Web App entry point verification failed.` だけが出力され、API、deployment、entry point、URL、access / executeAsのどこで失敗したか判断できなかった。
+- 本対応では実値を含まない固定reasonをActionsログとStep Summaryへ出す。Authenticated dry-runではStatus Issueを更新せず、本番mutation時だけ同じ安全なfailure messageをStatus Issueへ保存する。
+- reasonにはScript ID、Deployment ID、Web App URL、URL fingerprint、token、credential、Apps Script APIレスポンス全文、Google API内部エラー本文を含めない。
 - `clasp update-deployment` はApps Script API `projects.deployments.update` と同じ更新requestを使うため維持する。直接API更新へ置き換えるだけでは根本原因を解消しない。
 - 本番復旧には、人間がApps Script管理画面でWebアプリdeploymentを修正または再作成し、ID／URLが変わった場合は両Environment設定を更新した上で、最新 `develop` のAuthenticated dry-runと本番反映を確認する必要がある。
 - 通常運用はマージ済みPRへ `deploy-production` ラベルを1回付け、preflight、Environment承認、更新前Web App確認、source push、deployment更新、更新後Web App確認、Web access gateまで実行する。dry-runは初回設定や障害調査時だけ任意利用する。
@@ -192,6 +197,7 @@ GitHub Actions経由では、URL内deployment IDとの一致、更新前の `WEB
 
 - runtime helperや必須関数の存在だけでは業務コード全体が対象SHAと一致することを保証できないため、claspの `filesToPush` を正本に全ファイルのpathとSHA-256を比較する。
 - 更新前に `WEB_APP`を確認できない場合はsource push前に停止する。remote HEAD不一致ではdeployment更新前に停止する。更新後の `WEB_APP`消失、URL変更、entry point type変更、deployment version不一致では更新済みの事実を保持したままSmoke Testへ進まず、現在の本番commitを `unknown`、Status Issueを `failed` とし、最終成功本番反映commitを更新しない。
+- Web App検証失敗時は `Production Web App verification failed: <safe reason>.`、更新後比較失敗時は `Production Web App update verification failed: <safe reason>.` を確認する。HTTP 404は引き続き成功扱いにしない。
 
 本番push前の確認:
 
