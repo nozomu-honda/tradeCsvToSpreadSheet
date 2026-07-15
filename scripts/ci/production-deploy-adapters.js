@@ -8,11 +8,13 @@ const { spawnSync } = require('child_process');
 const { runProductionSmokeTest } = require('./production-smoke-test');
 const {
   buildLocalProductionBundleManifest: createLocalProductionBundleManifest,
-  parseDeploymentListOutput,
   parseDeploymentUpdateOutput,
   pullAndVerifyProductionRuntimeBundle,
-  verifyDeploymentUpdate,
 } = require('./production-runtime-verification');
+const {
+  fetchProductionWebAppDeploymentSnapshot,
+  verifyProductionWebAppDeploymentUpdate,
+} = require('./production-web-app-deployment');
 
 const DEFAULT_VALIDATION_SCRIPTS = [
   'test:gas-production-wrapper',
@@ -23,6 +25,7 @@ const DEFAULT_VALIDATION_SCRIPTS = [
   'test:production-deploy-orchestrator',
   'test:production-status-parser',
   'test:production-runtime-verification',
+  'test:production-web-app-deployment',
   'test:production-smoke-test',
   'test:production-deploy-control',
   'test:production-status-sync',
@@ -89,12 +92,22 @@ function validateProductionSourcePushOutput(output) {
   return true;
 }
 
+function createProductionAppsScriptApi(credentials) {
+  const { google } = require('googleapis');
+  const savedCredentials = credentials.tokens.production;
+  const auth = google.auth.fromJSON(savedCredentials);
+  auth.setCredentials(savedCredentials);
+  return google.script({ version: 'v1', auth });
+}
+
 function createNodeAdapters({
   env = process.env,
   cwd = process.cwd(),
   validationScripts = DEFAULT_VALIDATION_SCRIPTS,
+  appsScriptApiFactory = createProductionAppsScriptApi,
 } = {}) {
   const redactValues = [];
+  let appsScriptApi;
 
   function run(command, args, options = {}) {
     const values = [...redactValues, ...(options.redactValues || [])];
@@ -124,18 +137,16 @@ function createNodeAdapters({
     });
   }
 
-  function getProductionDeploymentSnapshot() {
-    const output = runProductionClasp([
-      '--user',
-      'production',
-      '--project',
-      '.clasp.production.json',
-      '--ignore',
-      '.clasp.productionignore',
-      '--json',
-      'list-deployments',
-    ]);
-    return parseDeploymentListOutput(output, env.PRODUCTION_DEPLOYMENT_ID);
+  async function getProductionDeploymentSnapshot() {
+    if (!appsScriptApi) {
+      appsScriptApi = appsScriptApiFactory(parseProductionCredentials(env.CLASP_PRODUCTION_CREDENTIALS));
+    }
+    return fetchProductionWebAppDeploymentSnapshot({
+      api: appsScriptApi,
+      scriptId: env.PRODUCTION_SCRIPT_ID,
+      deploymentId: env.PRODUCTION_DEPLOYMENT_ID,
+      expectedWebAppUrl: env.PRODUCTION_WEB_APP_URL,
+    });
   }
 
   function verifyRemoteProductionSource(expectedManifest, versionNumber) {
@@ -304,9 +315,9 @@ function createNodeAdapters({
       ]);
       return parseDeploymentUpdateOutput(output, env.PRODUCTION_DEPLOYMENT_ID);
     },
-    verifyProductionDeploymentUpdate(before, update, expectedManifest) {
-      const after = getProductionDeploymentSnapshot();
-      verifyDeploymentUpdate({ before, after, update });
+    async verifyProductionDeploymentUpdate(before, update, expectedManifest) {
+      const after = await getProductionDeploymentSnapshot();
+      verifyProductionWebAppDeploymentUpdate({ before, after, update });
       verifyRemoteProductionSource(expectedManifest, update.versionNumber);
       return after;
     },
@@ -325,6 +336,7 @@ module.exports = {
   DEFAULT_VALIDATION_SCRIPTS,
   collectJsonLeafValues,
   createNodeAdapters,
+  createProductionAppsScriptApi,
   parseProductionCredentials,
   redactText,
   validateProductionSourcePushOutput,

@@ -5,7 +5,7 @@ Issue #83で追加する本番反映workflowの運用手順です。
 
 Codexはこのworkflowの実行、GitHub Environment作成、Secrets / Variables変更、本番Apps Script操作、本番Webアプリ再デプロイを行いません。
 default branch `main` へのcontrol workflow同期メモは [`docs/production-deploy-control.md`](production-deploy-control.md) を参照します。
-PR #84はIssue #83の基盤実装です。PR #87、PR #90、PR #92でdefault branch `main` への同期と後続修正も反映済みです。本番runtime不具合の復旧と実動作確認が終わるまでIssue #83はopenのままにします。
+PR #84はIssue #83の基盤実装です。PR #87、PR #90、PR #92でdefault branch `main` への同期と後続修正も反映済みです。PR #95のruntime bundle完全一致検証は `develop` へマージ済みです。本番Web App entry pointの復旧と実動作確認が終わるまでIssue #83はopenのままにします。
 
 ## 起動経路
 
@@ -157,20 +157,21 @@ Environment Deployment履歴:
 8. 本番credentialから一時 `.clasprc.json` / `.clasp.production.json` を生成し、`npm run gas:production:status -- --json` でTracked / Untracked境界を確認する。
 9. clasp status境界確認が成功した後だけ、Production Status Issueへ `preflight` を記録する。
 10. Web App URL内のdeployment IDと、設定済みdeployment IDが完全一致することを確認する。不一致ならsource push前に停止する。
-11. 設定済みdeploymentが対象Apps Scriptプロジェクトに存在することを確認する。
+11. Apps Script API `projects.deployments.get/list` で対象deploymentを取得し、`WEB_APP` entry pointがちょうど1件、URL・version・アクセス設定が有効で、deployment総数が取得できることを確認する。非Webアプリ、API executable、HEAD deployment、URL不一致、API形式不明ではsource push前に停止する。
 12. `npm run gas:production:push` を実行する。本番ラッパーは、人間またはworkflowの明示確認後に `clasp push --force` を使い、非対話manifest確認による暗黙skipを防ぐ。
 13. push出力に `Skipping push.` がないことを確認する。`Pushed ...` または `Script is already up to date.` は、この時点では成功候補であり、次の完全一致検証が成功するまでsource push成功とは確定しない。
 14. `show-file-status --json` の `filesToPush` から対象SHAのローカル本番bundle manifestを作る。一時ディレクトリへリモートHEADをpullし、ファイル数、相対パス集合、全ファイルのSHA-256を完全比較した後、runtime意味検査も行う。失敗時はdeploymentを更新しない。
 15. 既存Webアプリdeployment更新直前にもdevelopを再確認する。
 16. source push後にdevelopが進んだ場合は、すでにpushした同一SHAのdeployment updateと検証まで完遂する。
 17. `clasp update-deployment` で既存deploymentを更新する。
-18. deployment数が増えておらず、指定deploymentだけが新しいversionへ更新されたことを確認する。
-19. 更新されたversionを一時ディレクトリへpullし、同じローカル本番bundle manifestとの完全一致とruntime意味検査を再実行する。
-20. 本番Webアプリへ安全なHTTPアクセスゲート検査を実行する。
-21. アクセスゲート検査後に最新 `origin/develop` を再取得する。
-22. source push、対象SHAの本番bundleとリモートHEADの完全一致、deployment更新、対象versionとの完全一致、Webアクセスゲートのすべてが成功し、反映SHAが最新developと一致する場合だけProduction Status Issueを `deployed` にする。
-23. source push後にdevelopが進んでいれば、本番反映工程が成功していてもProduction Status Issueは `not-deployed` にする。
-24. production Environment job開始後に失敗した場合は `failed` にし、失敗ステージと失敗内容を保持する。
+18. Apps Script APIで同じdeploymentを再取得し、deployment数が増えておらず、指定deploymentだけが新しいversionへ更新されたことを確認する。
+19. 更新前後とも `WEB_APP` entry pointがちょうど1件で、Web App URLのSHA-256 fingerprint、entry point type集合、アクセス設定、実行ユーザーが変わっていないことを確認する。
+20. 更新されたversionを一時ディレクトリへpullし、同じローカル本番bundle manifestとの完全一致とruntime意味検査を再実行する。
+21. 本番Webアプリへ安全なHTTPアクセスゲート検査を実行する。HTTP 404は成功扱いにしない。
+22. アクセスゲート検査後に最新 `origin/develop` を再取得する。
+23. source push、対象SHAの本番bundleとリモートHEADの完全一致、deployment更新、更新前後のWeb App検証、対象versionとの完全一致、Webアクセスゲートのすべてが成功し、反映SHAが最新developと一致する場合だけProduction Status Issueを `deployed` にする。
+24. source push後にdevelopが進んでいれば、本番反映工程が成功していてもProduction Status Issueは `not-deployed` にする。
+25. production Environment job開始後に失敗した場合は `failed` にし、失敗ステージと失敗内容を保持する。
 
 同一SHAがすでに `deployed` と記録されている場合、通常の再実行は安全な拒否として停止します。
 この拒否では本番source push、既存Webアプリdeployment更新、Smoke Test、Production Status Issue更新、Environment failure記録を行いません。
@@ -292,10 +293,10 @@ markerがないIssueは絶対に上書きしません。
 - marker、Issue title、open状態、PRではないことを確認してから更新する。
 - 更新直前にIssueを再読込し、`preflight` / `source-pushed` / `deployment-updated` / `verifying` の場合は上書きせずskipする。
 
-`deployed` は、現在の本番commitが最新developと一致し、かつ対象SHAのローカル本番bundleがリモートHEADとdeployment versionの両方へ完全一致し、source push、deployment update、Web access gate、smoke testがすべて成功済みである状態だけを表します。runtime helperの存在だけでは `deployed` にしません。
+`deployed` は、現在の本番commitが最新developと一致し、かつ対象SHAのローカル本番bundleがリモートHEADとdeployment versionの両方へ完全一致し、更新前後の `WEB_APP` entry point、source push、deployment update、Web access gate、smoke testがすべて成功済みである状態だけを表します。runtime helperの存在だけでは `deployed` にしません。
 `not-deployed` は、前回本番反映が成功していても、現在の本番commitが最新developと一致しない状態を表します。
 `failed` は本番反映処理が失敗した状態です。status syncでdevelopが進んでも、失敗ステージと失敗内容は消しません。
-既存deploymentの更新後に対象versionの完全一致検証が失敗した場合は、deployment updateを `success`、deployment verificationを `failed`、現在の本番commitを `unknown`、状態を `failed` として記録します。deploymentは更新済みですが、その内容が対象SHAとも前回SHAとも確認できないため、どちらのSHAも現在本番として確定しません。最終成功本番反映commitと最終成功deployment日時は前回成功値を維持します。
+既存deploymentの更新後に `WEB_APP` entry point消失、URL・種別・アクセス設定変更、または対象versionの完全一致検証失敗を検知した場合は、deployment updateを `success`、deployment verificationを `failed`、Web access gateとsmoke testを `not-started`、現在の本番commitを `unknown`、状態を `failed` として記録します。deploymentは更新済みですが、その内容が対象SHAとも前回SHAとも確認できないため、どちらのSHAも現在本番として確定しません。最終成功本番反映commitと最終成功deployment日時は前回成功値を維持します。
 既存deployment更新後にSmoke Testだけ失敗した場合は、状態を `failed` のままにしつつ、本番commitを反映対象SHAとして記録します。source push / deployment updateは `success`、smoke testは `failed` とし、最終成功本番反映commitと最終成功deployment日時は更新しません。
 Authenticated dry-runと本番deployのEnvironmentなしpreflightでは、required checks、`npm ci`、validationより前にStatus Issueを読みます。
 preflight jobはStatus IssueをPATCHしません。
@@ -411,17 +412,55 @@ ReferenceError: assertCiE2eTokenForWebAppIfConfigured_ is not defined
 
 対策として、本番ラッパーの明示確認後だけ `push --force` を使い、`Skipping push.` を失敗扱いにします。加えて、claspが算出したローカル本番bundleとリモートHEAD／更新後versionを全ファイルのSHA-256 manifestで完全比較し、通常Web関数の参照解決も検証します。`Script is already up to date.` は、この完全一致検証が成功した場合だけ成功扱いです。
 
+## 2026-07-15のWeb App entry point消失
+
+[対象run](https://github.com/nozomu-honda/tradeCsvToSpreadSheet/actions/runs/29418824550)では、source push、remote source verification、既存deployment更新、deployment version検証まで成功しましたが、Web access gateがHTTP 404で失敗しました。Apps Script管理画面では、更新対象deploymentからWebアプリ設定が消失していました。
+
+根本原因は、リポジトリの `appsscript.json` に `webapp` 設定がなく、source push後の新versionがWeb App構成を持たなかったことです。そのversionを既存deploymentへ割り当てたため、`WEB_APP` entry pointが失われました。`appsscript.json` には本番運用どおり、ログイン済みユーザーがアクセスし、アクセスしているユーザーとして実行する設定をソース管理します。
+
+```json
+"webapp": {
+  "access": "ANYONE",
+  "executeAs": "USER_ACCESSING"
+}
+```
+
+更新前はApps Script APIで対象deploymentが `WEB_APP` であることを確認し、更新後は同じdeployment ID、URL fingerprint、entry point type集合、アクセス設定、実行ユーザー、deployment総数、versionを再確認します。APIレスポンスが不明、`WEB_APP`が0件または複数、URL不一致の場合はfail closedです。URL、ID、token、APIレスポンス全文はログやSummaryへ出しません。
+
+更新後にWeb App設定が消失しても、新規deployment作成や自動rollbackは行いません。人間が次の順で復旧します。
+
+1. Apps Scriptの「デプロイを管理」で対象deploymentの状態を確認する。
+2. Webアプリとして修正できない場合は、意図したアクセス設定でWebアプリdeploymentを作成する。
+3. Deployment IDとWeb App URLが変わった場合は、両EnvironmentのSecret / Variableを人間が更新する。
+4. 必要に応じて `deploy-production-dry-run` でAuthenticated dry-runを行う。
+5. Environment承認後に通常の `deploy-production` で再反映する。
+
+HTTP 404は非公開Webアプリの正常応答とは扱いません。Apps Script API上のWeb App検証を通過してもHTTP 404ならWeb access gate失敗です。
+
+同日に起動しなかったと見られていた `deploy-production-dry-run` ラベルも履歴を再確認しました。[Production deploy control run](https://github.com/nozomu-honda/tradeCsvToSpreadSheet/actions/runs/29415590462)と、そこからdispatchされた[Authenticated dry-run](https://github.com/nozomu-honda/tradeCsvToSpreadSheet/actions/runs/29415596959)はいずれも起動して成功しており、default branch `main` のworkflow欠落、workflow無効化、初回ラベル作成による不発は確認されませんでした。control workflowは起動ラベルを削除するため、同じラベルが残って二重起動する構成でもありません。今回の修正ではラベルworkflowを変更しません。
+
 ## clasp deployment更新の仕様確認
 
-`@google/clasp@3.3.0` の同梱実装とhelpで次を確認済みです。
+`@google/clasp@3.3.0` の同梱実装とApps Script API公式仕様で次を確認済みです。
 
 - `push --force` はmanifest確認promptを省略する。
 - `pull --versionNumber <number>` は指定versionのsourceを取得できる。
-- `list-deployments --json` はdeployment IDとversion番号を機械解析できる。
-- `update-deployment <id> --json` は既存deploymentを新versionへ更新できる。
-- Web appはdeploymentごとにURLを持つ。
+- `update-deployment <id> --json` は内部でApps Script API `projects.deployments.update` を呼ぶ。
+- 更新request bodyは `deploymentConfig` の `description`、`versionNumber`、`scriptId`、`manifestFileName` であり、`entryPoints` と `updateMask` は含まれない。
+- API更新requestだけではWeb App種別を再構築できないため、manifestに正しい `webapp` 設定が必要である。
+- `list-deployments --json` はdeployment ID、version番号、descriptionだけに整形され、entry point種別を判定できない。
+- Apps Script API `projects.deployments.get` は `entryPoints`、`WEB_APP` URL、`access`、`executeAs` を取得できる。
+- Apps Script API `projects.deployments.list` はdeployment総数の不変確認に使用できる。
 
-本番workflowではApps Script APIを直接叩かず、`list-deployments`、`update-deployment`、一時projectへの `pull` を組み合わせます。更新前後のdeployment数、対象version、リモートbundleを検証し、新規deployment増殖と古いversion公開をfail closedで防ぎます。
+更新コマンドを直接API実装へ置き換えても同じ更新APIを使うため、現行の `clasp update-deployment` を維持します。詳細取得だけをApps Script APIへ追加し、更新前後のWeb App構成を検証します。既存clasp認証にはdeployment取得・更新に必要なscopeが含まれており、新しいSecretやtokenは追加しません。
+
+公式仕様:
+
+- [Apps Script deployments resource](https://developers.google.com/apps-script/api/reference/rest/v1/projects.deployments)
+- [projects.deployments.get](https://developers.google.com/apps-script/api/reference/rest/v1/projects.deployments/get)
+- [projects.deployments.update](https://developers.google.com/apps-script/api/reference/rest/v1/projects.deployments/update)
+- [Web apps manifest resource](https://developers.google.com/apps-script/manifest/web-app-api-executable)
+
 fake claspとfixtureによる引数・出力・一時ファイル削除の回帰テストを維持します。
 
 ## CLASP_PRODUCTION_CREDENTIALS
@@ -512,6 +551,8 @@ npm run test:production-status-renderer
 npm run test:production-deploy-state
 npm run test:production-deploy-orchestrator
 npm run test:production-status-parser
+npm run test:production-runtime-verification
+npm run test:production-web-app-deployment
 npm run test:production-smoke-test
 npm run test:production-deploy-control
 npm run test:production-status-sync

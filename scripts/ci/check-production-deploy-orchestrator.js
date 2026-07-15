@@ -11,6 +11,7 @@ const { runProductionDeploy } = require('./production-deploy-orchestrator');
 const targetSha = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 const prHeadSha = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
 const previousSha = 'cccccccccccccccccccccccccccccccccccccccc';
+const fakeDeploymentId = 'deployment_fixture_value';
 const validStatusOutput = JSON.stringify({
   filesToPush: [
     'appsscript.json',
@@ -44,8 +45,8 @@ function baseEnv(overrides = {}) {
     DRY_RUN_MODE: 'static',
     FORCE: 'false',
     PRODUCTION_SCRIPT_ID: 'script_id_for_test_only',
-    PRODUCTION_DEPLOYMENT_ID: 'deployment_fixture_value',
-    PRODUCTION_WEB_APP_URL: 'https://script.google.com/macros/s/deployment_fixture_value/exec',
+    PRODUCTION_DEPLOYMENT_ID: fakeDeploymentId,
+    PRODUCTION_WEB_APP_URL: `https://script.google.com/macros/s/${fakeDeploymentId}/exec`,
     PRODUCTION_SMOKE_MODE: 'public-marker',
     PRODUCTION_STATUS_ISSUE_NUMBER: '123',
     CLASP_PRODUCTION_CREDENTIALS: JSON.stringify({
@@ -136,6 +137,7 @@ function createAdapters(options = {}) {
       'test:production-deploy-orchestrator',
       'test:production-status-parser',
       'test:production-runtime-verification',
+      'test:production-web-app-deployment',
       'test:production-smoke-test',
       'test:production-deploy-control',
       'test:production-status-sync',
@@ -210,14 +212,20 @@ function createAdapters(options = {}) {
       }
       return fakeBundleManifest;
     },
-    getProductionDeploymentSnapshot() {
+    async getProductionDeploymentSnapshot() {
       calls.push('deployment-target-verification');
       if (options.failDeploymentTargetVerification) {
-        throw new Error('deployment target verification failed');
+        throw new Error(options.deploymentTargetError || 'deployment target verification failed');
       }
       return {
         deploymentCount: 2,
+        deploymentId: fakeDeploymentId,
         versionNumber: 8,
+        webAppEntryPointCount: 1,
+        entryPointTypes: ['WEB_APP'],
+        webAppUrlFingerprint: 'a'.repeat(64),
+        webAppAccess: 'ANYONE',
+        webAppExecuteAs: 'USER_ACCESSING',
       };
     },
     runProductionSourcePush() {
@@ -241,13 +249,13 @@ function createAdapters(options = {}) {
       }
       return { versionNumber: 9 };
     },
-    verifyProductionDeploymentUpdate(before, update, expectedManifest) {
+    async verifyProductionDeploymentUpdate(before, update, expectedManifest) {
       calls.push('deployment-verification');
       assert.strictEqual(before.versionNumber, 8);
       assert.strictEqual(update.versionNumber, 9);
       assert.strictEqual(expectedManifest, fakeBundleManifest);
       if (options.failDeploymentVerification) {
-        throw new Error('deployment verification failed');
+        throw new Error(options.deploymentVerificationError || 'deployment verification failed');
       }
     },
     async runSmokeTest() {
@@ -628,11 +636,14 @@ async function assertRejectsWith(fn, pattern) {
   }
 
   {
-    const adapters = createAdapters({ failDeploymentTargetVerification: true });
+    const adapters = createAdapters({
+      failDeploymentTargetVerification: true,
+      deploymentTargetError: 'Production deployment is not a Web App.',
+    });
     await assertRejectsWith(() => runProductionDeploy({
       env: mutationEnv(),
       adapters,
-    }), /deployment target verification failed/);
+    }), /Production deployment is not a Web App/);
     assert.ok(!adapters.calls.includes('source-push'));
     assert.ok(!adapters.calls.includes('deployment-update'));
     assert.ok(!adapters.calls.includes('smoke-test'));
@@ -713,11 +724,14 @@ async function assertRejectsWith(fn, pattern) {
   }
 
   {
-    const adapters = createAdapters({ failDeploymentVerification: true });
+    const adapters = createAdapters({
+      failDeploymentVerification: true,
+      deploymentVerificationError: 'Production Web App deployment update verification failed.',
+    });
     await assertRejectsWith(() => runProductionDeploy({
       env: mutationEnv(),
       adapters,
-    }), /deployment verification failed/);
+    }), /Production Web App deployment update verification failed/);
     assert.ok(adapters.calls.includes('deployment-update'));
     assert.ok(adapters.calls.includes('deployment-verification'));
     assert.ok(!adapters.calls.includes('smoke-test'));
@@ -729,6 +743,7 @@ async function assertRejectsWith(fn, pattern) {
     assert.ok(!finalBody.includes(`- 本番commit: \`${targetSha}\``));
     assert.ok(!finalBody.includes(`- 本番commit: \`${previousSha}\``));
     assert.ok(finalBody.includes(`- 最終成功本番反映commit: \`${previousSha}\``));
+    assert.ok(finalBody.includes('- 最終成功deployment日時: `2026-07-13T00:00:00.000Z`'));
     assert.ok(finalBody.includes('- 状態: `failed`'));
     assert.ok(!finalBody.includes('- 状態: `deployed`'));
   }

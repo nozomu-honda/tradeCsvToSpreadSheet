@@ -17,8 +17,9 @@
 - PR #82「本番bundleからE2E helper除外後の参照切れを修正」は `develop` にSquash Merge済み。
 - Issue #83「本番反映のGitHub Actions化と本番状態追跡を実装する」は対応中。
 - PR #84の本番反映基盤は `develop` へマージ済み。PR #87、PR #90、PR #92でcontrol/deploy workflowをdefault branch `main` へ同期済み。
-- PR #95は、本番pushの暗黙skip防止、リモートHEAD／deployment versionと対象SHAの本番bundle完全一致検証を追加するDraft PRとして対応中。
-- Production Status Issue #88は本番反映workflowにより `deployed` と記録されたが、実際の本番Webアプリではページ初期表示からruntime参照エラーが発生しているため、この成功記録を正常稼働の根拠にしない。
+- PR #95は、本番pushの暗黙skip防止、リモートHEAD／deployment versionと対象SHAの本番bundle完全一致検証を追加し、`develop` へSquash Merge済み。
+- PR #95反映後の本番runではsource push、remote source、deployment update、deployment version検証まで成功したが、Web access gateがHTTP 404で失敗した。
+- Production Status Issue #88は `failed`、最終失敗ステージは `smoke-test`。Apps Script管理画面では対象deploymentのWebアプリ設定消失が確認されており、復旧完了まで正常稼働の根拠にしない。
 
 ## 完了済みの主な範囲
 
@@ -161,13 +162,14 @@
 
 ## 本番反映の現状
 
-- 本番Webアプリの初期表示で `ReferenceError: assertCiE2eTokenForWebAppIfConfigured_ is not defined` が発生している。
-- `DOMContentLoaded` が `loadRecentImports()` を呼ぶため、ロールバックボタンを押した場合だけではなく、ページを開いただけで発生する。
-- エラーはDB変更やロールバック本体より前に発生するため、この画面表示だけではDB変更やロールバックは実行されていない。
-- 根本原因は、本番workflowの `clasp push` が非対話manifest確認で `Skipping push.` を出しながら終了コード0となり、workflowがsource push成功と誤認したこと。
-- その後、古いリモートHEADから新versionが作られて既存deploymentが更新され、`private-login-gated` がログインredirectだけを確認したため、runtime参照切れを検知できないままIssue #88が `deployed` になった。
-- 本番復旧には、本修正をマージした最新 `develop` でAuthenticated dry-runを確認し、同じ本番Apps Script・既存deployment・Web App URLへ再反映する必要がある。
-- Issue #83対応後は、原則としてマージ済みPRへのラベル付与で `Deploy production` workflowを起動し、dry-run確認後に本番反映する。
+- 先行障害のページ初期表示時ReferenceErrorは、PR #95でpushの暗黙skip防止と対象SHA bundleの完全一致検証を追加して対策済み。
+- PR #95反映後の本番runでは、対象SHAのsource pushとremote source／deployment versionの完全一致は成功した。
+- 同runのdeployment更新後、Web access gateがHTTP 404となり、Apps Script管理画面では対象deploymentがWebアプリではなくなっていた。
+- 根本原因は、リポジトリの `appsscript.json` に `webapp` 設定がなく、source push後の新versionがWeb App構成を持たないまま既存deploymentへ割り当てられたこと。
+- 本修正では `appsscript.json` に `ANYONE` / `USER_ACCESSING` を明示し、Apps Script APIで更新前後の `WEB_APP` entry point、URL fingerprint、version、entry point type、アクセス設定、deployment総数をfail closedで検証する。
+- `clasp update-deployment` はApps Script API `projects.deployments.update` と同じ更新requestを使うため維持する。直接API更新へ置き換えるだけでは根本原因を解消しない。
+- 本番復旧には、人間がApps Script管理画面でWebアプリdeploymentを修正または再作成し、ID／URLが変わった場合は両Environment設定を更新した上で、最新 `develop` のAuthenticated dry-runと本番反映を確認する必要がある。
+- 通常運用はマージ済みPRへ `deploy-production` ラベルを1回付け、preflight、Environment承認、更新前Web App確認、source push、deployment更新、更新後Web App確認、Web access gateまで実行する。dry-runは初回設定や障害調査時だけ任意利用する。
 - GitHub Environment、Secrets / Variables、Production Status Issue、起動ラベル、`main` のcontrol/deploy workflowは本番run起動済みのため設定経路自体は利用可能。今回の修正はdevelop側スクリプトだけの変更なので、マージ後に追加のmain同期をせず再確認できる。
 
 手動fallbackの基本手順:
@@ -181,10 +183,10 @@ npm run gas:production:push
 ```
 
 その後、人間がApps Script管理画面で既存Webアプリdeploymentを新バージョンへ更新する。
-GitHub Actions経由では、URL内deployment IDとの一致、push後リモートHEADと対象SHAのローカル本番bundleの完全一致、既存deploymentのversion更新、更新versionとの完全一致を確認してから既存WebアプリURLを維持したまま更新する。
+GitHub Actions経由では、URL内deployment IDとの一致、更新前の `WEB_APP` entry point、push後リモートHEADと対象SHAのローカル本番bundleの完全一致、既存deploymentのversion更新、更新後の `WEB_APP` entry pointとURL fingerprint、更新versionとの完全一致を確認してから既存WebアプリURLを維持したまま更新する。
 
 - runtime helperや必須関数の存在だけでは業務コード全体が対象SHAと一致することを保証できないため、claspの `filesToPush` を正本に全ファイルのpathとSHA-256を比較する。
-- remote HEAD不一致ではdeployment更新前に停止する。deployment version不一致では更新済みの事実を保持したままSmoke Testへ進まず、現在の本番commitを `unknown`、Status Issueを `failed` とし、最終成功本番反映commitを更新しない。
+- 更新前に `WEB_APP`を確認できない場合はsource push前に停止する。remote HEAD不一致ではdeployment更新前に停止する。更新後の `WEB_APP`消失、URL変更、entry point type変更、deployment version不一致では更新済みの事実を保持したままSmoke Testへ進まず、現在の本番commitを `unknown`、Status Issueを `failed` とし、最終成功本番反映commitを更新しない。
 
 本番push前の確認:
 
@@ -193,6 +195,7 @@ GitHub Actions経由では、URL内deployment IDとの一致、push後リモー�
   - `src/app/e2e_helpers.gs`
 - 上記2つはUntrackedとして扱われること。
 - 本番対象に `src/app/e2e_runtime_support.gs` が含まれること。
+- `appsscript.json` に `webapp.access = ANYONE` と `webapp.executeAs = USER_ACCESSING` が含まれること。
 - 実Script ID、Deployment ID、Web App URL、Spreadsheet URL、Drive folder ID、OAuth token、GitHub Secrets実値をログやdocsへ残さないこと。
 
 ## 未完了 / 確認待ち

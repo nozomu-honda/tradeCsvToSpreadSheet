@@ -78,9 +78,9 @@ control workflowとdeploy workflowはPR #87でdefault branch `main` へ初回同
 3. Environmentなしのpreflight jobで、required checks、`npm ci`、本番wrapper検証、本番bundle境界検証、重複反映ガードを確認する。このjobは本番credential、Environment Variables、clasp statusを使わない。
 4. Authenticated dry-runでは、`production-preflight` Environment承認後に本番credentialを使って `npm run gas:production:status -- --json` とTracked / Untracked境界を確認する。本番push、deployment更新、Smoke Test、Status Issue PATCHは行わない。
 5. 問題がなければ、人間が `deploy-production` ラベルで本番反映を起動する。
-6. preflight成功後、`production` Environment付きの本番mutation jobだけがWeb App URL/deployment整合性と既存deploymentを確認し、本番Apps Scriptへpushする。
+6. preflight成功後、`production` Environment付きの本番mutation jobだけがWeb App URL/deployment整合性を確認し、Apps Script APIで既存deploymentに `WEB_APP` entry pointがちょうど1件あることを確認してから本番Apps Scriptへpushする。
 7. claspの `filesToPush` を正本に対象SHAのローカル本番bundle manifestを作り、push後のリモートHEADとファイル数・path集合・全ファイル内容を完全比較する。runtime support、通常Web関数の参照解決、test/E2E helper除外も確認してから既存deploymentを更新する。
-8. 更新後のdeployment数・versionを確認し、対象versionも同じローカルmanifestと完全一致した上で、Webアクセスゲート検査まで成功した場合だけ本番成功とする。
+8. 更新後にApps Script APIで同じdeploymentを再取得し、`WEB_APP`、URL fingerprint、entry point type、アクセス設定、実行ユーザー、deployment数が維持され、対象versionも同じローカルmanifestと完全一致した上で、Webアクセスゲート検査まで成功した場合だけ本番成功とする。HTTP 404は成功扱いにしない。
 9. Production Status IssueとGitHub EnvironmentのDeployment履歴を確認する。
 10. developが進んだ場合は、metadata-onlyの `Update production status` workflowがProduction Status Issueを `not-deployed` へ更新する。
 
@@ -187,6 +187,8 @@ PRODUCTION PUSH
 
 GitHub Actions経由ではさらに、push出力、リモートHEAD、更新後deployment versionを検証します。`Script is already up to date.` は、リモートHEADが対象SHAのローカル本番bundleと完全一致した場合だけ成功扱いです。リモート検証用sourceはrunner一時領域へpullし、成功・失敗のどちらでも削除します。manifest、hash一覧、ファイル内容全体、Script ID、Deployment ID、Web App URL、OAuth tokenはログへ出しません。
 
+リポジトリの `appsscript.json` には、本番Webアプリの構成として `webapp.access = ANYONE` と `webapp.executeAs = USER_ACCESSING` を保持します。これを削除したversionへ既存deploymentを更新すると、Web App entry pointが消失するため、Environmentなしpreflightでも静的に必須確認します。テスト用Web E2Eではrunner上の一時manifestだけを `ANYONE_ANONYMOUS` / `USER_DEPLOYING` へ変換し、リポジトリ上の本番設定は変更しません。
+
 ### 公開中Webアプリへ反映する
 
 `npm run gas:production:push`が更新するのは、Apps Scriptプロジェクトのソースです。公開中のWebアプリがversioned deploymentを使っている場合、pushだけでは公開版は更新されません。
@@ -207,6 +209,12 @@ npm run gas:production:open
 7. 本番Webアプリの主要画面を手動確認する。
 
 新しいdeploymentを追加するのではなく、通常は現在の本番deploymentを新バージョンへ更新します。これにより既存のWebアプリURLを維持できます。
+
+### Web App entry pointがない場合
+
+GitHub Actionsの更新前検証で `Production deployment is not a Web App.` となった場合は、source push前に停止しています。更新後検証で失敗した場合は、source pushとdeployment updateは実施済みでもSmoke Testには進まず、Production Statusは `failed`、本番commitは `unknown` になります。自動で新規deploymentを作成したりrollbackしたりしません。
+
+人間がApps Scriptの「デプロイを管理」で状態を確認し、Webアプリとして修正または再作成します。Deployment IDやURLが変わった場合は、`production-preflight` と `production` の両Environment設定を更新し、Authenticated dry-runで整合性を確認してから通常の本番反映へ進みます。通常の更新は `deploy-production` ラベル1回でpreflightからWebアクセスゲートまで実行し、dry-runは初回設定、Environment / Secret変更、Workflow大規模変更、障害調査時だけ任意利用します。同一SHAを意図して再反映する場合だけ `deploy-production-force` を使います。
 
 本番へのpushと再デプロイは、人間がGitHub Actionsまたは手動fallbackで実行します。Codexは実行しません。
 

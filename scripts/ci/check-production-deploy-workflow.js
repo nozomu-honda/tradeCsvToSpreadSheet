@@ -14,6 +14,7 @@ const statusWorkflowPath = path.join(repoRoot, '.github', 'workflows', 'update-p
 const orchestratorPath = path.join(repoRoot, 'scripts', 'ci', 'production-deploy-orchestrator.js');
 const adaptersPath = path.join(repoRoot, 'scripts', 'ci', 'production-deploy-adapters.js');
 const runtimeVerificationPath = path.join(repoRoot, 'scripts', 'ci', 'production-runtime-verification.js');
+const webAppDeploymentPath = path.join(repoRoot, 'scripts', 'ci', 'production-web-app-deployment.js');
 const packagePath = path.join(repoRoot, 'package.json');
 const gasProductionPath = path.join(repoRoot, 'scripts', 'gas-production.js');
 const gitignorePath = path.join(repoRoot, '.gitignore');
@@ -24,6 +25,7 @@ const statusWorkflow = fs.readFileSync(statusWorkflowPath, 'utf8');
 const orchestrator = fs.readFileSync(orchestratorPath, 'utf8');
 const adapters = fs.readFileSync(adaptersPath, 'utf8');
 const runtimeVerification = fs.readFileSync(runtimeVerificationPath, 'utf8');
+const webAppDeployment = fs.readFileSync(webAppDeploymentPath, 'utf8');
 const packageJson = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
 const gasProduction = fs.readFileSync(gasProductionPath, 'utf8');
 const gitignore = fs.readFileSync(gitignorePath, 'utf8');
@@ -276,9 +278,19 @@ includes(adapters, 'verifyRemoteProductionSource', 'production deploy must verif
 includes(adapters, 'createLocalProductionBundleManifest({ rootDir: cwd, trackedFiles })', 'local manifest must use clasp filesToPush from production status');
 includes(runtimeVerification, "crypto.createHash('sha256')", 'production bundle manifest must hash normalized source content');
 includes(runtimeVerification, 'compareProductionBundleManifests(expectedManifest, pulledManifest)', 'pulled source must be compared with the target production bundle before runtime checks');
-includes(adapters, "'list-deployments'", 'production deploy must read the existing deployment before and after update');
+includes(adapters, 'fetchProductionWebAppDeploymentSnapshot', 'production deploy must read the existing deployment before and after update');
 includes(adapters, "'update-deployment'", 'production deploy must update the configured existing deployment explicitly');
+assert.ok(
+  adapters.indexOf("require('googleapis')") > adapters.indexOf('function createProductionAppsScriptApi'),
+  'googleapis must be loaded lazily after the Environment-free preflight installs dependencies',
+);
 includes(orchestrator, 'validateProductionDeploymentConfiguration', 'orchestrator must verify Web App URL and Deployment ID consistency');
+includes(orchestrator, 'validateProductionWebAppManifest', 'preflight must verify the production Web App manifest configuration');
+includes(webAppDeployment, 'api.projects.deployments.get', 'deployment verification must use projects.deployments.get');
+includes(webAppDeployment, 'api.projects.deployments.list', 'deployment verification must count deployments with projects.deployments.list');
+includes(webAppDeployment, "entryPoint.entryPointType === 'WEB_APP'", 'deployment verification must require a WEB_APP entry point');
+includes(webAppDeployment, 'webAppUrlFingerprint', 'deployment verification must compare a safe Web App URL fingerprint');
+assert.ok(!webAppDeployment.includes('deployments.create'), 'Web App verification must not create a replacement deployment');
 assert.ok(
   orchestrator.indexOf('adapters.runProductionSourcePush()') < orchestrator.indexOf('adapters.verifyRemoteProductionSource(localProductionBundleManifest)'),
   'remote source verification must run after source push',
@@ -299,6 +311,7 @@ assert.ok(
   'test:production-deploy-orchestrator',
   'test:production-status-parser',
   'test:production-runtime-verification',
+  'test:production-web-app-deployment',
   'test:production-smoke-test',
   'test:production-deploy-control',
   'test:production-status-sync',
