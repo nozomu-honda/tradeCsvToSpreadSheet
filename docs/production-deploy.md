@@ -5,7 +5,7 @@ Issue #83で追加する本番反映workflowの運用手順です。
 
 Codexはこのworkflowの実行、GitHub Environment作成、Secrets / Variables変更、本番Apps Script操作、本番Webアプリ再デプロイを行いません。
 default branch `main` へのcontrol workflow同期メモは [`docs/production-deploy-control.md`](production-deploy-control.md) を参照します。
-PR #84はIssue #83の一部対応です。main同期、初回設定、authenticated dry-run、初回本番反映、本番状態追跡の実動作確認が終わるまでIssue #83はopenのままにします。
+PR #84はIssue #83の基盤実装です。PR #87、PR #90、PR #92でdefault branch `main` への同期と後続修正も反映済みです。本番runtime不具合の復旧と実動作確認が終わるまでIssue #83はopenのままにします。
 
 ## 起動経路
 
@@ -46,13 +46,13 @@ ChatGPT側は原則としてラベル付与で起動します。
 このリポジトリのdefault branchは `main` です。
 PRラベルを契機にするworkflowは、default branch上のworkflow定義で評価されます。
 
-そのため、PR #84をdevelopへマージしただけでは、ラベル起動経路はまだ有効になりません。
-正式運用するには、少なくとも次のworkflow定義をdefault branch `main` へ同期する後続対応が必要です。
+そのため、develop側のworkflow変更はdefault branch `main` にも同期する必要があります。
+次のworkflow定義はPR #87で初回同期し、PR #90とPR #92で後続修正を同期済みです。
 
 - `.github/workflows/production-deploy-control.yml`
 - `.github/workflows/deploy-production.yml`
 
-このPRではdefault branch変更や `main` への直接pushは行いません。
+workflow定義自体を変更した場合だけ、マージ後に別PRで `main` へ同期します。今回のruntime検証修正はdevelopからcheckoutされるスクリプト側で完結し、workflow YAMLは変更しないため追加のmain同期は不要です。default branch変更や `main` への直接pushは行いません。
 リリース元は引き続き `develop` です。
 control workflowは `deploy-production.yml` を `ref: develop` でdispatchするため、GitHub Environment Deploymentの対象SHAはcontrol workflowが動く `main` のSHAではなく、実際の反映対象である `develop` のSHAになります。
 
@@ -156,15 +156,21 @@ Environment Deployment履歴:
 7. Environment VariablesからWeb App URLとSmoke Test marker設定の形式を確認する。
 8. 本番credentialから一時 `.clasprc.json` / `.clasp.production.json` を生成し、`npm run gas:production:status -- --json` でTracked / Untracked境界を確認する。
 9. clasp status境界確認が成功した後だけ、Production Status Issueへ `preflight` を記録する。
-10. `npm run gas:production:push` を実行する。
-11. 既存Webアプリdeployment更新直前にもdevelopを再確認する。
-12. source push後にdevelopが進んでいた場合は、すでにpushした同一SHAのdeployment updateとSmoke Testまで完遂する。
-13. `clasp deploy --deploymentId` で既存deploymentを更新する。
-14. 本番Webアプリへ安全なHTTP Smoke Testを実行する。
-15. Smoke Test後に最新 `origin/develop` を再取得する。
-16. 本番反映したSHAが最新developと一致すればProduction Status Issueを `deployed` にする。
-17. source push後にdevelopが進んでいれば、本番反映工程が成功していてもProduction Status Issueは `not-deployed` にする。
-18. production Environment job開始後に失敗した場合は `failed` にし、失敗ステージと失敗内容を保持する。
+10. Web App URL内のdeployment IDと、設定済みdeployment IDが完全一致することを確認する。不一致ならsource push前に停止する。
+11. 設定済みdeploymentが対象Apps Scriptプロジェクトに存在することを確認する。
+12. `npm run gas:production:push` を実行する。本番ラッパーは、人間またはworkflowの明示確認後に `clasp push --force` を使い、非対話manifest確認による暗黙skipを防ぐ。
+13. push出力に `Skipping push.` がないことを確認し、実際にpushされたかup-to-dateであることを検証する。
+14. 一時ディレクトリへリモートHEADをpullし、通常Web関数のprivate helper参照、`src/app/e2e_runtime_support.gs`、テスト/E2E helper除外を検証する。失敗時はdeploymentを更新しない。
+15. 既存Webアプリdeployment更新直前にもdevelopを再確認する。
+16. source push後にdevelopが進んだ場合は、すでにpushした同一SHAのdeployment updateと検証まで完遂する。
+17. `clasp update-deployment` で既存deploymentを更新する。
+18. deployment数が増えておらず、指定deploymentだけが新しいversionへ更新されたことを確認する。
+19. 更新されたversionを一時ディレクトリへpullし、リモートHEADと同じruntime境界を検証する。
+20. 本番Webアプリへ安全なHTTPアクセスゲート検査を実行する。
+21. アクセスゲート検査後に最新 `origin/develop` を再取得する。
+22. source push、リモートsource、deployment更新、deployment version、Webアクセスゲートのすべてが成功し、反映SHAが最新developと一致する場合だけProduction Status Issueを `deployed` にする。
+23. source push後にdevelopが進んでいれば、本番反映工程が成功していてもProduction Status Issueは `not-deployed` にする。
+24. production Environment job開始後に失敗した場合は `failed` にし、失敗ステージと失敗内容を保持する。
 
 同一SHAがすでに `deployed` と記録されている場合、通常の再実行は安全な拒否として停止します。
 この拒否では本番source push、既存Webアプリdeployment更新、Smoke Test、Production Status Issue更新、Environment failure記録を行いません。
@@ -271,7 +277,7 @@ markerがないIssueは絶対に上書きしません。
 - marker、Issue title、open状態、PRではないことを確認してから更新する。
 - 更新直前にIssueを再読込し、`preflight` / `source-pushed` / `deployment-updated` / `verifying` の場合は上書きせずskipする。
 
-`deployed` は、現在の本番commitが最新developと一致し、かつ最後の本番反映のsource push、deployment update、smoke testがすべて成功済みである状態だけを表します。
+`deployed` は、現在の本番commitが最新developと一致し、かつ最後の本番反映のsource push、remote source verification、deployment update、deployment verification、Web access gate verification、smoke testがすべて成功済みである状態だけを表します。
 `not-deployed` は、前回本番反映が成功していても、現在の本番commitが最新developと一致しない状態を表します。
 `failed` は本番反映処理が失敗した状態です。status syncでdevelopが進んでも、失敗ステージと失敗内容は消しません。
 既存deployment更新後にSmoke Testだけ失敗した場合は、状態を `failed` のままにしつつ、本番commitを反映対象SHAとして記録します。source push / deployment updateは `success`、smoke testは `failed` とし、最終成功本番反映commitと最終成功deployment日時は更新しません。
@@ -295,7 +301,10 @@ Static dry-runでは、Status Issueを読まず、本番Secretsも要求しま�
 - developとの差分: `unknown`
 - 最新develop反映: `unknown`
 - 最終本番反映 source push: `not-started`
+- 最終本番反映 remote source verification: `not-started`
 - 最終本番反映 deployment update: `not-started`
+- 最終本番反映 deployment verification: `not-started`
+- 最終本番反映 web access gate verification: `not-started`
 - 最終本番反映 smoke test: `not-started`
 - 最終成功本番反映commit: `unknown`
 - 最終成功deployment日時: `unknown`
@@ -354,6 +363,9 @@ Googleログイン必須のprivate Webアプリ向けです。現在の本番環
 - Cookie、OAuth token、独自認証情報は使用しない。
 - 404、5xx、権限エラーページ、無関係なログインURLは失敗扱いにする。
 
+このモードが保証するのは、設定済みWeb App URLが想定したGoogleログインゲートへ到達できることだけです。ログイン後のHTML表示、`DOMContentLoaded`、`loadRecentImports()`、Apps Script server functionの実行成功までは保証しません。
+本番runtimeの参照解決は、source push後のリモートHEAD検証と、deployment更新後のversion検証を別工程として必須にします。単なるログインredirectだけでは本番反映成功にしません。
+
 Authenticated dry-runではSmoke Test自体は行わず、mode、Web App URL、marker設定を検証してStep Summaryへmodeと `smoke test: skipped` を表示します。
 
 Smoke Test失敗時はProduction Status Issueで本番commit、source push、deployment update、smoke test、最終失敗ステージを確認します。deployment updateが成功済みの場合があるため、同じ本番Workflowを安易に再実行せず、工程結果を確認してから次の対応を決めます。
@@ -369,17 +381,32 @@ Smoke Test失敗時はProduction Status Issueで本番commit、source push、dep
 - `Sign in`
 - `Google Accounts`
 
-## clasp deployの仕様確認
+## 2026-07-15の本番不具合と根本原因
 
-`@google/clasp@3.3.0` の `clasp deploy --help` と同梱READMEで次を確認済みです。
+本番Webアプリの初期表示で、`loadRecentImports()` から `listRecentImportsFromWebApp()` が自動実行され、次の参照エラーが発生しました。
 
-- `deploy --deploymentId <id>` は既存deploymentのredeploy用オプション。
-- Deployはversionを作成してscriptをdeployする。
+```text
+ReferenceError: assertCiE2eTokenForWebAppIfConfigured_ is not defined
+```
+
+この関数はリポジトリの `src/app/e2e_runtime_support.gs` に存在し、本番ignore対象でもありませんでした。GitHub Actionsの実ログでは、本番push工程が `Skipping push.` と表示した後も終了コード0で継続し、古いリモートHEADから新versionを作成して既存deploymentを更新していました。
+
+`@google/clasp@3.3.0` は `appsscript.json` の変更を検知すると確認入力を要求します。非対話runnerでは確認が成立せず、従来の `clasp push` は変更を送らずに成功終了していました。さらに `private-login-gated` はGoogleログインredirectだけを確認するため、古いversionのruntime参照切れを検知できず、Production Status Issueが誤って `deployed` になりました。
+
+対策として、本番ラッパーの明示確認後だけ `push --force` を使い、`Skipping push.` を失敗扱いにします。加えて、リモートHEADと更新後versionをpullして通常Web関数の参照解決を検証し、URL/deployment整合性とdeployment version更新も確認します。
+
+## clasp deployment更新の仕様確認
+
+`@google/clasp@3.3.0` の同梱実装とhelpで次を確認済みです。
+
+- `push --force` はmanifest確認promptを省略する。
+- `pull --versionNumber <number>` は指定versionのsourceを取得できる。
+- `list-deployments --json` はdeployment IDとversion番号を機械解析できる。
+- `update-deployment <id> --json` は既存deploymentを新versionへ更新できる。
 - Web appはdeploymentごとにURLを持つ。
-- 既存deploymentを更新するにはdeployment IDを指定する。
 
-このため、初期実装ではApps Script APIを直接叩かず、`clasp deploy --deploymentId` を使います。
-fake claspによる引数確認は回帰テストで維持します。
+本番workflowではApps Script APIを直接叩かず、`list-deployments`、`update-deployment`、一時projectへの `pull` を組み合わせます。更新前後のdeployment数、対象version、リモートbundleを検証し、新規deployment増殖と古いversion公開をfail closedで防ぎます。
+fake claspとfixtureによる引数・出力・一時ファイル削除の回帰テストを維持します。
 
 ## CLASP_PRODUCTION_CREDENTIALS
 

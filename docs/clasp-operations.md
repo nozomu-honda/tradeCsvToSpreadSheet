@@ -68,8 +68,8 @@ ChatGPT側からは、developへマージ済みPRへの専用ラベル付与で�
 - 条件を満たした場合だけ、`Deploy production` workflowを `ref: develop` でdispatchする。
 - deploy workflowは `target_sha` と最新 `origin/develop` の一致を確認してから本番処理へ進む。
 
-PR #84をdevelopへマージしただけでは、default branch `main` 上のラベル起動経路はまだ有効になりません。
-正式運用前に、control workflowとdeploy workflow定義を `main` へ同期する後続対応が必要です。
+control workflowとdeploy workflowはPR #87でdefault branch `main` へ初回同期し、PR #90とPR #92で後続修正も同期済みです。
+今後develop側の本番workflow定義を変更した場合は、マージ後に別PRで `main` へ同期するまでラベル起動経路には反映されません。developからcheckoutされるスクリプトだけの変更では追加のmain同期は不要です。
 
 基本フロー:
 
@@ -78,9 +78,11 @@ PR #84をdevelopへマージしただけでは、default branch `main` 上のラ
 3. Environmentなしのpreflight jobで、required checks、`npm ci`、本番wrapper検証、本番bundle境界検証、重複反映ガードを確認する。このjobは本番credential、Environment Variables、clasp statusを使わない。
 4. Authenticated dry-runでは、`production-preflight` Environment承認後に本番credentialを使って `npm run gas:production:status -- --json` とTracked / Untracked境界を確認する。本番push、deployment更新、Smoke Test、Status Issue PATCHは行わない。
 5. 問題がなければ、人間が `deploy-production` ラベルで本番反映を起動する。
-6. preflight成功後、`production` Environment付きの本番mutation jobだけが本番Apps Scriptへpushし、既存Webアプリdeploymentを新バージョンへ更新する。
-7. Production Status IssueとGitHub EnvironmentのDeployment履歴を確認する。
-8. developが進んだ場合は、metadata-onlyの `Update production status` workflowがProduction Status Issueを `not-deployed` へ更新する。
+6. preflight成功後、`production` Environment付きの本番mutation jobだけがWeb App URL/deployment整合性と既存deploymentを確認し、本番Apps Scriptへpushする。
+7. push後のリモートHEADにruntime supportと通常Web関数の参照解決が揃い、test/E2E helperが含まれないことを確認してから既存deploymentを更新する。
+8. 更新後のdeployment数・version・version sourceを確認し、Webアクセスゲート検査まで成功した場合だけ本番成功とする。
+9. Production Status IssueとGitHub EnvironmentのDeployment履歴を確認する。
+10. developが進んだ場合は、metadata-onlyの `Update production status` workflowがProduction Status Issueを `not-deployed` へ更新する。
 
 `Update production status` workflowは、Repository Variable `PRODUCTION_STATUS_ISSUE_NUMBER` が未設定または空文字の場合は安全にskipし、Actionsを失敗させません。
 設定済みなのに不正な値、PR、closed Issue、title不一致、markerなしの場合は失敗します。
@@ -171,6 +173,8 @@ npm run gas:production:push
 PRODUCTION PUSH
 ```
 
+本番ラッパーはこの明示確認後にだけ内部で `clasp push --force` を実行します。これはmanifest変更時の非対話promptで `Skipping push.` のまま成功終了することを防ぐためです。人がリポジトリ直下でbareな `clasp push --force` を実行してはいけません。
+
 このコマンドは、次の条件を満たさない場合は自動停止します。
 
 - 現在のブランチが`develop`
@@ -180,6 +184,8 @@ PRODUCTION PUSH
 - named user `production`で認証済み
 - `.clasp.productionignore`が有効
 - 確認文字列が一致する
+
+GitHub Actions経由ではさらに、push出力、リモートHEAD、更新後deployment versionを検証します。リモート検証用のsourceはrunner一時領域へpullし、成功・失敗のどちらでも削除します。ファイル内容全体、Script ID、Deployment ID、Web App URL、OAuth tokenはログへ出しません。
 
 ### 公開中Webアプリへ反映する
 

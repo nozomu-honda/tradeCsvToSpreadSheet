@@ -20,6 +20,15 @@ const PUBLIC_E2E_HELPERS = [
   'inspectE2EOutputSpreadsheetFromWebApp',
 ];
 
+const WEB_APP_FUNCTIONS = [
+  'runFromWebApp',
+  'resetDbFromWebApp',
+  'getDbSpreadsheetFromWebApp',
+  'listRecentImportsFromWebApp',
+  'rollbackImportFromWebApp',
+  'runStagingSheetFromWebApp',
+];
+
 const PRODUCTION_REFERENCE_FILES = [
   'src/app/web.gs',
   'src/app/db.gs',
@@ -124,6 +133,8 @@ const productionFunctionDefinitions = findFunctionDefinitions(productionAppSourc
 const runtimeSupportSource = read('src/app/e2e_runtime_support.gs');
 const importSource = read('src/app/import.gs');
 const e2eSource = read('src/app/e2e_helpers.gs');
+const webSource = read('src/app/web.gs');
+const indexSource = read('Index.html');
 const productionIgnore = read('.clasp.productionignore');
 const ciIgnore = read('.claspignore');
 
@@ -158,6 +169,36 @@ PUBLIC_E2E_HELPERS.forEach((functionName) => {
   );
 });
 
+WEB_APP_FUNCTIONS.forEach((functionName) => {
+  assert(
+    countFunctionDefinitions(productionAppSources, functionName) === 1,
+    functionName + ' must be defined exactly once in production app sources.'
+  );
+});
+
+const productionSourcesWithoutRuntimeSupport = productionSourceEntries
+  .filter(([relativePath]) => relativePath !== 'src/app/e2e_runtime_support.gs')
+  .map(([, source]) => source)
+  .join('\n');
+const definitionsWithoutRuntimeSupport = findFunctionDefinitions(productionSourcesWithoutRuntimeSupport);
+assert(
+  !definitionsWithoutRuntimeSupport.has('assertCiE2eTokenForWebAppIfConfigured_'),
+  'Removing e2e_runtime_support.gs must remove the runtime token assertion.'
+);
+assert(
+  findPrivateFunctionCalls(webSource).has('assertCiE2eTokenForWebAppIfConfigured_'),
+  'Normal Web functions must retain the runtime token assertion call.'
+);
+
+assert(
+  /DOMContentLoaded[\s\S]*?loadRecentImports\s*\(\s*\)/.test(indexSource),
+  'Page initialization must load recent imports without user interaction.'
+);
+assert(
+  /\.listRecentImportsFromWebApp\s*\(/.test(extractFunction(indexSource, 'loadRecentImports')),
+  'loadRecentImports must call listRecentImportsFromWebApp.'
+);
+
 PRODUCTION_REFERENCE_FILES.forEach((relativePath) => {
   const source = read(relativePath);
   const privateCalls = findPrivateFunctionCalls(source);
@@ -187,6 +228,20 @@ assert(
 
 const behaviorSandbox = {
   properties: {},
+  DB_CONFIG: {
+    MAX_RECENT_IMPORTS: 20,
+  },
+  resolveDbTarget_(targetDbKey) {
+    return {
+      key: targetDbKey,
+      label: 'Test DB',
+      dbKind: 'nomura',
+      dbKindLabel: 'Nomura',
+    };
+  },
+  listRecentImports_() {
+    return [];
+  },
   text_(value) {
     return value === null || value === undefined ? '' : String(value);
   },
@@ -211,6 +266,8 @@ vm.runInContext(extractFunction(importSource, 'isTestDbTarget_'), behaviorSandbo
 INTERNAL_RUNTIME_FUNCTIONS.forEach((functionName) => {
   vm.runInContext(extractFunction(runtimeSupportSource, functionName), behaviorSandbox);
 });
+vm.runInContext(extractFunction(webSource, 'normalizeWebAppTargetPayload_'), behaviorSandbox);
+vm.runInContext(extractFunction(webSource, 'listRecentImportsFromWebApp'), behaviorSandbox);
 
 function resetProperties(nextProperties) {
   behaviorSandbox.properties = Object.assign({}, nextProperties || {});
@@ -245,6 +302,11 @@ assert(
   behaviorSandbox.properties.CI_E2E_DISABLE_DB_FOLDER !== '1',
   'CI_E2E_DISABLE_DB_FOLDER must stay unset when CI_E2E_TOKEN is unset.'
 );
+const initialRecentImports = evaluate("listRecentImportsFromWebApp({ targetDbKey: 'nomura_test' });");
+assert(
+  initialRecentImports.dbTargetKey === 'nomura_test' && initialRecentImports.imports.length === 0,
+  'listRecentImportsFromWebApp must run when CI_E2E_TOKEN is unset.'
+);
 
 resetProperties({ CI_E2E_TOKEN: 'expected' });
 assertThrows(
@@ -274,6 +336,53 @@ assert(
 assert(
   evaluate('enableCiE2eRootDbFolderForPayload_({ ciE2eToken: "bootstrap" });') === true,
   'E2E public helper payload must enable root DB folder after token bootstrap.'
+);
+
+const pageInitCalls = [];
+const browserSandbox = {
+  getSelectedRollbackDbTarget_() {
+    return { key: 'nomura_test' };
+  },
+  updateRollbackDbSummary_() {},
+  withCiE2eToken_(payload) {
+    return payload;
+  },
+  renderError_(error) {
+    throw error;
+  },
+  document: {
+    getElementById() {
+      return {
+        innerHTML: '',
+        appendChild() {},
+      };
+    },
+    createElement() {
+      return {
+        value: '',
+        textContent: '',
+      };
+    },
+  },
+};
+const scriptRun = {
+  withSuccessHandler() {
+    return this;
+  },
+  withFailureHandler() {
+    return this;
+  },
+  listRecentImportsFromWebApp(payload) {
+    pageInitCalls.push(payload);
+  },
+};
+browserSandbox.google = { script: { run: scriptRun } };
+vm.createContext(browserSandbox);
+vm.runInContext(extractFunction(indexSource, 'loadRecentImports'), browserSandbox);
+vm.runInContext('loadRecentImports();', browserSandbox);
+assert(
+  pageInitCalls.length === 1 && pageInitCalls[0].targetDbKey === 'nomura_test',
+  'Page initialization path must invoke listRecentImportsFromWebApp without a ReferenceError.'
 );
 
 console.log('production E2E helper boundary ok');

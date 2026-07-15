@@ -11,17 +11,30 @@
 - 最新 `develop` では、Issue #76 / PR #78 の野村日本株Web E2E追加は完了済み。
 - 最新 `develop` では、Issue #81 / PR #82 の本番bundle参照切れ修正は完了済み。
 - Issue #83で、本番反映をGitHub Actions化し、Production Status Issueで本番状態を追跡する対応を進めている。
-  - PR #84は一部対応であり、Issue #83はmain同期・初回設定・dry-run・初回本番反映・状態追跡の実動作確認が終わるまでopenのままにする。
+  - PR #84の基盤はdevelopへマージ済みで、PR #87 / #90 / #92によりdefault branch `main` への同期も実施済み。
+  - Issue #83は今回の本番runtime不具合の復旧と実動作確認が終わるまでopenのままにする。
 - 楽天DBの専用ヘッダー対応、楽天DBから共通計算モデルへの変換、楽天配当金の手入力列対応は完了済み。
 - Web UIの6シート表記、外債件数表示、タブ順固定、`runStagingSheetFromWebApp` の重複整理は完了済み。
 - `runSmokeTests()` と `runAllTests()` は未実装タスクではなく、既存の手動テスト入口として扱う。
 - Web App E2Eは、野村1ケース + 楽天7ケースの合計8ケースまで完了済み。
-- 本番Apps Scriptへのpushと本番Webアプリ再デプロイは、PR #82マージ後まだ未実施。
-- 現在の本番Webアプリには、Issue #81修正前のbundleが反映されている可能性がある。
+- 本番Webアプリは、ページ初期表示時に `assertCiE2eTokenForWebAppIfConfigured_` のruntime参照エラーが発生している。
+- Production Status Issue #88の `deployed` は、`clasp push` の暗黙skipとログインredirectだけのSmoke Testによる誤判定であり、正常稼働の根拠にしない。
 
-## 本番反映前の確認
+## 最優先: 本番復旧確認
 
-本番復旧には、最新 `develop` を本番Apps Scriptへ再反映し、Apps Script管理画面で既存Webアプリdeploymentを新バージョンへ更新する必要がある。
+本番復旧には、本番pushの暗黙skipを拒否し、リモートHEADとdeployment versionのruntime境界を検証する修正を最新 `develop` へ取り込んだ上で、本番workflowから再反映する必要がある。
+
+確認順:
+
+1. 修正版の `npm run test:production-runtime-verification` と本番関連テストが成功している。
+2. `deploy-production-dry-run` でAuthenticated dry-runを行い、Web App URLとdeployment ID、既存deployment、Tracked / Untracked境界を確認する。
+3. 人間の承認後に本番反映し、source push、remote source verification、deployment update、deployment verification、web access gate verificationがすべて成功していることを確認する。
+4. 人間がログイン後の本番Webアプリを開き、ページ初期表示と最近の取込一覧でReferenceErrorが出ないことを確認する。
+5. DBを開く、DBリセット、ロールバック、取込、一次受け枠作成の通常操作を、対象と権限を確認した上で確認する。
+
+`private-login-gated` はログインゲートへの到達だけを保証する。ログイン後の画面初期化とserver function実行は人間の確認を残す。
+
+## 本番反映前の境界確認
 
 基本手順:
 
@@ -72,8 +85,7 @@ Issue #83対応後の基本フロー:
 - Environment側には `PRODUCTION_STATUS_ISSUE_NUMBER` と同名Variableを作らない。
 - 管理marker `<!-- production-status:managed-by-github-actions -->` を含むProduction Status Issueを作成し、実値を貼らずに状態追跡用として使う。
 - 起動ラベル `deploy-production-dry-run`、`deploy-production`、`deploy-production-force` を作成する。
-- default branch `main` へcontrol workflowとdeploy workflow定義を同期する後続対応を行う。
-- default branch `main` でPRラベル起動workflowが起動できることを人間が確認する。
+- develop側の本番workflow定義を変更した場合は、マージ後に別PRでdefault branch `main` へ同期する。developからcheckoutされるスクリプトだけの変更は追加同期不要。
 - Static dry-runとAuthenticated dry-runが成功することを確認する。
 
 Codexは本番Apps Scriptへのpush、本番Webアプリdeployment更新、GitHub Secrets / Variables変更、GitHub Environment作成、production workflow実行を行わない。
@@ -172,11 +184,7 @@ rollbackの正常系は既存E2Eで使っているが、異常系の明示確認
 - 本番Apps Scriptへの `npm run gas:production:push`。
 - 本番Webアプリの既存deployment更新。
 - 本番Webアプリの主要画面確認。
-- GitHub Environment `production` の初回設定。
-- 本番反映workflow用Secrets / Variablesの初回設定。
-- 管理marker付きProduction Status Issueの初回作成。
-- 本番反映起動ラベルの初回作成。
-- default branch `main` 上でラベル起動workflowが有効になるかの確認。
+- 今回の修正をdevelopへマージした後、Authenticated dry-runと本番再反映を人間が確認する。workflow YAMLを後続変更した場合だけdefault branch `main` へ同期する。
 - `Deploy production` workflowのStatic dry-run / Authenticated dry-run確認。
 - `Deploy production` workflowによる本番反映。
 - Issue #76 / Issue #81 は実装対応済みだが、GitHub Issue自体はOPENの場合があるため、必要なら人間がクローズ確認する。

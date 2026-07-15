@@ -166,6 +166,7 @@ function runClasp(claspCommand) {
     '--ignore',
     PRODUCTION_IGNORE,
     CLASP_COMMANDS[claspCommand],
+    ...(claspCommand === 'push' ? ['--force'] : []),
     ...extraArgs,
   ];
 

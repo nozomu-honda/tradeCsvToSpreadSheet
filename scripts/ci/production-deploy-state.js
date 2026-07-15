@@ -81,7 +81,10 @@ function createInitialProductionDeployState({
     lastDeploymentWorkflowUrl,
     lastStatusSyncWorkflowUrl,
     sourcePush: 'not-started',
+    remoteSourceVerification: 'not-started',
     deploymentUpdate: 'not-started',
+    deploymentVerification: 'not-started',
+    webAccessGateVerification: 'not-started',
     smokeTest: 'not-started',
     lastFailureStage: '',
     failureMessage: '',
@@ -100,12 +103,15 @@ function markProductionDeployState(state, status, patch = {}) {
 
   if (status === 'source-pushed') {
     next.sourcePush = patch.sourcePush || 'success';
+    next.remoteSourceVerification = patch.remoteSourceVerification || 'success';
   }
   if (status === 'deployment-updated') {
     next.currentProductionSha = patch.currentProductionSha || state.targetSha || state.currentProductionSha || 'unknown';
     next.deploymentUpdate = patch.deploymentUpdate || 'success';
+    next.deploymentVerification = patch.deploymentVerification || 'success';
   }
   if (status === 'verifying') {
+    next.webAccessGateVerification = patch.webAccessGateVerification || 'running';
     next.smokeTest = patch.smokeTest || 'running';
   }
   if (status === 'deployed') {
@@ -114,7 +120,10 @@ function markProductionDeployState(state, status, patch = {}) {
     next.lastSuccessfulDeploymentAt = patch.lastSuccessfulDeploymentAt || next.updatedAt;
     next.lastDeploymentWorkflowUrl = patch.lastDeploymentWorkflowUrl || state.workflowRunUrl || state.lastDeploymentWorkflowUrl || 'unknown';
     next.sourcePush = patch.sourcePush || 'success';
+    next.remoteSourceVerification = patch.remoteSourceVerification || 'success';
     next.deploymentUpdate = patch.deploymentUpdate || 'success';
+    next.deploymentVerification = patch.deploymentVerification || 'success';
+    next.webAccessGateVerification = patch.webAccessGateVerification || 'success';
     next.smokeTest = patch.smokeTest || 'success';
     next.lastFailureStage = '';
     next.failureMessage = '';
@@ -136,17 +145,39 @@ function failProductionDeployState(state, stage, error) {
   };
   if (stage === 'source-push') {
     next.sourcePush = 'failed';
+    next.remoteSourceVerification = 'not-started';
     next.deploymentUpdate = next.deploymentUpdate || 'not-started';
     next.smokeTest = next.smokeTest || 'not-started';
   }
+  if (stage === 'remote-source-verification') {
+    next.sourcePush = 'success';
+    next.remoteSourceVerification = 'failed';
+    next.deploymentUpdate = 'not-started';
+    next.deploymentVerification = 'not-started';
+    next.webAccessGateVerification = 'not-started';
+    next.smokeTest = 'not-started';
+  }
   if (stage === 'deployment-update') {
     next.sourcePush = next.sourcePush === 'not-started' ? 'success' : next.sourcePush;
+    next.remoteSourceVerification = next.remoteSourceVerification === 'not-started' ? 'success' : next.remoteSourceVerification;
     next.deploymentUpdate = 'failed';
+    next.deploymentVerification = 'not-started';
     next.smokeTest = next.smokeTest === 'running' ? 'not-started' : next.smokeTest;
+  }
+  if (stage === 'deployment-verification') {
+    next.sourcePush = 'success';
+    next.remoteSourceVerification = 'success';
+    next.deploymentUpdate = 'success';
+    next.deploymentVerification = 'failed';
+    next.webAccessGateVerification = 'not-started';
+    next.smokeTest = 'not-started';
   }
   if (stage === 'smoke-test') {
     next.sourcePush = next.sourcePush === 'not-started' ? 'success' : next.sourcePush;
+    next.remoteSourceVerification = next.remoteSourceVerification === 'not-started' ? 'success' : next.remoteSourceVerification;
     next.deploymentUpdate = next.deploymentUpdate === 'not-started' ? 'success' : next.deploymentUpdate;
+    next.deploymentVerification = next.deploymentVerification === 'not-started' ? 'success' : next.deploymentVerification;
+    next.webAccessGateVerification = 'failed';
     next.smokeTest = 'failed';
   }
   return next;
@@ -173,7 +204,10 @@ function parseProductionStatusIssue(body) {
     commitsBehindDevelop: 'unknown',
     lastFailureStage: '',
     sourcePush: 'not-started',
+    remoteSourceVerification: 'not-started',
     deploymentUpdate: 'not-started',
+    deploymentVerification: 'not-started',
+    webAccessGateVerification: 'not-started',
     smokeTest: 'not-started',
     failureMessage: '',
     lastSuccessfulDeploymentSha: 'unknown',
@@ -200,7 +234,10 @@ function parseProductionStatusIssue(body) {
   const lastDeploymentWorkflowMatch = normalized.match(/^- 最終本番反映workflow:\s*(.+)$/m);
   const lastStatusSyncWorkflowMatch = normalized.match(/^- 最終status同期workflow:\s*(.+)$/m);
   const lastDeploymentSourcePushMatch = normalized.match(/^- 最終本番反映 source push:\s*`?([^`\n]+)`?/m);
+  const lastRemoteSourceVerificationMatch = normalized.match(/^- 最終本番反映 remote source verification:\s*`?([^`\n]+)`?/m);
   const lastDeploymentUpdateMatch = normalized.match(/^- 最終本番反映 deployment update:\s*`?([^`\n]+)`?/m);
+  const lastDeploymentVerificationMatch = normalized.match(/^- 最終本番反映 deployment verification:\s*`?([^`\n]+)`?/m);
+  const lastWebAccessGateVerificationMatch = normalized.match(/^- 最終本番反映 web access gate verification:\s*`?([^`\n]+)`?/m);
   const lastDeploymentSmokeMatch = normalized.match(/^- 最終本番反映 smoke test:\s*`?([^`\n]+)`?/m);
 
   if (statusMatch && VALID_PRODUCTION_STATES.includes(statusMatch[1])) {
@@ -223,10 +260,19 @@ function parseProductionStatusIssue(body) {
   } else if (sourcePushMatch) {
     result.sourcePush = sourcePushMatch[1].trim();
   }
+  if (lastRemoteSourceVerificationMatch) {
+    result.remoteSourceVerification = lastRemoteSourceVerificationMatch[1].trim();
+  }
   if (lastDeploymentUpdateMatch) {
     result.deploymentUpdate = lastDeploymentUpdateMatch[1].trim();
   } else if (deploymentUpdateMatch) {
     result.deploymentUpdate = deploymentUpdateMatch[1].trim();
+  }
+  if (lastDeploymentVerificationMatch) {
+    result.deploymentVerification = lastDeploymentVerificationMatch[1].trim();
+  }
+  if (lastWebAccessGateVerificationMatch) {
+    result.webAccessGateVerification = lastWebAccessGateVerificationMatch[1].trim();
   }
   if (lastDeploymentSmokeMatch) {
     result.smokeTest = lastDeploymentSmokeMatch[1].trim();
