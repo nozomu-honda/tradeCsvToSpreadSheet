@@ -184,7 +184,7 @@ npm run gas:production:push
 GitHub Actions経由では、URL内deployment IDとの一致、push後リモートHEADと対象SHAのローカル本番bundleの完全一致、既存deploymentのversion更新、更新versionとの完全一致を確認してから既存WebアプリURLを維持したまま更新する。
 
 - runtime helperや必須関数の存在だけでは業務コード全体が対象SHAと一致することを保証できないため、claspの `filesToPush` を正本に全ファイルのpathとSHA-256を比較する。
-- remote HEAD不一致ではdeployment更新前に停止する。deployment version不一致では更新済みの事実を保持したままSmoke Testへ進まず、Status Issueを `failed` にして最終成功本番反映commitを更新しない。
+- remote HEAD不一致ではdeployment更新前に停止する。deployment version不一致では更新済みの事実を保持したままSmoke Testへ進まず、現在の本番commitを `unknown`、Status Issueを `failed` とし、最終成功本番反映commitを更新しない。
 
 本番push前の確認:
 

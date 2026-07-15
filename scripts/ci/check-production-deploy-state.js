@@ -132,7 +132,13 @@ assert.strictEqual(remoteSourceFailed.status, 'failed');
 
 const deploymentVerificationFailed = failProductionDeployState(
   markProductionDeployState(
-    createInitialProductionDeployState({ targetSha: shaA }),
+    createInitialProductionDeployState({
+      targetSha: shaA,
+      previousProductionSha: shaB,
+      currentProductionSha: shaB,
+      lastSuccessfulDeploymentSha: shaB,
+      lastSuccessfulDeploymentAt: '2026-07-14T00:00:00.000Z',
+    }),
     'source-pushed',
   ),
   'deployment-verification',
@@ -144,7 +150,9 @@ assert.strictEqual(deploymentVerificationFailed.deploymentUpdate, 'success');
 assert.strictEqual(deploymentVerificationFailed.deploymentVerification, 'failed');
 assert.strictEqual(deploymentVerificationFailed.webAccessGateVerification, 'not-started');
 assert.strictEqual(deploymentVerificationFailed.status, 'failed');
-assert.strictEqual(deploymentVerificationFailed.currentProductionSha, shaA);
+assert.strictEqual(deploymentVerificationFailed.currentProductionSha, 'unknown');
+assert.strictEqual(deploymentVerificationFailed.lastSuccessfulDeploymentSha, shaB);
+assert.strictEqual(deploymentVerificationFailed.lastSuccessfulDeploymentAt, '2026-07-14T00:00:00.000Z');
 
 assert.deepStrictEqual(
   shouldBlockDuplicateDeployment({

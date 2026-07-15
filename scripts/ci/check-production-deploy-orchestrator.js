@@ -725,7 +725,30 @@ async function assertRejectsWith(fn, pattern) {
     assert.ok(finalBody.includes('- 最終本番反映 deployment update: `success`'));
     assert.ok(finalBody.includes('- 最終本番反映 deployment verification: `failed`'));
     assert.ok(finalBody.includes('- 最終本番反映 web access gate verification: `not-started`'));
-    assert.ok(finalBody.includes(`- 本番commit: \`${targetSha}\``));
+    assert.ok(finalBody.includes('- 本番commit: `unknown`'));
+    assert.ok(!finalBody.includes(`- 本番commit: \`${targetSha}\``));
+    assert.ok(!finalBody.includes(`- 本番commit: \`${previousSha}\``));
+    assert.ok(finalBody.includes(`- 最終成功本番反映commit: \`${previousSha}\``));
+    assert.ok(finalBody.includes('- 状態: `failed`'));
+    assert.ok(!finalBody.includes('- 状態: `deployed`'));
+  }
+
+  {
+    const adapters = createAdapters({ failDeploymentVerification: true });
+    await assertRejectsWith(() => runProductionDeploy({
+      env: baseEnv({ DRY_RUN: 'false', SOURCE_PR_NUMBER: '10' }),
+      adapters,
+    }), /deployment verification failed/);
+    assert.ok(adapters.calls.includes('deployment-update'));
+    assert.ok(adapters.calls.includes('deployment-verification'));
+    assert.ok(!adapters.calls.includes('smoke-test'));
+    const finalBody = adapters.state.issuePatchBodies.at(-1);
+    assert.ok(finalBody.includes('- 最終本番反映 deployment update: `success`'));
+    assert.ok(finalBody.includes('- 最終本番反映 deployment verification: `failed`'));
+    assert.ok(finalBody.includes('- 最終本番反映 web access gate verification: `not-started`'));
+    assert.ok(finalBody.includes('- 本番commit: `unknown`'));
+    assert.ok(!finalBody.includes(`- 本番commit: \`${targetSha}\``));
+    assert.ok(!finalBody.includes(`- 本番commit: \`${previousSha}\``));
     assert.ok(finalBody.includes(`- 最終成功本番反映commit: \`${previousSha}\``));
     assert.ok(finalBody.includes('- 状態: `failed`'));
     assert.ok(!finalBody.includes('- 状態: `deployed`'));

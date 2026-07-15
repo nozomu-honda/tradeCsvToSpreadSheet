@@ -295,6 +295,7 @@ markerがないIssueは絶対に上書きしません。
 `deployed` は、現在の本番commitが最新developと一致し、かつ対象SHAのローカル本番bundleがリモートHEADとdeployment versionの両方へ完全一致し、source push、deployment update、Web access gate、smoke testがすべて成功済みである状態だけを表します。runtime helperの存在だけでは `deployed` にしません。
 `not-deployed` は、前回本番反映が成功していても、現在の本番commitが最新developと一致しない状態を表します。
 `failed` は本番反映処理が失敗した状態です。status syncでdevelopが進んでも、失敗ステージと失敗内容は消しません。
+既存deploymentの更新後に対象versionの完全一致検証が失敗した場合は、deployment updateを `success`、deployment verificationを `failed`、現在の本番commitを `unknown`、状態を `failed` として記録します。deploymentは更新済みですが、その内容が対象SHAとも前回SHAとも確認できないため、どちらのSHAも現在本番として確定しません。最終成功本番反映commitと最終成功deployment日時は前回成功値を維持します。
 既存deployment更新後にSmoke Testだけ失敗した場合は、状態を `failed` のままにしつつ、本番commitを反映対象SHAとして記録します。source push / deployment updateは `success`、smoke testは `failed` とし、最終成功本番反映commitと最終成功deployment日時は更新しません。
 Authenticated dry-runと本番deployのEnvironmentなしpreflightでは、required checks、`npm ci`、validationより前にStatus Issueを読みます。
 preflight jobはStatus IssueをPATCHしません。

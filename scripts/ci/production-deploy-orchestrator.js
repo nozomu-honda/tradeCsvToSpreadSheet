@@ -588,11 +588,13 @@ async function runProductionDeployAll({ env, adapters, cwd = process.cwd() }) {
       failedState.remoteSourceVerification = 'success';
     }
     if (deploymentUpdateSucceeded) {
-      failedState.currentProductionSha = failedState.targetSha;
       failedState.deploymentUpdate = 'success';
     }
     if (deploymentVerified) {
+      failedState.currentProductionSha = failedState.targetSha;
       failedState.deploymentVerification = 'success';
+    } else if (deploymentUpdateSucceeded) {
+      failedState.currentProductionSha = 'unknown';
     }
     if (smokeTestSucceeded) {
       failedState.webAccessGateVerification = 'success';
@@ -1078,11 +1080,13 @@ async function runProductionMutation({ env, adapters, cwd = process.cwd() }) {
       failedState.remoteSourceVerification = 'success';
     }
     if (deploymentUpdateSucceeded) {
-      failedState.currentProductionSha = failedState.targetSha;
       failedState.deploymentUpdate = 'success';
     }
     if (deploymentVerified) {
+      failedState.currentProductionSha = failedState.targetSha;
       failedState.deploymentVerification = 'success';
+    } else if (deploymentUpdateSucceeded) {
+      failedState.currentProductionSha = 'unknown';
     }
     if (smokeTestSucceeded) {
       failedState.webAccessGateVerification = 'success';
