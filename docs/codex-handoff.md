@@ -116,12 +116,11 @@ DBスプレッドシートが存在しない場合に、指定したGoogle Drive
 - Apps Scriptエディタ上で、オーナーアカウントの `testDriveAuth_()` は `folder=DB` まで成功。
 - つまり、オーナーの権限とIDは問題なし。
 
-現在の本番運用方針:
+現在のユーザー方針:
 
-- 本番Webアプリは所有者本人だけがアクセスする。
-- 本番Webアプリはデプロイしたユーザーとして実行する。
-- `appsscript.json` では `webapp.access = MYSELF` / `webapp.executeAs = USER_DEPLOYING` を維持する。
-- テスト用Web E2Eの一時manifest設定とは混同しない。
+- Webアプリの実行ユーザーは「アクセスしているユーザー」のまま運用したい。
+- そのため、利用者本人にDBフォルダの編集権限が必要。
+- そのため、利用者本人がDrive OAuth権限を承認する必要がある。
 
 必要な `appsscript.json` の例:
 
@@ -129,10 +128,6 @@ DBスプレッドシートが存在しない場合に、指定したGoogle Drive
 {
   "timeZone": "Asia/Tokyo",
   "dependencies": {},
-  "webapp": {
-    "access": "MYSELF",
-    "executeAs": "USER_DEPLOYING"
-  },
   "exceptionLogging": "STACKDRIVER",
   "runtimeVersion": "V8",
   "oauthScopes": [

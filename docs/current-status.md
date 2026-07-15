@@ -166,8 +166,7 @@
 - PR #95反映後の本番runでは、対象SHAのsource pushとremote source／deployment versionの完全一致は成功した。
 - 同runのdeployment更新後、Web access gateがHTTP 404となり、Apps Script管理画面では対象deploymentがWebアプリではなくなっていた。
 - 根本原因は、リポジトリの `appsscript.json` に `webapp` 設定がなく、source push後の新versionがWeb App構成を持たないまま既存deploymentへ割り当てられたこと。
-- 本修正では `appsscript.json` に、手動で正常表示を確認した本番設定 `MYSELF` / `USER_DEPLOYING` を明示し、Apps Script APIで更新前後の `WEB_APP` entry point、URL fingerprint、version、entry point type、アクセス設定、deployment総数をfail closedで検証する。
-- 本番Webアプリは所有者本人だけがアクセスし、デプロイしたユーザーとして実行する。公開範囲をログイン済みユーザー全体へ広げず、アクセスユーザーの権限では実行しない。
+- 本修正では `appsscript.json` に `ANYONE` / `USER_ACCESSING` を明示し、Apps Script APIで更新前後の `WEB_APP` entry point、URL fingerprint、version、entry point type、アクセス設定、deployment総数をfail closedで検証する。
 - `clasp update-deployment` はApps Script API `projects.deployments.update` と同じ更新requestを使うため維持する。直接API更新へ置き換えるだけでは根本原因を解消しない。
 - 本番復旧には、人間がApps Script管理画面でWebアプリdeploymentを修正または再作成し、ID／URLが変わった場合は両Environment設定を更新した上で、最新 `develop` のAuthenticated dry-runと本番反映を確認する必要がある。
 - 通常運用はマージ済みPRへ `deploy-production` ラベルを1回付け、preflight、Environment承認、更新前Web App確認、source push、deployment更新、更新後Web App確認、Web access gateまで実行する。dry-runは初回設定や障害調査時だけ任意利用する。
@@ -196,7 +195,7 @@ GitHub Actions経由では、URL内deployment IDとの一致、更新前の `WEB
   - `src/app/e2e_helpers.gs`
 - 上記2つはUntrackedとして扱われること。
 - 本番対象に `src/app/e2e_runtime_support.gs` が含まれること。
-- `appsscript.json` に `webapp.access = MYSELF` と `webapp.executeAs = USER_DEPLOYING` が含まれること。
+- `appsscript.json` に `webapp.access = ANYONE` と `webapp.executeAs = USER_ACCESSING` が含まれること。
 - 実Script ID、Deployment ID、Web App URL、Spreadsheet URL、Drive folder ID、OAuth token、GitHub Secrets実値をログやdocsへ残さないこと。
 
 ## 未完了 / 確認待ち

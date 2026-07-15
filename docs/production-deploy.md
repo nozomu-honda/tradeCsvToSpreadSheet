@@ -416,16 +416,14 @@ ReferenceError: assertCiE2eTokenForWebAppIfConfigured_ is not defined
 
 [対象run](https://github.com/nozomu-honda/tradeCsvToSpreadSheet/actions/runs/29418824550)では、source push、remote source verification、既存deployment更新、deployment version検証まで成功しましたが、Web access gateがHTTP 404で失敗しました。Apps Script管理画面では、更新対象deploymentからWebアプリ設定が消失していました。
 
-根本原因は、リポジトリの `appsscript.json` に `webapp` 設定がなく、source push後の新versionがWeb App構成を持たなかったことです。そのversionを既存deploymentへ割り当てたため、`WEB_APP` entry pointが失われました。`appsscript.json` には、手動復旧後に正常表示を確認した本番設定どおり、所有者本人だけがアクセスし、デプロイしたユーザーとして実行する設定をソース管理します。
+根本原因は、リポジトリの `appsscript.json` に `webapp` 設定がなく、source push後の新versionがWeb App構成を持たなかったことです。そのversionを既存deploymentへ割り当てたため、`WEB_APP` entry pointが失われました。`appsscript.json` には本番運用どおり、ログイン済みユーザーがアクセスし、アクセスしているユーザーとして実行する設定をソース管理します。
 
 ```json
 "webapp": {
-  "access": "MYSELF",
-  "executeAs": "USER_DEPLOYING"
+  "access": "ANYONE",
+  "executeAs": "USER_ACCESSING"
 }
 ```
-
-初回実装の `ANYONE` / `USER_ACCESSING` は、本番の公開範囲をログイン済みユーザー全体へ広げ、実行主体をアクセスユーザーへ変えてしまうため採用しません。更新前後とも `MYSELF` / `USER_DEPLOYING` を必須とし、公開範囲を拡大せず、アクセスユーザーの権限では実行しません。テスト用Web E2Eがrunner上で生成する一時manifestの `ANYONE_ANONYMOUS` / `USER_DEPLOYING` はテスト専用Apps Scriptだけに適用し、本番manifestとは別に扱います。
 
 更新前はApps Script APIで対象deploymentが `WEB_APP` であることを確認し、更新後は同じdeployment ID、URL fingerprint、entry point type集合、アクセス設定、実行ユーザー、deployment総数、versionを再確認します。APIレスポンスが不明、`WEB_APP`が0件または複数、URL不一致の場合はfail closedです。URL、ID、token、APIレスポンス全文はログやSummaryへ出しません。
 

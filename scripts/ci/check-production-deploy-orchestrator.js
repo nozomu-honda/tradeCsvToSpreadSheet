@@ -224,8 +224,8 @@ function createAdapters(options = {}) {
         webAppEntryPointCount: 1,
         entryPointTypes: ['WEB_APP'],
         webAppUrlFingerprint: 'a'.repeat(64),
-        webAppAccess: 'MYSELF',
-        webAppExecuteAs: 'USER_DEPLOYING',
+        webAppAccess: 'ANYONE',
+        webAppExecuteAs: 'USER_ACCESSING',
       };
     },
     runProductionSourcePush() {

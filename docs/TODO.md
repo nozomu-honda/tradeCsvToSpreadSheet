@@ -54,7 +54,7 @@ npm run gas:production:push
 - Tracked filesに `src/app/e2e_helpers.gs` が含まれない。
 - `src/test/**` と `src/app/e2e_helpers.gs` はUntrackedである。
 - 本番対象に `src/app/e2e_runtime_support.gs` が含まれる。
-- `appsscript.json` に、手動で正常表示を確認した本番設定 `webapp.access = MYSELF` と `webapp.executeAs = USER_DEPLOYING` が含まれる。本番Webアプリは所有者本人だけがアクセスし、デプロイしたユーザーとして実行する。テスト用Web E2Eの一時manifest設定とは混同しない。
+- `appsscript.json` に `webapp.access = ANYONE` と `webapp.executeAs = USER_ACCESSING` が含まれる。
 - 実Script ID、Deployment ID、Web App URL、Spreadsheet URL、Drive folder ID、OAuth token、GitHub Secrets実値をログやdocsへ残さない。
 
 Issue #83対応後の基本フロー:
