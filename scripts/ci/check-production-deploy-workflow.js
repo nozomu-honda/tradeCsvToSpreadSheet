@@ -13,6 +13,7 @@ const controlWorkflowPath = path.join(repoRoot, '.github', 'workflows', 'product
 const statusWorkflowPath = path.join(repoRoot, '.github', 'workflows', 'update-production-status.yml');
 const orchestratorPath = path.join(repoRoot, 'scripts', 'ci', 'production-deploy-orchestrator.js');
 const adaptersPath = path.join(repoRoot, 'scripts', 'ci', 'production-deploy-adapters.js');
+const runtimeVerificationPath = path.join(repoRoot, 'scripts', 'ci', 'production-runtime-verification.js');
 const packagePath = path.join(repoRoot, 'package.json');
 const gasProductionPath = path.join(repoRoot, 'scripts', 'gas-production.js');
 const gitignorePath = path.join(repoRoot, '.gitignore');
@@ -22,6 +23,7 @@ const controlWorkflow = fs.readFileSync(controlWorkflowPath, 'utf8');
 const statusWorkflow = fs.readFileSync(statusWorkflowPath, 'utf8');
 const orchestrator = fs.readFileSync(orchestratorPath, 'utf8');
 const adapters = fs.readFileSync(adaptersPath, 'utf8');
+const runtimeVerification = fs.readFileSync(runtimeVerificationPath, 'utf8');
 const packageJson = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
 const gasProduction = fs.readFileSync(gasProductionPath, 'utf8');
 const gitignore = fs.readFileSync(gitignorePath, 'utf8');
@@ -271,15 +273,18 @@ includes(adapters, "'--json'", 'production status must use clasp JSON output');
 includes(adapters, 'collectJsonLeafValues', 'adapters must mask JSON leaf values, not raw multiline secrets');
 includes(adapters, 'mode: env.PRODUCTION_SMOKE_MODE', 'production smoke adapter must pass the Environment smoke mode');
 includes(adapters, 'verifyRemoteProductionSource', 'production deploy must verify the remote Apps Script runtime source');
+includes(adapters, 'createLocalProductionBundleManifest({ rootDir: cwd, trackedFiles })', 'local manifest must use clasp filesToPush from production status');
+includes(runtimeVerification, "crypto.createHash('sha256')", 'production bundle manifest must hash normalized source content');
+includes(runtimeVerification, 'compareProductionBundleManifests(expectedManifest, pulledManifest)', 'pulled source must be compared with the target production bundle before runtime checks');
 includes(adapters, "'list-deployments'", 'production deploy must read the existing deployment before and after update');
 includes(adapters, "'update-deployment'", 'production deploy must update the configured existing deployment explicitly');
 includes(orchestrator, 'validateProductionDeploymentConfiguration', 'orchestrator must verify Web App URL and Deployment ID consistency');
 assert.ok(
-  orchestrator.indexOf('adapters.runProductionSourcePush()') < orchestrator.indexOf('adapters.verifyRemoteProductionSource()'),
+  orchestrator.indexOf('adapters.runProductionSourcePush()') < orchestrator.indexOf('adapters.verifyRemoteProductionSource(localProductionBundleManifest)'),
   'remote source verification must run after source push',
 );
 assert.ok(
-  orchestrator.indexOf('adapters.verifyRemoteProductionSource()') < orchestrator.indexOf('adapters.updateAppsScriptDeployment(targetSha)'),
+  orchestrator.indexOf('adapters.verifyRemoteProductionSource(localProductionBundleManifest)') < orchestrator.indexOf('adapters.updateAppsScriptDeployment(targetSha)'),
   'remote source verification must finish before deployment update',
 );
 assert.ok(

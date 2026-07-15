@@ -1,8 +1,10 @@
 'use strict';
 
+const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { TextDecoder } = require('util');
 
 const REQUIRED_REMOTE_FILES = [
   'appsscript.json',
@@ -28,9 +30,144 @@ const PUBLIC_E2E_HELPERS = [
 
 const RUNTIME_ASSERTION = 'assertCiE2eTokenForWebAppIfConfigured_';
 const DEPLOYMENT_CONFIG_ERROR = 'Production Web App URL and Deployment ID configuration do not match.';
+const LOCAL_BUNDLE_ERROR = 'Local production bundle manifest generation failed.';
+const REMOTE_BUNDLE_MISMATCH_ERROR = 'Remote production source does not match the target production bundle.';
+const ALLOWED_TEXT_EXTENSIONS = new Set(['.gs', '.js', '.html', '.json']);
+
+function comparePaths(left, right) {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
 
 function normalizePath(value) {
   return String(value || '').replace(/\\/g, '/').replace(/^\.\//, '');
+}
+
+function normalizeManifestPath(value, errorMessage) {
+  const normalized = normalizePath(value);
+  const segments = normalized.split('/');
+  if (
+    !normalized
+    || normalized.startsWith('/')
+    || /^[A-Za-z]:\//.test(normalized)
+    || segments.some((segment) => !segment || segment === '.' || segment === '..')
+  ) {
+    throw new Error(errorMessage);
+  }
+  return normalized;
+}
+
+function canonicalizeManifestPath(relativePath) {
+  return relativePath.endsWith('.js') ? `${relativePath.slice(0, -3)}.gs` : relativePath;
+}
+
+function normalizeTextForManifest(buffer, errorMessage) {
+  try {
+    const decoded = new TextDecoder('utf-8', { fatal: true }).decode(buffer);
+    if (decoded.includes('\u0000')) {
+      throw new Error(errorMessage);
+    }
+    return decoded.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n');
+  } catch (error) {
+    throw new Error(errorMessage);
+  }
+}
+
+function buildProductionBundleManifest({ rootDir, relativePaths, errorMessage }) {
+  try {
+    if (!Array.isArray(relativePaths) || relativePaths.length === 0) {
+      throw new Error(errorMessage);
+    }
+    const root = path.resolve(rootDir);
+    const normalizedPaths = relativePaths
+      .map((relativePath) => {
+        const sourcePath = normalizeManifestPath(relativePath, errorMessage);
+        return {
+          sourcePath,
+          relativePath: canonicalizeManifestPath(sourcePath),
+        };
+      })
+      .sort((left, right) => comparePaths(left.relativePath, right.relativePath));
+    if (new Set(normalizedPaths.map((entry) => entry.relativePath)).size !== normalizedPaths.length) {
+      throw new Error(errorMessage);
+    }
+
+    return normalizedPaths.map(({ sourcePath, relativePath }) => {
+      if (!ALLOWED_TEXT_EXTENSIONS.has(path.posix.extname(sourcePath).toLowerCase())) {
+        throw new Error(errorMessage);
+      }
+      const absolutePath = path.resolve(root, ...sourcePath.split('/'));
+      const relativeToRoot = path.relative(root, absolutePath);
+      if (!relativeToRoot || relativeToRoot.startsWith('..') || path.isAbsolute(relativeToRoot)) {
+        throw new Error(errorMessage);
+      }
+      const stat = fs.lstatSync(absolutePath);
+      if (!stat.isFile() || stat.isSymbolicLink()) {
+        throw new Error(errorMessage);
+      }
+      const normalizedSource = normalizeTextForManifest(fs.readFileSync(absolutePath), errorMessage);
+      return {
+        relativePath,
+        sha256: crypto.createHash('sha256').update(normalizedSource, 'utf8').digest('hex'),
+      };
+    });
+  } catch (error) {
+    throw new Error(errorMessage);
+  }
+}
+
+function buildLocalProductionBundleManifest({ rootDir, trackedFiles }) {
+  return buildProductionBundleManifest({
+    rootDir,
+    relativePaths: trackedFiles,
+    errorMessage: LOCAL_BUNDLE_ERROR,
+  });
+}
+
+function buildPulledProductionBundleManifest(rootDir) {
+  const relativePaths = collectFiles(rootDir).map((entry) => entry.relativePath);
+  return buildProductionBundleManifest({
+    rootDir,
+    relativePaths,
+    errorMessage: REMOTE_BUNDLE_MISMATCH_ERROR,
+  });
+}
+
+function compareProductionBundleManifests(expectedManifest, actualManifest) {
+  try {
+    if (!Array.isArray(expectedManifest) || !Array.isArray(actualManifest)) {
+      throw new Error(REMOTE_BUNDLE_MISMATCH_ERROR);
+    }
+    const normalizeManifest = (manifest) => manifest
+      .map((entry) => ({
+        relativePath: canonicalizeManifestPath(
+          normalizeManifestPath(entry && entry.relativePath, REMOTE_BUNDLE_MISMATCH_ERROR),
+        ),
+        sha256: String(entry && entry.sha256 || ''),
+      }))
+      .sort((left, right) => comparePaths(left.relativePath, right.relativePath));
+    const expected = normalizeManifest(expectedManifest);
+    const actual = normalizeManifest(actualManifest);
+    if (
+      expected.length === 0
+      || expected.length !== actual.length
+      || new Set(expected.map((entry) => entry.relativePath)).size !== expected.length
+      || new Set(actual.map((entry) => entry.relativePath)).size !== actual.length
+    ) {
+      throw new Error(REMOTE_BUNDLE_MISMATCH_ERROR);
+    }
+    for (let index = 0; index < expected.length; index += 1) {
+      if (
+        expected[index].relativePath !== actual[index].relativePath
+        || !/^[a-f0-9]{64}$/.test(expected[index].sha256)
+        || expected[index].sha256 !== actual[index].sha256
+      ) {
+        throw new Error(REMOTE_BUNDLE_MISMATCH_ERROR);
+      }
+    }
+  } catch (error) {
+    throw new Error(REMOTE_BUNDLE_MISMATCH_ERROR);
+  }
+  return true;
 }
 
 function countFunctionDefinitions(source, functionName) {
@@ -231,6 +368,7 @@ function verifyDeploymentUpdate({ before, after, update }) {
 }
 
 function pullAndVerifyProductionRuntimeBundle({
+  expectedManifest,
   projectTemplatePath,
   scriptId,
   versionNumber,
@@ -268,7 +406,13 @@ function pullAndVerifyProductionRuntimeBundle({
       args.push('--versionNumber', String(versionNumber));
     }
     runClasp(args);
-    return verifyProductionRuntimeBundle(sourceRoot);
+    const pulledManifest = buildPulledProductionBundleManifest(sourceRoot);
+    compareProductionBundleManifests(expectedManifest, pulledManifest);
+    const runtimeSummary = verifyProductionRuntimeBundle(sourceRoot);
+    return {
+      ...runtimeSummary,
+      manifestFileCount: pulledManifest.length,
+    };
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }
@@ -276,10 +420,16 @@ function pullAndVerifyProductionRuntimeBundle({
 
 module.exports = {
   DEPLOYMENT_CONFIG_ERROR,
+  LOCAL_BUNDLE_ERROR,
   PUBLIC_E2E_HELPERS,
+  REMOTE_BUNDLE_MISMATCH_ERROR,
   REQUIRED_REMOTE_FILES,
   RUNTIME_ASSERTION,
   WEB_APP_FUNCTIONS,
+  buildLocalProductionBundleManifest,
+  buildPulledProductionBundleManifest,
+  compareProductionBundleManifests,
+  normalizeTextForManifest,
   parseDeploymentListOutput,
   parseDeploymentUpdateOutput,
   pullAndVerifyProductionRuntimeBundle,

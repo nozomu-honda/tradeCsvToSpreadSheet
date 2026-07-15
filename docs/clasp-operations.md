@@ -79,8 +79,8 @@ control workflowとdeploy workflowはPR #87でdefault branch `main` へ初回同
 4. Authenticated dry-runでは、`production-preflight` Environment承認後に本番credentialを使って `npm run gas:production:status -- --json` とTracked / Untracked境界を確認する。本番push、deployment更新、Smoke Test、Status Issue PATCHは行わない。
 5. 問題がなければ、人間が `deploy-production` ラベルで本番反映を起動する。
 6. preflight成功後、`production` Environment付きの本番mutation jobだけがWeb App URL/deployment整合性と既存deploymentを確認し、本番Apps Scriptへpushする。
-7. push後のリモートHEADにruntime supportと通常Web関数の参照解決が揃い、test/E2E helperが含まれないことを確認してから既存deploymentを更新する。
-8. 更新後のdeployment数・version・version sourceを確認し、Webアクセスゲート検査まで成功した場合だけ本番成功とする。
+7. claspの `filesToPush` を正本に対象SHAのローカル本番bundle manifestを作り、push後のリモートHEADとファイル数・path集合・全ファイル内容を完全比較する。runtime support、通常Web関数の参照解決、test/E2E helper除外も確認してから既存deploymentを更新する。
+8. 更新後のdeployment数・versionを確認し、対象versionも同じローカルmanifestと完全一致した上で、Webアクセスゲート検査まで成功した場合だけ本番成功とする。
 9. Production Status IssueとGitHub EnvironmentのDeployment履歴を確認する。
 10. developが進んだ場合は、metadata-onlyの `Update production status` workflowがProduction Status Issueを `not-deployed` へ更新する。
 
@@ -185,7 +185,7 @@ PRODUCTION PUSH
 - `.clasp.productionignore`が有効
 - 確認文字列が一致する
 
-GitHub Actions経由ではさらに、push出力、リモートHEAD、更新後deployment versionを検証します。リモート検証用のsourceはrunner一時領域へpullし、成功・失敗のどちらでも削除します。ファイル内容全体、Script ID、Deployment ID、Web App URL、OAuth tokenはログへ出しません。
+GitHub Actions経由ではさらに、push出力、リモートHEAD、更新後deployment versionを検証します。`Script is already up to date.` は、リモートHEADが対象SHAのローカル本番bundleと完全一致した場合だけ成功扱いです。リモート検証用sourceはrunner一時領域へpullし、成功・失敗のどちらでも削除します。manifest、hash一覧、ファイル内容全体、Script ID、Deployment ID、Web App URL、OAuth tokenはログへ出しません。
 
 ### 公開中Webアプリへ反映する
 

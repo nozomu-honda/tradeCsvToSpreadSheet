@@ -364,6 +364,7 @@ async function runProductionDeployAll({ env, adapters, cwd = process.cwd() }) {
   let currentStage = 'preflight';
   let claspFiles;
   let deploymentBefore;
+  let localProductionBundleManifest;
   let sourcePushSucceeded = false;
   let remoteSourceVerified = false;
   let deploymentUpdateSucceeded = false;
@@ -453,6 +454,7 @@ async function runProductionDeployAll({ env, adapters, cwd = process.cwd() }) {
     claspFiles = adapters.writeProductionClaspFiles();
     const rawStatus = adapters.runProductionStatusCheck();
     const parsedStatus = parseAndValidateProductionStatusOutput(rawStatus);
+    localProductionBundleManifest = adapters.buildLocalProductionBundleManifest(parsedStatus.trackedFiles);
     currentStage = 'deployment-target-verification';
     deploymentBefore = adapters.getProductionDeploymentSnapshot();
 
@@ -493,7 +495,7 @@ async function runProductionDeployAll({ env, adapters, cwd = process.cwd() }) {
     adapters.runProductionSourcePush();
     sourcePushSucceeded = true;
     currentStage = 'remote-source-verification';
-    adapters.verifyRemoteProductionSource();
+    adapters.verifyRemoteProductionSource(localProductionBundleManifest);
     remoteSourceVerified = true;
     state = markProductionDeployState(state, 'source-pushed', {
       remoteSourceVerification: 'success',
@@ -510,7 +512,11 @@ async function runProductionDeployAll({ env, adapters, cwd = process.cwd() }) {
     const deploymentUpdate = adapters.updateAppsScriptDeployment(targetSha);
     deploymentUpdateSucceeded = true;
     currentStage = 'deployment-verification';
-    adapters.verifyProductionDeploymentUpdate(deploymentBefore, deploymentUpdate);
+    adapters.verifyProductionDeploymentUpdate(
+      deploymentBefore,
+      deploymentUpdate,
+      localProductionBundleManifest,
+    );
     deploymentVerified = true;
     state = markProductionDeployState(state, 'deployment-updated', {
       deploymentVerification: 'success',
@@ -824,6 +830,7 @@ async function runAuthenticatedProductionDryRun({ env, adapters }) {
     claspFiles = adapters.writeProductionClaspFiles();
     const rawStatus = adapters.runProductionStatusCheck();
     const parsedStatus = parseAndValidateProductionStatusOutput(rawStatus);
+    adapters.buildLocalProductionBundleManifest(parsedStatus.trackedFiles);
     currentStage = 'deployment-target-verification';
     adapters.getProductionDeploymentSnapshot();
 
@@ -873,6 +880,7 @@ async function runProductionMutation({ env, adapters, cwd = process.cwd() }) {
   let currentStage = 'preflight';
   let claspFiles;
   let deploymentBefore;
+  let localProductionBundleManifest;
   let sourcePushSucceeded = false;
   let remoteSourceVerified = false;
   let deploymentUpdateSucceeded = false;
@@ -950,6 +958,7 @@ async function runProductionMutation({ env, adapters, cwd = process.cwd() }) {
     claspFiles = adapters.writeProductionClaspFiles();
     const rawStatus = adapters.runProductionStatusCheck();
     const parsedStatus = parseAndValidateProductionStatusOutput(rawStatus);
+    localProductionBundleManifest = adapters.buildLocalProductionBundleManifest(parsedStatus.trackedFiles);
     currentStage = 'deployment-target-verification';
     deploymentBefore = adapters.getProductionDeploymentSnapshot();
     adapters.writeStepSummary([
@@ -973,7 +982,7 @@ async function runProductionMutation({ env, adapters, cwd = process.cwd() }) {
     adapters.runProductionSourcePush();
     sourcePushSucceeded = true;
     currentStage = 'remote-source-verification';
-    adapters.verifyRemoteProductionSource();
+    adapters.verifyRemoteProductionSource(localProductionBundleManifest);
     remoteSourceVerified = true;
     state = markProductionDeployState(state, 'source-pushed', {
       remoteSourceVerification: 'success',
@@ -990,7 +999,11 @@ async function runProductionMutation({ env, adapters, cwd = process.cwd() }) {
     const deploymentUpdate = adapters.updateAppsScriptDeployment(targetSha);
     deploymentUpdateSucceeded = true;
     currentStage = 'deployment-verification';
-    adapters.verifyProductionDeploymentUpdate(deploymentBefore, deploymentUpdate);
+    adapters.verifyProductionDeploymentUpdate(
+      deploymentBefore,
+      deploymentUpdate,
+      localProductionBundleManifest,
+    );
     deploymentVerified = true;
     state = markProductionDeployState(state, 'deployment-updated', {
       deploymentVerification: 'success',

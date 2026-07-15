@@ -7,6 +7,7 @@ const { spawnSync } = require('child_process');
 
 const { runProductionSmokeTest } = require('./production-smoke-test');
 const {
+  buildLocalProductionBundleManifest: createLocalProductionBundleManifest,
   parseDeploymentListOutput,
   parseDeploymentUpdateOutput,
   pullAndVerifyProductionRuntimeBundle,
@@ -137,8 +138,9 @@ function createNodeAdapters({
     return parseDeploymentListOutput(output, env.PRODUCTION_DEPLOYMENT_ID);
   }
 
-  function verifyRemoteProductionSource(versionNumber) {
+  function verifyRemoteProductionSource(expectedManifest, versionNumber) {
     return pullAndVerifyProductionRuntimeBundle({
+      expectedManifest,
       projectTemplatePath: path.join(cwd, '.clasp.production.example.json'),
       scriptId: env.PRODUCTION_SCRIPT_ID,
       versionNumber,
@@ -272,6 +274,9 @@ function createNodeAdapters({
         redactValues,
       });
     },
+    buildLocalProductionBundleManifest(trackedFiles) {
+      return createLocalProductionBundleManifest({ rootDir: cwd, trackedFiles });
+    },
     runProductionSourcePush() {
       const output = run(npmCommand(), ['run', 'gas:production:push'], {
         input: 'PRODUCTION PUSH\n',
@@ -299,10 +304,10 @@ function createNodeAdapters({
       ]);
       return parseDeploymentUpdateOutput(output, env.PRODUCTION_DEPLOYMENT_ID);
     },
-    verifyProductionDeploymentUpdate(before, update) {
+    verifyProductionDeploymentUpdate(before, update, expectedManifest) {
       const after = getProductionDeploymentSnapshot();
       verifyDeploymentUpdate({ before, after, update });
-      verifyRemoteProductionSource(update.versionNumber);
+      verifyRemoteProductionSource(expectedManifest, update.versionNumber);
       return after;
     },
     runSmokeTest() {

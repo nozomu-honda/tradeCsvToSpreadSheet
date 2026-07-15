@@ -126,6 +126,9 @@ const remoteSourceFailed = failProductionDeployState(
 assert.strictEqual(remoteSourceFailed.sourcePush, 'success');
 assert.strictEqual(remoteSourceFailed.remoteSourceVerification, 'failed');
 assert.strictEqual(remoteSourceFailed.deploymentUpdate, 'not-started');
+assert.strictEqual(remoteSourceFailed.deploymentVerification, 'not-started');
+assert.strictEqual(remoteSourceFailed.webAccessGateVerification, 'not-started');
+assert.strictEqual(remoteSourceFailed.status, 'failed');
 
 const deploymentVerificationFailed = failProductionDeployState(
   markProductionDeployState(
@@ -139,6 +142,9 @@ assert.strictEqual(deploymentVerificationFailed.sourcePush, 'success');
 assert.strictEqual(deploymentVerificationFailed.remoteSourceVerification, 'success');
 assert.strictEqual(deploymentVerificationFailed.deploymentUpdate, 'success');
 assert.strictEqual(deploymentVerificationFailed.deploymentVerification, 'failed');
+assert.strictEqual(deploymentVerificationFailed.webAccessGateVerification, 'not-started');
+assert.strictEqual(deploymentVerificationFailed.status, 'failed');
+assert.strictEqual(deploymentVerificationFailed.currentProductionSha, shaA);
 
 assert.deepStrictEqual(
   shouldBlockDuplicateDeployment({

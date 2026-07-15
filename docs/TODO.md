@@ -22,13 +22,13 @@
 
 ## 最優先: 本番復旧確認
 
-本番復旧には、本番pushの暗黙skipを拒否し、リモートHEADとdeployment versionのruntime境界を検証する修正を最新 `develop` へ取り込んだ上で、本番workflowから再反映する必要がある。
+本番復旧には、本番pushの暗黙skipを拒否し、対象SHAのローカル本番bundleとリモートHEAD／deployment versionを全ファイルで完全一致検証する修正を最新 `develop` へ取り込んだ上で、本番workflowから再反映する必要がある。runtime helperの存在確認だけでは対象SHA一致の根拠にしない。
 
 確認順:
 
 1. 修正版の `npm run test:production-runtime-verification` と本番関連テストが成功している。
 2. `deploy-production-dry-run` でAuthenticated dry-runを行い、Web App URLとdeployment ID、既存deployment、Tracked / Untracked境界を確認する。
-3. 人間の承認後に本番反映し、source push、remote source verification、deployment update、deployment verification、web access gate verificationがすべて成功していることを確認する。
+3. 人間の承認後に本番反映し、source push、対象SHA bundleとのremote HEAD完全一致、deployment update、対象version完全一致、web access gate verificationがすべて成功していることを確認する。
 4. 人間がログイン後の本番Webアプリを開き、ページ初期表示と最近の取込一覧でReferenceErrorが出ないことを確認する。
 5. DBを開く、DBリセット、ロールバック、取込、一次受け枠作成の通常操作を、対象と権限を確認した上で確認する。
 

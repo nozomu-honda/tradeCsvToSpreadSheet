@@ -165,6 +165,7 @@ function failProductionDeployState(state, stage, error) {
     next.smokeTest = next.smokeTest === 'running' ? 'not-started' : next.smokeTest;
   }
   if (stage === 'deployment-verification') {
+    next.currentProductionSha = state.targetSha || state.currentProductionSha || 'unknown';
     next.sourcePush = 'success';
     next.remoteSourceVerification = 'success';
     next.deploymentUpdate = 'success';

@@ -159,16 +159,16 @@ Environment Deployment履歴:
 10. Web App URL内のdeployment IDと、設定済みdeployment IDが完全一致することを確認する。不一致ならsource push前に停止する。
 11. 設定済みdeploymentが対象Apps Scriptプロジェクトに存在することを確認する。
 12. `npm run gas:production:push` を実行する。本番ラッパーは、人間またはworkflowの明示確認後に `clasp push --force` を使い、非対話manifest確認による暗黙skipを防ぐ。
-13. push出力に `Skipping push.` がないことを確認し、実際にpushされたかup-to-dateであることを検証する。
-14. 一時ディレクトリへリモートHEADをpullし、通常Web関数のprivate helper参照、`src/app/e2e_runtime_support.gs`、テスト/E2E helper除外を検証する。失敗時はdeploymentを更新しない。
+13. push出力に `Skipping push.` がないことを確認する。`Pushed ...` または `Script is already up to date.` は、この時点では成功候補であり、次の完全一致検証が成功するまでsource push成功とは確定しない。
+14. `show-file-status --json` の `filesToPush` から対象SHAのローカル本番bundle manifestを作る。一時ディレクトリへリモートHEADをpullし、ファイル数、相対パス集合、全ファイルのSHA-256を完全比較した後、runtime意味検査も行う。失敗時はdeploymentを更新しない。
 15. 既存Webアプリdeployment更新直前にもdevelopを再確認する。
 16. source push後にdevelopが進んだ場合は、すでにpushした同一SHAのdeployment updateと検証まで完遂する。
 17. `clasp update-deployment` で既存deploymentを更新する。
 18. deployment数が増えておらず、指定deploymentだけが新しいversionへ更新されたことを確認する。
-19. 更新されたversionを一時ディレクトリへpullし、リモートHEADと同じruntime境界を検証する。
+19. 更新されたversionを一時ディレクトリへpullし、同じローカル本番bundle manifestとの完全一致とruntime意味検査を再実行する。
 20. 本番Webアプリへ安全なHTTPアクセスゲート検査を実行する。
 21. アクセスゲート検査後に最新 `origin/develop` を再取得する。
-22. source push、リモートsource、deployment更新、deployment version、Webアクセスゲートのすべてが成功し、反映SHAが最新developと一致する場合だけProduction Status Issueを `deployed` にする。
+22. source push、対象SHAの本番bundleとリモートHEADの完全一致、deployment更新、対象versionとの完全一致、Webアクセスゲートのすべてが成功し、反映SHAが最新developと一致する場合だけProduction Status Issueを `deployed` にする。
 23. source push後にdevelopが進んでいれば、本番反映工程が成功していてもProduction Status Issueは `not-deployed` にする。
 24. production Environment job開始後に失敗した場合は `failed` にし、失敗ステージと失敗内容を保持する。
 
@@ -210,6 +210,21 @@ Trackedに含まれる必要があるもの:
 - `src/app/e2e_runtime_support.gs`
 
 空出力、解析不能、placeholder、認証エラー、Secretらしき値を含む出力は失敗扱いです。
+
+### 本番bundle manifest
+
+`show-file-status --json` の `filesToPush` を本番push対象の正本として使います。`.clasp.productionignore` を独自実装で再解釈しません。
+
+各対象ファイルは次の2項目だけを持つmanifestへ変換します。
+
+- `/` 区切りへ正規化したリポジトリ相対パス。
+- UTF-8本文をSHA-256化した値。
+
+clasp / Apps Script間の不要な差を避けるため、server-side `.js` のpathはpull設定と同じ `.gs` へ正規化します。また、UTF-8 BOMを除き、CRLF / CRをLFへ統一してからhash化します。それ以外の空白、末尾改行、本文は正規化しません。manifestはパス順に固定し、ファイル順だけが異なる場合は同一と判定します。
+
+許可するのは `.gs`、`.js`、`.html`、`.json` のUTF-8 textです。対象にbinary、無効なUTF-8、NUL、symlink、ルート外path、重複pathが含まれる場合は安全側で停止します。manifest、hash一覧、ファイル本文は通常ログ、Step Summary、artifactへ出しません。
+
+リモートHEADとdeployment versionの両方について、ファイル数、path集合、各hashがローカルmanifestと完全一致する必要があります。さらにruntime helper、通常Web関数、private helper参照、ページ初期化経路、test/E2E helper除外の意味検査も維持します。
 
 ## GitHub Deployment
 
@@ -277,7 +292,7 @@ markerがないIssueは絶対に上書きしません。
 - marker、Issue title、open状態、PRではないことを確認してから更新する。
 - 更新直前にIssueを再読込し、`preflight` / `source-pushed` / `deployment-updated` / `verifying` の場合は上書きせずskipする。
 
-`deployed` は、現在の本番commitが最新developと一致し、かつ最後の本番反映のsource push、remote source verification、deployment update、deployment verification、Web access gate verification、smoke testがすべて成功済みである状態だけを表します。
+`deployed` は、現在の本番commitが最新developと一致し、かつ対象SHAのローカル本番bundleがリモートHEADとdeployment versionの両方へ完全一致し、source push、deployment update、Web access gate、smoke testがすべて成功済みである状態だけを表します。runtime helperの存在だけでは `deployed` にしません。
 `not-deployed` は、前回本番反映が成功していても、現在の本番commitが最新developと一致しない状態を表します。
 `failed` は本番反映処理が失敗した状態です。status syncでdevelopが進んでも、失敗ステージと失敗内容は消しません。
 既存deployment更新後にSmoke Testだけ失敗した場合は、状態を `failed` のままにしつつ、本番commitを反映対象SHAとして記録します。source push / deployment updateは `success`、smoke testは `failed` とし、最終成功本番反映commitと最終成功deployment日時は更新しません。
@@ -364,7 +379,7 @@ Googleログイン必須のprivate Webアプリ向けです。現在の本番環
 - 404、5xx、権限エラーページ、無関係なログインURLは失敗扱いにする。
 
 このモードが保証するのは、設定済みWeb App URLが想定したGoogleログインゲートへ到達できることだけです。ログイン後のHTML表示、`DOMContentLoaded`、`loadRecentImports()`、Apps Script server functionの実行成功までは保証しません。
-本番runtimeの参照解決は、source push後のリモートHEAD検証と、deployment更新後のversion検証を別工程として必須にします。単なるログインredirectだけでは本番反映成功にしません。
+本番runtimeの参照解決と対象SHA一致は、source push後のリモートHEAD検証と、deployment更新後のversion検証を別工程として必須にします。単なるログインredirectやruntime helperの存在だけでは本番反映成功にしません。
 
 Authenticated dry-runではSmoke Test自体は行わず、mode、Web App URL、marker設定を検証してStep Summaryへmodeと `smoke test: skipped` を表示します。
 
@@ -393,7 +408,7 @@ ReferenceError: assertCiE2eTokenForWebAppIfConfigured_ is not defined
 
 `@google/clasp@3.3.0` は `appsscript.json` の変更を検知すると確認入力を要求します。非対話runnerでは確認が成立せず、従来の `clasp push` は変更を送らずに成功終了していました。さらに `private-login-gated` はGoogleログインredirectだけを確認するため、古いversionのruntime参照切れを検知できず、Production Status Issueが誤って `deployed` になりました。
 
-対策として、本番ラッパーの明示確認後だけ `push --force` を使い、`Skipping push.` を失敗扱いにします。加えて、リモートHEADと更新後versionをpullして通常Web関数の参照解決を検証し、URL/deployment整合性とdeployment version更新も確認します。
+対策として、本番ラッパーの明示確認後だけ `push --force` を使い、`Skipping push.` を失敗扱いにします。加えて、claspが算出したローカル本番bundleとリモートHEAD／更新後versionを全ファイルのSHA-256 manifestで完全比較し、通常Web関数の参照解決も検証します。`Script is already up to date.` は、この完全一致検証が成功した場合だけ成功扱いです。
 
 ## clasp deployment更新の仕様確認
 

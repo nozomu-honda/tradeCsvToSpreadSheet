@@ -17,6 +17,7 @@
 - PR #82「本番bundleからE2E helper除外後の参照切れを修正」は `develop` にSquash Merge済み。
 - Issue #83「本番反映のGitHub Actions化と本番状態追跡を実装する」は対応中。
 - PR #84の本番反映基盤は `develop` へマージ済み。PR #87、PR #90、PR #92でcontrol/deploy workflowをdefault branch `main` へ同期済み。
+- PR #95は、本番pushの暗黙skip防止、リモートHEAD／deployment versionと対象SHAの本番bundle完全一致検証を追加するDraft PRとして対応中。
 - Production Status Issue #88は本番反映workflowにより `deployed` と記録されたが、実際の本番Webアプリではページ初期表示からruntime参照エラーが発生しているため、この成功記録を正常稼働の根拠にしない。
 
 ## 完了済みの主な範囲
@@ -180,7 +181,10 @@ npm run gas:production:push
 ```
 
 その後、人間がApps Script管理画面で既存Webアプリdeploymentを新バージョンへ更新する。
-GitHub Actions経由では、URL内deployment IDとの一致、push後リモートHEAD、既存deploymentのversion更新、更新versionのruntime境界を確認してから既存WebアプリURLを維持したまま更新する。
+GitHub Actions経由では、URL内deployment IDとの一致、push後リモートHEADと対象SHAのローカル本番bundleの完全一致、既存deploymentのversion更新、更新versionとの完全一致を確認してから既存WebアプリURLを維持したまま更新する。
+
+- runtime helperや必須関数の存在だけでは業務コード全体が対象SHAと一致することを保証できないため、claspの `filesToPush` を正本に全ファイルのpathとSHA-256を比較する。
+- remote HEAD不一致ではdeployment更新前に停止する。deployment version不一致では更新済みの事実を保持したままSmoke Testへ進まず、Status Issueを `failed` にして最終成功本番反映commitを更新しない。
 
 本番push前の確認:
 
