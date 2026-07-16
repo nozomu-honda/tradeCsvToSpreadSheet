@@ -76,49 +76,6 @@ jobs:
             fi
           }
 
-          # Issue #104 must reach main before develop; allow only its exact pending trigger delta.
-          matches_pending_docs_only_trigger_sync() {
-            local workflow_file="$1"
-            local normalized_file
-
-            if [[ "${workflow_file}" != ".github/workflows/production-deploy-control.yml" ]]; then
-              return 1
-            fi
-
-            normalized_file="$(mktemp)"
-            if ! python3 - "${workflow_file}" "${normalized_file}" <<'PY'
-          import pathlib
-          import sys
-
-          source_path = pathlib.Path(sys.argv[1])
-          output_path = pathlib.Path(sys.argv[2])
-          required_block = """    paths-ignore:
-                - 'docs/**'
-                - 'README.md'
-                - 'AGENTS.md'
-                - 'CLAUDE.md'
-                - 'src/app/README.md'
-                - 'src/test/README.md'
-          """
-          source = source_path.read_text(encoding="utf-8")
-          if source.count(required_block) != 1:
-              raise SystemExit(1)
-          output_path.write_text(source.replace(required_block, "", 1), encoding="utf-8")
-          PY
-            then
-              rm -f "${normalized_file}"
-              return 1
-            fi
-
-            if diff -q <(git show "origin/develop:${workflow_file}") "${normalized_file}" >/dev/null; then
-              rm -f "${normalized_file}"
-              return 0
-            fi
-
-            rm -f "${normalized_file}"
-            return 1
-          }
-
           if [[ "${BASE_REF}" != "main" ]]; then
             fail "This lightweight check is only valid for PRs targeting main."
           fi
@@ -152,14 +109,9 @@ jobs:
             if [[ ! -f "${workflow_file}" ]]; then
               fail "Required workflow is missing: ${workflow_file}"
             fi
-            if diff -q <(git show "origin/develop:${workflow_file}") "${workflow_file}" >/dev/null; then
-              continue
+            if ! diff -u <(git show "origin/develop:${workflow_file}") "${workflow_file}"; then
+              fail "${workflow_file} does not match origin/develop."
             fi
-            if matches_pending_docs_only_trigger_sync "${workflow_file}"; then
-              continue
-            fi
-            diff -u <(git show "origin/develop:${workflow_file}") "${workflow_file}" || true
-            fail "${workflow_file} does not match origin/develop or the pending docs-only trigger sync."
           done
 
           assert_head_unchanged
