@@ -48,14 +48,17 @@ GitHub Actionsを再開するのは、次をすべて満たし、ユーザーが
 
 改革完了後は、旧設定を無条件にそのまま戻すのではなく、新しいCI設計に対応した保護へ移行する。
 
-1. 新しい最終CIのcheck名と起動条件を確認する
-2. docs-onlyをblockしないbranch protection／rulesetへ更新する
-3. 必要なrequired checkだけを設定する
-4. GitHub Actionsを再度有効化する
-5. まず低コストな検証だけで段階的に動作確認する
-6. レビュー完了後の通常コードPRで、最終CIが1回だけ起動することを確認する
-7. UI・Webアプリ影響PRでのみWeb E2Eが起動することを確認する
-8. 消費時間を確認してから本番系workflowを再開する
+1. Actionsを停止したまま、`npm ci`、`npm run test:final-ci-workflow`、`npm test` とworkflow差分のセルフレビューを完了する
+2. `docs/**`、`README.md`、`AGENTS.md` などのdocs-onlyがcontrollerの `paths-ignore` 対象で、API側でも重いjob 0回になることを確認する
+3. 現在head/develop base SHAのレビュー完了コメント、未解決thread 0件、最新review state、変更分類、同一head/base check再利用のローカル回帰テストを確認する
+4. docs-onlyに存在しないcheckを全PRへ要求しないよう、branch protection／rulesetを人間が確認する。条件付き必須化を安全に実現できない場合、旧required checkは一時解除のままとする
+5. ユーザーの明示承認後にGitHub Actionsを再度有効化する。この時点では本番系workflowを実行しない
+6. docs-only PRへラベルを付けてもActions runが作られないことを確認する
+7. backend GAS-only PRで、レビュー完了コメントの後に `run-final-ci` を付け、GAS Testsだけが1回実行されることを確認する
+8. UI・Webアプリ影響PRで、GAS Tests成功後にだけWeb E2Eが1回実行されることを確認する
+9. 同じhead/baseでラベルを付け直した場合に成功checkが再利用され、追加コミットまたはdevelop更新後は古いコメントとcheckが再利用されないことを確認する
+10. 同じPRの旧ゲートだけがキャンセル可能で、異なるPRの軽量ゲートは共有GAS lockの前で独立して進み、GAS/Web/cleanupは `gas-shared-test-project` の `queue: max` で複数待機・直列化され、実行中runと先行pending runが自動キャンセルされないことを確認する
+11. Actions消費時間と保護設定を再確認してから、本番系workflowを別途再開する
 
 旧required check名は次のとおりであり、設定確認・緊急ロールバック時の参照用に保持する。
 

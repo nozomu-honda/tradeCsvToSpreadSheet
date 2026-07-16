@@ -4,12 +4,20 @@ on:
   pull_request:
     branches:
       - develop
+    paths-ignore:
+      - 'docs/**'
+      - 'README.md'
+      - 'AGENTS.md'
+      - 'CLAUDE.md'
+      - 'src/app/README.md'
+      - 'src/test/README.md'
     types:
       - labeled
 
 permissions:
   contents: read
   checks: write
+  issues: read
   pull-requests: read
 
 jobs:
@@ -24,8 +32,10 @@ jobs:
     with:
       pr_number: ${{ github.event.pull_request.number }}
       head_sha: ${{ github.event.pull_request.head.sha }}
+      base_sha: ${{ github.event.pull_request.base.sha }}
       base_branch: ${{ github.event.pull_request.base.ref }}
       head_repository: ${{ github.event.pull_request.head.repo.full_name }}
+      label_name: ${{ github.event.label.name }}
     secrets: inherit
 
   external-pr-guard:

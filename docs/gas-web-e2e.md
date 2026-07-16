@@ -2,18 +2,21 @@
 
 最小構成の GAS Web アプリ E2E は、CI runnerの一時project設定を `clasp --project` で明示してテスト専用 Apps Script プロジェクトへpushし、GitHub Actions から開ける一時 Web アプリ deployment を作成してから Playwright で野村・楽天CSVアップロードの代表ケースを確認する。
 
+> 2026-07-16現在、GitHub Actionsは全面停止中です。停止中はWeb E2E workflow、rerun、最終CIラベル、テストApps Scriptへの手動pushを実行しません。
+
 ## 方針
 
 - PR #43 の古い楽天配当金 7 件 E2E は使わず、現在の `develop` に合わせて小さく作り直す。
 - 初回対象は楽天日本株 CSV アップロード 1 ケースだけにした。現在は野村共通CSVの日本株1ケースに加え、楽天日本株、楽天米国株、楽天投資信託、楽天入出金履歴、楽天配当金・分配金・元本払戻金の代表ケースを確認する。
 - 外部スプレッドシート URL は使わず、Playwright のローカル CSV fixture をアップロードする。
-- PRの最終確認では、`run-final-ci` ラベルで起動する `Final CI` workflow内の2番目のjobとして実行する。
+- PRの最終確認では、現在head SHAとdevelop base SHAのレビュー完了コメント後に `run-final-ci` ラベルで起動する。変更分類が `gas-tests-and-web-e2e` の場合だけ、GAS Tests成功後のjobとして実行する。
 - `.github/workflows/gas-web-e2e.yml` は `workflow_dispatch` の手動fallbackとして残す。
 - `pull_request_target` は使わない。
 - fork / external PR では Google Secrets を使う step へ進ませない。
-- GAS Tests と GAS Web App E2E は同じテスト専用 Apps Script プロジェクトと Script Properties を共有するため、`Final CI` workflow内で GAS Tests -> Web E2E の順に直列実行する。workflow-level concurrency groupはPR番号を含まない `gas-shared-test-project` とし、同時には共有テストprojectへ触らない。
-- 同じhead SHAで `Deploy test Web app and run Playwright E2E` の成功Check Runが存在する場合、Final CIのWeb E2E jobは一時deployment作成とPlaywright実行を再利用扱いで省略する。Web E2E jobは実行・再利用・失敗・skipの最終結果を対象head SHAへ同名Check Runとして明示発行する。
-- WebアプリURLがHTTP 403でPlaywright未実行になった場合は未検証として扱い、成功Check Runを発行しない。次回の同一head再実行でも再利用対象にしない。
+- 軽量ゲートはPR単位のconcurrencyで独立して判定する。GAS Tests と GAS Web App E2E は同じテスト専用 Apps Script プロジェクトと Script Properties を共有するため、重い実処理だけを共通の `gas-shared-test-project` concurrency groupへ入れ、GAS Tests -> Web E2E -> cleanupの順に直列実行する。`queue: max` と `cancel-in-progress: false` により複数の待機runを保持し、実行中cleanupや先に待機している別PRを新しいrunで置き換えない。backend GAS-onlyではWeb E2E jobを起動しない。
+- 同じhead/base SHAの組で `Deploy test Web app and run Playwright E2E` の成功Check Runが存在する場合、Final CIは既存checkを再利用し、Web E2E job、一時deployment作成、Playwright、cleanupをすべて省略する。Web E2Eを実行した場合は最終結果を対象head SHAへ同名Check Runとして明示発行し、Check Run出力にbase SHAも記録する。
+- Web E2E対象はUI、Web runtime／設定、認証、manifest、テスト用／本番用Web App deployment、`tests/e2e/**`、Playwright、E2E用workflow／scriptです。deployment更新ロジックはWeb公開境界を変えるため対象に含めます。未知の変更パスは安全側でWeb E2E対象とし、docs-onlyや既知のbackend GAS-onlyでは起動しません。
+- WebアプリURLがHTTP 403でPlaywright未実行になった場合は未検証として扱い、成功Check Runを発行しない。次回の同一head/base再実行でも再利用対象にしない。
 - CI用のclasp project設定は `${RUNNER_TEMP}` 配下へ生成し、すべてのclasp呼び出しで `--project <CI専用設定ファイル>` と `--ignore <repo .claspignore>` を明示する。リポジトリ直下の `.clasp.json` は生成・利用しない。設定ファイルは一時領域に置くが、`rootDir` は `GITHUB_WORKSPACE` の絶対パスへ正規化し、push対象は常にリポジトリルート配下にする。`.claspignore` もリポジトリ直下のファイルを使い、CI用NodeスクリプトやdocsをGAS push対象にしない。
 - E2E CIでは従来どおり `.claspignore` を使い、テスト専用 Apps Script プロジェクトへテストコードもpushできる。本番反映では `.clasp.productionignore` を使い、`src/test/**` を本番Apps Scriptへpushしない。
 - workflow 内では、テスト専用 Apps Script プロジェクトへ push する直前の `appsscript.json` にだけ `webapp.access = ANYONE_ANONYMOUS` / `webapp.executeAs = USER_DEPLOYING` を注入する。リポジトリ上の manifest は通常運用向けのままにする。
