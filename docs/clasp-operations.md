@@ -212,9 +212,9 @@ npm run gas:production:open
 
 ### Web App検証が失敗した場合
 
-GitHub Actionsの更新前検証で `Production Web App verification failed: ...` となった場合は、source push前に停止しています。reasonはAPI呼び出し、deployment存在、version、entry point、URL、access / executeAsなどの失敗条件を実値なしで示します。Authenticated dry-runではProduction Status Issueを更新しないため、ActionsログとStep Summaryのreasonを確認します。
+GitHub Actionsの更新前検証はstrict modeで行い、`WEB_APP` 1件、設定URL一致、`access = ANYONE`、`executeAs = USER_ACCESSING` を必須にします。`Production Web App verification failed: ...` となった場合はsource push前に停止しています。reasonはAPI呼び出し、deployment存在、version、entry point、URL、access / executeAsなどの失敗条件を実値なしで示します。Authenticated dry-runではProduction Status Issueを更新しないため、ActionsログとStep Summaryのreasonを確認します。
 
-更新後検証で `Production Web App update verification failed: ...` となった場合は、source pushとdeployment updateは実施済みでもSmoke Testには進まず、Production Statusは `failed`、本番commitは `unknown` になります。安全なreasonはProduction Status Issueの `失敗内容` に保存します。Script ID、Deployment ID、Web App URL、token、credential、Apps Script APIレスポンス全文はログ、Summary、Status Issueへ出しません。HTTP 404も成功扱いにしません。
+更新後はcomparison snapshotを取得し、`WEB_APP` 0件・複数件、entry point type、URL、access、executeAsの変化をsnapshot生成時に通常検証reasonへ丸めず、更新前との差分reasonへ変換します。`WEB_APP_ENTRY_POINT_DISAPPEARED`、`WEB_APP_ENTRY_POINT_COUNT_CHANGED`、`ENTRY_POINT_TYPES_CHANGED`、`WEB_APP_URL_CHANGED`、`ACCESS_CHANGED`、`EXECUTE_AS_CHANGED` のいずれかで失敗した場合は、source pushとdeployment updateは実施済みでもSmoke Testには進まず、Production Statusは `failed`、本番commitは `unknown` になります。安全なreasonはProduction Status Issueの `失敗内容` に保存します。Script ID、Deployment ID、Web App URL、URL fingerprint、snapshot、token、credential、Apps Script APIレスポンス全文はログ、Summary、Status Issueへ出しません。HTTP 404も成功扱いにしません。
 
 本番manifestとdeploymentの正しい設定は `access = ANYONE` / `executeAs = USER_ACCESSING` です。
 

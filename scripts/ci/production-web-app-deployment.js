@@ -7,6 +7,10 @@ const path = require('path');
 const EXPECTED_WEB_APP_ACCESS = 'ANYONE';
 const EXPECTED_WEB_APP_EXECUTE_AS = 'USER_ACCESSING';
 const PRODUCTION_WEB_APP_ERROR_CODE = 'PRODUCTION_WEB_APP_VERIFICATION';
+const PRODUCTION_WEB_APP_SNAPSHOT_MODES = Object.freeze({
+  STRICT: 'strict',
+  COMPARISON: 'comparison',
+});
 const LIST_FIELDS = 'deployments(deploymentId),nextPageToken';
 const GET_FIELDS = 'deploymentId,deploymentConfig(versionNumber,description),entryPoints(entryPointType,webApp(url,entryPointConfig(access,executeAs)))';
 
@@ -50,6 +54,7 @@ const PRODUCTION_WEB_APP_REASONS = Object.freeze({
   EXECUTE_AS_VALUE_MISSING: 'EXECUTE_AS_VALUE_MISSING',
   ACCESS_MISMATCH: 'ACCESS_MISMATCH',
   EXECUTE_AS_MISMATCH: 'EXECUTE_AS_MISMATCH',
+  SNAPSHOT_MODE_INVALID: 'SNAPSHOT_MODE_INVALID',
   UPDATE_SNAPSHOT_INVALID: 'UPDATE_SNAPSHOT_INVALID',
   UPDATE_RESULT_INVALID: 'UPDATE_RESULT_INVALID',
   DEPLOYMENT_ID_CHANGED: 'DEPLOYMENT_ID_CHANGED',
@@ -105,6 +110,7 @@ const REASON_MESSAGES = Object.freeze({
   [PRODUCTION_WEB_APP_REASONS.EXECUTE_AS_VALUE_MISSING]: 'executeAs value missing',
   [PRODUCTION_WEB_APP_REASONS.ACCESS_MISMATCH]: 'access mismatch',
   [PRODUCTION_WEB_APP_REASONS.EXECUTE_AS_MISMATCH]: 'executeAs mismatch',
+  [PRODUCTION_WEB_APP_REASONS.SNAPSHOT_MODE_INVALID]: 'snapshot mode invalid',
   [PRODUCTION_WEB_APP_REASONS.UPDATE_SNAPSHOT_INVALID]: 'deployment snapshot invalid',
   [PRODUCTION_WEB_APP_REASONS.UPDATE_RESULT_INVALID]: 'deployment update result invalid',
   [PRODUCTION_WEB_APP_REASONS.DEPLOYMENT_ID_CHANGED]: 'deployment ID changed',
@@ -243,6 +249,105 @@ function validateWebAppUrl({ url, deploymentId, expectedWebAppUrl }) {
   return url;
 }
 
+function createComparableProductionWebAppDeploymentSnapshot({
+  deployment,
+  deploymentCount,
+  expectedDeploymentId,
+}) {
+  try {
+    if (!deployment || typeof deployment !== 'object' || Array.isArray(deployment)) {
+      throw createProductionWebAppVerificationError(PRODUCTION_WEB_APP_REASONS.DEPLOYMENTS_GET_RESPONSE_INVALID);
+    }
+    if (typeof expectedDeploymentId !== 'string' || !expectedDeploymentId) {
+      throw createProductionWebAppVerificationError(PRODUCTION_WEB_APP_REASONS.DEPLOYMENT_ID_UNAVAILABLE);
+    }
+    if (!Number.isInteger(deploymentCount) || deploymentCount < 1) {
+      throw createProductionWebAppVerificationError(PRODUCTION_WEB_APP_REASONS.INVALID_DEPLOYMENT_COUNT);
+    }
+
+    const deploymentConfig = deployment.deploymentConfig;
+    if (
+      !deploymentConfig
+      || typeof deploymentConfig !== 'object'
+      || !hasOwn(deploymentConfig, 'versionNumber')
+      || deploymentConfig.versionNumber === null
+      || deploymentConfig.versionNumber === ''
+    ) {
+      throw createProductionWebAppVerificationError(PRODUCTION_WEB_APP_REASONS.VERSION_NUMBER_MISSING);
+    }
+    const versionNumber = deploymentConfig.versionNumber;
+    if (typeof versionNumber !== 'number' || !Number.isFinite(versionNumber)) {
+      throw createProductionWebAppVerificationError(PRODUCTION_WEB_APP_REASONS.VERSION_NUMBER_INVALID);
+    }
+    if (!Number.isInteger(versionNumber) || versionNumber < 1) {
+      throw createProductionWebAppVerificationError(PRODUCTION_WEB_APP_REASONS.VERSION_NUMBER_NOT_POSITIVE_INTEGER);
+    }
+
+    if (!hasOwn(deployment, 'entryPoints') || deployment.entryPoints === null) {
+      throw createProductionWebAppVerificationError(PRODUCTION_WEB_APP_REASONS.ENTRY_POINTS_MISSING);
+    }
+    if (!Array.isArray(deployment.entryPoints)) {
+      throw createProductionWebAppVerificationError(PRODUCTION_WEB_APP_REASONS.ENTRY_POINTS_NOT_ARRAY);
+    }
+    for (const entryPoint of deployment.entryPoints) {
+      if (!entryPoint || typeof entryPoint !== 'object' || Array.isArray(entryPoint)) {
+        throw createProductionWebAppVerificationError(PRODUCTION_WEB_APP_REASONS.ENTRY_POINT_RECORD_INVALID);
+      }
+      if (typeof entryPoint.entryPointType !== 'string' || !entryPoint.entryPointType) {
+        throw createProductionWebAppVerificationError(PRODUCTION_WEB_APP_REASONS.ENTRY_POINT_TYPE_MISSING);
+      }
+      if (entryPoint.entryPointType === 'ENTRY_POINT_TYPE_UNSPECIFIED') {
+        throw createProductionWebAppVerificationError(PRODUCTION_WEB_APP_REASONS.ENTRY_POINT_TYPE_UNSPECIFIED);
+      }
+    }
+
+    const webAppEntryPoints = deployment.entryPoints.filter((entryPoint) => entryPoint.entryPointType === 'WEB_APP');
+    let webAppObjectPresent = false;
+    let entryPointConfigPresent = false;
+    let webAppUrlPresent = false;
+    let webAppUrlFingerprint = null;
+    let webAppAccess = null;
+    let webAppExecuteAs = null;
+
+    // Multiple WEB_APP records have no safe canonical record. Keep only the
+    // count so update comparison can fail before inspecting one arbitrarily.
+    if (webAppEntryPoints.length === 1) {
+      const webApp = webAppEntryPoints[0].webApp;
+      webAppObjectPresent = Boolean(webApp && typeof webApp === 'object' && !Array.isArray(webApp));
+      if (webAppObjectPresent) {
+        webAppUrlPresent = typeof webApp.url === 'string' && webApp.url.length > 0;
+        webAppUrlFingerprint = webAppUrlPresent ? fingerprint(webApp.url) : null;
+        const config = webApp.entryPointConfig;
+        entryPointConfigPresent = Boolean(config && typeof config === 'object' && !Array.isArray(config));
+        if (entryPointConfigPresent) {
+          webAppAccess = typeof config.access === 'string' && config.access ? config.access : null;
+          webAppExecuteAs = typeof config.executeAs === 'string' && config.executeAs ? config.executeAs : null;
+        }
+      }
+    }
+
+    const deploymentIdValue = typeof deployment.deploymentId === 'string' && deployment.deploymentId
+      ? deployment.deploymentId
+      : null;
+    return {
+      deploymentCount,
+      deploymentIdFingerprint: deploymentIdValue ? fingerprint(deploymentIdValue) : null,
+      versionNumber,
+      deploymentDescriptionFingerprint: fingerprint(deploymentConfig.description || ''),
+      webAppEntryPointCount: webAppEntryPoints.length,
+      entryPointTypes: deployment.entryPoints.map((entryPoint) => entryPoint.entryPointType).sort(),
+      webAppUrlFingerprint,
+      webAppUrlPresent,
+      webAppAccess,
+      webAppExecuteAs,
+      webAppObjectPresent,
+      entryPointConfigPresent,
+    };
+  } catch (error) {
+    rethrowSafe(error, PRODUCTION_WEB_APP_REASONS.APPS_SCRIPT_API_REQUEST_FAILED);
+  }
+}
+
 function createProductionWebAppDeploymentSnapshot({
   deployment,
   deploymentCount,
@@ -335,14 +440,17 @@ function createProductionWebAppDeploymentSnapshot({
 
     return {
       deploymentCount,
-      deploymentId: expectedDeploymentId,
+      deploymentIdFingerprint: fingerprint(expectedDeploymentId),
       versionNumber,
       deploymentDescriptionFingerprint: fingerprint(deploymentConfig.description || ''),
       webAppEntryPointCount: 1,
       entryPointTypes: deployment.entryPoints.map((entryPoint) => entryPoint.entryPointType).sort(),
       webAppUrlFingerprint: fingerprint(webAppUrl),
+      webAppUrlPresent: true,
       webAppAccess: config.access,
       webAppExecuteAs: config.executeAs,
+      webAppObjectPresent: true,
+      entryPointConfigPresent: true,
     };
   } catch (error) {
     rethrowSafe(error, PRODUCTION_WEB_APP_REASONS.APPS_SCRIPT_API_REQUEST_FAILED);
@@ -354,8 +462,12 @@ async function fetchProductionWebAppDeploymentSnapshot({
   scriptId,
   deploymentId,
   expectedWebAppUrl,
+  mode = PRODUCTION_WEB_APP_SNAPSHOT_MODES.STRICT,
 }) {
   try {
+    if (!Object.values(PRODUCTION_WEB_APP_SNAPSHOT_MODES).includes(mode)) {
+      throw createProductionWebAppVerificationError(PRODUCTION_WEB_APP_REASONS.SNAPSHOT_MODE_INVALID);
+    }
     if (
       !api
       || !api.projects
@@ -429,12 +541,16 @@ async function fetchProductionWebAppDeploymentSnapshot({
     ) {
       throw createProductionWebAppVerificationError(PRODUCTION_WEB_APP_REASONS.DEPLOYMENTS_GET_RESPONSE_INVALID);
     }
-    return createProductionWebAppDeploymentSnapshot({
+    const snapshotArgs = {
       deployment: response.data,
       deploymentCount: deployments.length,
       expectedDeploymentId: deploymentId,
       expectedWebAppUrl,
-    });
+    };
+    if (mode === PRODUCTION_WEB_APP_SNAPSHOT_MODES.COMPARISON) {
+      return createComparableProductionWebAppDeploymentSnapshot(snapshotArgs);
+    }
+    return createProductionWebAppDeploymentSnapshot(snapshotArgs);
   } catch (error) {
     rethrowSafe(error, PRODUCTION_WEB_APP_REASONS.APPS_SCRIPT_API_REQUEST_FAILED);
   }
@@ -448,20 +564,11 @@ function verifyProductionWebAppDeploymentUpdate({ before, after, update }) {
     if (!update || typeof update !== 'object') {
       throw createProductionWebAppVerificationError(PRODUCTION_WEB_APP_REASONS.UPDATE_RESULT_INVALID, 'update');
     }
-    if (before.deploymentId !== after.deploymentId) {
+    if (before.deploymentIdFingerprint !== after.deploymentIdFingerprint) {
       throw createProductionWebAppVerificationError(PRODUCTION_WEB_APP_REASONS.DEPLOYMENT_ID_CHANGED, 'update');
     }
     if (before.deploymentCount !== after.deploymentCount) {
       throw createProductionWebAppVerificationError(PRODUCTION_WEB_APP_REASONS.DEPLOYMENT_COUNT_CHANGED, 'update');
-    }
-    if (before.webAppEntryPointCount === 1 && after.webAppEntryPointCount === 0) {
-      throw createProductionWebAppVerificationError(PRODUCTION_WEB_APP_REASONS.WEB_APP_ENTRY_POINT_DISAPPEARED, 'update');
-    }
-    if (before.webAppEntryPointCount !== after.webAppEntryPointCount) {
-      throw createProductionWebAppVerificationError(PRODUCTION_WEB_APP_REASONS.WEB_APP_ENTRY_POINT_COUNT_CHANGED, 'update');
-    }
-    if (before.webAppEntryPointCount !== 1 || after.webAppEntryPointCount !== 1) {
-      throw createProductionWebAppVerificationError(PRODUCTION_WEB_APP_REASONS.UPDATE_SNAPSHOT_INVALID, 'update');
     }
     if (!Number.isInteger(update.versionNumber)) {
       throw createProductionWebAppVerificationError(PRODUCTION_WEB_APP_REASONS.UPDATED_VERSION_MISMATCH, 'update');
@@ -475,10 +582,22 @@ function verifyProductionWebAppDeploymentUpdate({ before, after, update }) {
     if (update.versionNumber !== after.versionNumber) {
       throw createProductionWebAppVerificationError(PRODUCTION_WEB_APP_REASONS.UPDATED_VERSION_MISMATCH, 'update');
     }
+    if (before.webAppEntryPointCount === 1 && after.webAppEntryPointCount === 0) {
+      throw createProductionWebAppVerificationError(PRODUCTION_WEB_APP_REASONS.WEB_APP_ENTRY_POINT_DISAPPEARED, 'update');
+    }
+    if (before.webAppEntryPointCount !== after.webAppEntryPointCount) {
+      throw createProductionWebAppVerificationError(PRODUCTION_WEB_APP_REASONS.WEB_APP_ENTRY_POINT_COUNT_CHANGED, 'update');
+    }
+    if (before.webAppEntryPointCount !== 1 || after.webAppEntryPointCount !== 1) {
+      throw createProductionWebAppVerificationError(PRODUCTION_WEB_APP_REASONS.UPDATE_SNAPSHOT_INVALID, 'update');
+    }
+    if (!Array.isArray(before.entryPointTypes) || !Array.isArray(after.entryPointTypes)) {
+      throw createProductionWebAppVerificationError(PRODUCTION_WEB_APP_REASONS.UPDATE_SNAPSHOT_INVALID, 'update');
+    }
     if (JSON.stringify(before.entryPointTypes) !== JSON.stringify(after.entryPointTypes)) {
       throw createProductionWebAppVerificationError(PRODUCTION_WEB_APP_REASONS.ENTRY_POINT_TYPES_CHANGED, 'update');
     }
-    if (before.webAppUrlFingerprint !== after.webAppUrlFingerprint) {
+    if (!after.webAppUrlPresent || before.webAppUrlFingerprint !== after.webAppUrlFingerprint) {
       throw createProductionWebAppVerificationError(PRODUCTION_WEB_APP_REASONS.WEB_APP_URL_CHANGED, 'update');
     }
     if (before.webAppAccess !== after.webAppAccess) {
@@ -487,11 +606,8 @@ function verifyProductionWebAppDeploymentUpdate({ before, after, update }) {
     if (before.webAppExecuteAs !== after.webAppExecuteAs) {
       throw createProductionWebAppVerificationError(PRODUCTION_WEB_APP_REASONS.EXECUTE_AS_CHANGED, 'update');
     }
-    if (after.webAppAccess !== EXPECTED_WEB_APP_ACCESS) {
-      throw createProductionWebAppVerificationError(PRODUCTION_WEB_APP_REASONS.ACCESS_MISMATCH, 'update');
-    }
-    if (after.webAppExecuteAs !== EXPECTED_WEB_APP_EXECUTE_AS) {
-      throw createProductionWebAppVerificationError(PRODUCTION_WEB_APP_REASONS.EXECUTE_AS_MISMATCH, 'update');
+    if (!after.webAppObjectPresent || !after.entryPointConfigPresent) {
+      throw createProductionWebAppVerificationError(PRODUCTION_WEB_APP_REASONS.UPDATE_SNAPSHOT_INVALID, 'update');
     }
     return true;
   } catch (error) {
@@ -504,6 +620,8 @@ module.exports = {
   EXPECTED_WEB_APP_EXECUTE_AS,
   PRODUCTION_WEB_APP_ERROR_CODE,
   PRODUCTION_WEB_APP_REASONS,
+  PRODUCTION_WEB_APP_SNAPSHOT_MODES,
+  createComparableProductionWebAppDeploymentSnapshot,
   createProductionWebAppDeploymentSnapshot,
   createProductionWebAppVerificationError,
   fetchProductionWebAppDeploymentSnapshot,

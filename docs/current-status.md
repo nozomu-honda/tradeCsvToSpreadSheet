@@ -176,7 +176,8 @@
 - PR #96で `appsscript.json` に `ANYONE` / `USER_ACCESSING` を明示し、Apps Script APIで更新前後の `WEB_APP` entry point、URL fingerprint、version、entry point type、アクセス設定、deployment総数をfail closedで検証するようにした。
 - Authenticated dry-run 29436843157では `Production Web App entry point verification failed.` だけが出力され、API、deployment、entry point、URL、access / executeAsのどこで失敗したか判断できなかった。
 - 本対応では実値を含まない固定reasonをActionsログとStep Summaryへ出す。Authenticated dry-runではStatus Issueを更新せず、本番mutation時だけ同じ安全なfailure messageをStatus Issueへ保存する。
-- reasonにはScript ID、Deployment ID、Web App URL、URL fingerprint、token、credential、Apps Script APIレスポンス全文、Google API内部エラー本文を含めない。
+- 更新前はstrict検証で `WEB_APP` 1件、設定URL一致、`ANYONE` / `USER_ACCESSING` を必須にする。更新後はcomparison snapshotで件数、entry point type、URL fingerprint、access、executeAsを比較し、`WEB_APP_ENTRY_POINT_DISAPPEARED`、`WEB_APP_URL_CHANGED`、`ACCESS_CHANGED`、`EXECUTE_AS_CHANGED` などの更新後専用reasonへ分類する。
+- reasonと出力にはScript ID、Deployment ID、Web App URL、URL fingerprint、snapshot、token、credential、Apps Script APIレスポンス全文、Google API内部エラー本文を含めない。
 - `clasp update-deployment` はApps Script API `projects.deployments.update` と同じ更新requestを使うため維持する。直接API更新へ置き換えるだけでは根本原因を解消しない。
 - 本番復旧には、人間がApps Script管理画面でWebアプリdeploymentを修正または再作成し、ID／URLが変わった場合は両Environment設定を更新した上で、最新 `develop` のAuthenticated dry-runと本番反映を確認する必要がある。
 - 通常運用はマージ済みPRへ `deploy-production` ラベルを1回付け、preflight、Environment承認、更新前Web App確認、source push、deployment更新、更新後Web App確認、Web access gateまで実行する。dry-runは初回設定や障害調査時だけ任意利用する。

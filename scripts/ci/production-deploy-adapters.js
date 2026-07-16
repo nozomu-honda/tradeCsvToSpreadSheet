@@ -13,6 +13,7 @@ const {
 } = require('./production-runtime-verification');
 const {
   PRODUCTION_WEB_APP_REASONS,
+  PRODUCTION_WEB_APP_SNAPSHOT_MODES,
   createProductionWebAppVerificationError,
   fetchProductionWebAppDeploymentSnapshot,
   verifyProductionWebAppDeploymentUpdate,
@@ -139,7 +140,7 @@ function createNodeAdapters({
     });
   }
 
-  async function getProductionDeploymentSnapshot() {
+  async function fetchProductionDeploymentSnapshot(mode) {
     if (!appsScriptApi) {
       const credentials = parseProductionCredentials(env.CLASP_PRODUCTION_CREDENTIALS);
       try {
@@ -153,7 +154,12 @@ function createNodeAdapters({
       scriptId: env.PRODUCTION_SCRIPT_ID,
       deploymentId: env.PRODUCTION_DEPLOYMENT_ID,
       expectedWebAppUrl: env.PRODUCTION_WEB_APP_URL,
+      mode,
     });
+  }
+
+  async function getProductionDeploymentSnapshot() {
+    return fetchProductionDeploymentSnapshot(PRODUCTION_WEB_APP_SNAPSHOT_MODES.STRICT);
   }
 
   function verifyRemoteProductionSource(expectedManifest, versionNumber) {
@@ -323,7 +329,7 @@ function createNodeAdapters({
       return parseDeploymentUpdateOutput(output, env.PRODUCTION_DEPLOYMENT_ID);
     },
     async verifyProductionDeploymentUpdate(before, update, expectedManifest) {
-      const after = await getProductionDeploymentSnapshot();
+      const after = await fetchProductionDeploymentSnapshot(PRODUCTION_WEB_APP_SNAPSHOT_MODES.COMPARISON);
       verifyProductionWebAppDeploymentUpdate({ before, after, update });
       verifyRemoteProductionSource(expectedManifest, update.versionNumber);
       return after;

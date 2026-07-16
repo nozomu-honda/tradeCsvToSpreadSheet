@@ -165,7 +165,7 @@ Environment Deployment履歴:
 16. source push後にdevelopが進んだ場合は、すでにpushした同一SHAのdeployment updateと検証まで完遂する。
 17. `clasp update-deployment` で既存deploymentを更新する。
 18. Apps Script APIで同じdeploymentを再取得し、deployment数が増えておらず、指定deploymentだけが新しいversionへ更新されたことを確認する。
-19. 更新前後とも `WEB_APP` entry pointがちょうど1件で、Web App URLのSHA-256 fingerprint、entry point type集合、アクセス設定、実行ユーザーが変わっていないことを確認する。
+19. 更新後はcomparison snapshotを取得し、更新前strict snapshotと比較して `WEB_APP` entry point件数、Web App URLのSHA-256 fingerprint、entry point type集合、アクセス設定、実行ユーザーが変わっていないことを確認する。異常は更新後専用reasonへ分類する。
 20. 更新されたversionを一時ディレクトリへpullし、同じローカル本番bundle manifestとの完全一致とruntime意味検査を再実行する。
 21. 本番Webアプリへ安全なHTTPアクセスゲート検査を実行する。HTTP 404は成功扱いにしない。
 22. アクセスゲート検査後に最新 `origin/develop` を再取得する。
@@ -425,7 +425,7 @@ ReferenceError: assertCiE2eTokenForWebAppIfConfigured_ is not defined
 }
 ```
 
-更新前はApps Script APIで対象deploymentが `WEB_APP` であることを確認し、更新後は同じdeployment ID、URL fingerprint、entry point type集合、アクセス設定、実行ユーザー、deployment総数、versionを再確認します。APIレスポンスが不明、`WEB_APP`が0件または複数、URL不一致の場合はfail closedです。URL、ID、token、APIレスポンス全文はログやSummaryへ出しません。
+更新前はstrict検証として、Apps Script APIで対象deploymentが `WEB_APP` 1件、設定URL一致、`access = ANYONE`、`executeAs = USER_ACCESSING` であることを確認し、異常ならsource push前にfail closedで停止します。更新後はcomparison snapshotとして、deployment IDとURLのfingerprint、deployment数、version、`WEB_APP`件数、entry point type集合、URL有無、アクセス設定の比較情報だけを取得します。`WEB_APP` 0件または複数、URL・access・executeAs変更をsnapshot生成時の通常検証エラーにせず、更新前との差分reasonへ変換します。実URL、実ID、token、APIレスポンス全文やsnapshot自体はログやSummaryへ出しません。
 
 ### Web App検証の安全なreason
 
@@ -443,7 +443,7 @@ Production Web App update verification failed: Web App URL changed.
 
 Script ID、Deployment ID、Web App URL、URL fingerprint、OAuth token、credential JSON、Apps Script APIレスポンス全文、Google API内部エラー本文はreasonへ含めません。Authenticated dry-runは従来どおりProduction Status Issueを更新せず、Step Summaryのreasonを見てEnvironment設定またはApps Script管理画面のdeployment状態を確認します。本番mutationで同じ失敗が起きた場合だけ、安全なメッセージをProduction Status Issueの `失敗内容` へ保存します。
 
-本番Webアプリ設定は `access = ANYONE` / `executeAs = USER_ACCESSING` を維持します。更新後に `WEB_APP`が消失した場合はSmoke Testへ進まず、HTTP 404も成功扱いにしません。
+本番Webアプリ設定は `access = ANYONE` / `executeAs = USER_ACCESSING` を維持します。更新前の `WEB_APP`欠落、URL不一致、access不一致、executeAs不一致は通常検証reasonで停止します。更新後の `WEB_APP`消失は `WEB_APP_ENTRY_POINT_DISAPPEARED`、件数変化は `WEB_APP_ENTRY_POINT_COUNT_CHANGED`、entry point type変更は `ENTRY_POINT_TYPES_CHANGED`、URL変更は `WEB_APP_URL_CHANGED`、access変更は `ACCESS_CHANGED`、executeAs変更は `EXECUTE_AS_CHANGED` として分類します。いずれもSmoke Testへ進まず、HTTP 404も成功扱いにしません。
 
 更新後にWeb App設定が消失しても、新規deployment作成や自動rollbackは行いません。人間が次の順で復旧します。
 

@@ -11,6 +11,8 @@ const {
   EXPECTED_WEB_APP_EXECUTE_AS,
   PRODUCTION_WEB_APP_ERROR_CODE,
   PRODUCTION_WEB_APP_REASONS: REASONS,
+  PRODUCTION_WEB_APP_SNAPSHOT_MODES: SNAPSHOT_MODES,
+  createComparableProductionWebAppDeploymentSnapshot,
   createProductionWebAppDeploymentSnapshot,
   fetchProductionWebAppDeploymentSnapshot,
   formatProductionWebAppErrorMessage,
@@ -22,10 +24,12 @@ const { createNodeAdapters } = require('./production-deploy-adapters');
 const deploymentId = 'deployment_fixture_value';
 const scriptId = 'script_sensitive_fixture_value';
 const webAppUrl = `https://script.google.com/macros/s/${deploymentId}/exec`;
+const changedWebAppUrl = 'https://script.google.com/macros/s/changed_deployment_fixture/exec';
 const sensitiveValues = [
   scriptId,
   deploymentId,
   webAppUrl,
+  changedWebAppUrl,
   'ya29.sensitive_access_token',
   'sensitive_refresh_token',
   'sensitive_client_secret',
@@ -61,12 +65,27 @@ function modifyDeployment(mutator) {
   return deployment;
 }
 
+function updatedDeployment(mutator = () => {}) {
+  return modifyDeployment((deployment) => {
+    deployment.deploymentConfig.versionNumber = 9;
+    mutator(deployment);
+  });
+}
+
 function snapshot(deployment = validDeployment(), deploymentCount = 2, expectedWebAppUrl = webAppUrl) {
   return createProductionWebAppDeploymentSnapshot({
     deployment,
     deploymentCount,
     expectedDeploymentId: deploymentId,
     expectedWebAppUrl,
+  });
+}
+
+function comparableSnapshot(deployment = validDeployment(), deploymentCount = 2) {
+  return createComparableProductionWebAppDeploymentSnapshot({
+    deployment,
+    deploymentCount,
+    expectedDeploymentId: deploymentId,
   });
 }
 
@@ -182,11 +201,17 @@ function webAppConfig(deployment) {
   assert.strictEqual(before.versionNumber, 8);
   assert.strictEqual(before.webAppEntryPointCount, 1);
   assert.deepStrictEqual(before.entryPointTypes, ['WEB_APP']);
+  assert.match(before.deploymentIdFingerprint, /^[0-9a-f]{64}$/);
+  assert.strictEqual(before.webAppUrlPresent, true);
+  assert.strictEqual(before.webAppObjectPresent, true);
+  assert.strictEqual(before.entryPointConfigPresent, true);
   assert.strictEqual(before.webAppAccess, 'ANYONE');
   assert.strictEqual(before.webAppExecuteAs, 'USER_ACCESSING');
   assert.match(before.deploymentDescriptionFingerprint, /^[0-9a-f]{64}$/);
   assert.match(before.webAppUrlFingerprint, /^[0-9a-f]{64}$/);
   assert.ok(!JSON.stringify(before).includes(webAppUrl), 'snapshot must not retain the Web App URL');
+  assert.ok(!JSON.stringify(before).includes(deploymentId), 'snapshot must not retain the deployment ID');
+  assert.ok(!JSON.stringify(before).includes(scriptId), 'snapshot must not retain the Script ID');
 
   const deploymentCases = [
     {
@@ -376,6 +401,49 @@ function webAppConfig(deployment) {
     );
   }
 
+  const comparisonDeployments = {
+    noWebApp: updatedDeployment((value) => { value.entryPoints = []; }),
+    multipleWebApps: updatedDeployment((value) => {
+      value.entryPoints.push(JSON.parse(JSON.stringify(value.entryPoints[0])));
+    }),
+    entryPointTypeAdded: updatedDeployment((value) => {
+      value.entryPoints.push({ entryPointType: 'EXECUTION_API', executionApi: {} });
+    }),
+    urlChanged: updatedDeployment((value) => { value.entryPoints[0].webApp.url = changedWebAppUrl; }),
+    accessChanged: updatedDeployment((value) => { webAppConfig(value).access = 'DOMAIN'; }),
+    executeAsChanged: updatedDeployment((value) => { webAppConfig(value).executeAs = 'USER_DEPLOYING'; }),
+  };
+  const comparisonSnapshots = Object.fromEntries(Object.entries(comparisonDeployments).map(([name, deployment]) => (
+    [name, comparableSnapshot(deployment)]
+  )));
+
+  assert.strictEqual(comparisonSnapshots.noWebApp.webAppEntryPointCount, 0);
+  assert.strictEqual(comparisonSnapshots.noWebApp.webAppUrlFingerprint, null);
+  assert.strictEqual(comparisonSnapshots.noWebApp.webAppUrlPresent, false);
+  assert.strictEqual(comparisonSnapshots.noWebApp.webAppAccess, null);
+  assert.strictEqual(comparisonSnapshots.noWebApp.webAppExecuteAs, null);
+  assert.strictEqual(comparisonSnapshots.noWebApp.webAppObjectPresent, false);
+  assert.strictEqual(comparisonSnapshots.noWebApp.entryPointConfigPresent, false);
+  assert.strictEqual(comparisonSnapshots.multipleWebApps.webAppEntryPointCount, 2);
+  assert.strictEqual(comparisonSnapshots.multipleWebApps.webAppUrlFingerprint, null);
+  assert.strictEqual(comparisonSnapshots.multipleWebApps.webAppUrlPresent, false);
+  assert.strictEqual(comparisonSnapshots.multipleWebApps.webAppObjectPresent, false);
+  assert.strictEqual(comparisonSnapshots.multipleWebApps.entryPointConfigPresent, false);
+  assert.deepStrictEqual(
+    comparisonSnapshots.entryPointTypeAdded.entryPointTypes,
+    ['EXECUTION_API', 'WEB_APP'],
+  );
+  assert.notStrictEqual(comparisonSnapshots.urlChanged.webAppUrlFingerprint, before.webAppUrlFingerprint);
+  assert.strictEqual(comparisonSnapshots.accessChanged.webAppAccess, 'DOMAIN');
+  assert.strictEqual(comparisonSnapshots.executeAsChanged.webAppExecuteAs, 'USER_DEPLOYING');
+  for (const comparable of Object.values(comparisonSnapshots)) {
+    const rendered = JSON.stringify(comparable);
+    assert.ok(!rendered.includes(deploymentId), 'comparison snapshot must not retain the deployment ID');
+    assert.ok(!rendered.includes(scriptId), 'comparison snapshot must not retain the Script ID');
+    assert.ok(!rendered.includes(webAppUrl), 'comparison snapshot must not retain the configured Web App URL');
+    assert.ok(!rendered.includes(changedWebAppUrl), 'comparison snapshot must not retain the changed Web App URL');
+  }
+
   await assertSafeRejection(
     () => fetchProductionWebAppDeploymentSnapshot({
       api: null,
@@ -515,6 +583,27 @@ function webAppConfig(deployment) {
   assert.deepStrictEqual(paginatedApi.calls.map((call) => call.method), ['list', 'list', 'get']);
   assert.ok(paginatedApi.calls.every((call) => call.args.fields));
 
+  await assertSafeRejection(
+    () => fetchProductionWebAppDeploymentSnapshot({
+      api: createApi(),
+      scriptId,
+      deploymentId,
+      expectedWebAppUrl: webAppUrl,
+      mode: 'unsupported',
+    }),
+    REASONS.SNAPSHOT_MODE_INVALID,
+  );
+
+  const comparisonFetched = await fetchProductionWebAppDeploymentSnapshot({
+    api: createApi({ deployment: comparisonDeployments.noWebApp }),
+    scriptId,
+    deploymentId,
+    expectedWebAppUrl: webAppUrl,
+    mode: SNAPSHOT_MODES.COMPARISON,
+  });
+  assert.strictEqual(comparisonFetched.webAppEntryPointCount, 0);
+  assert.strictEqual(comparisonFetched.webAppUrlPresent, false);
+
   const adapterEnv = {
     CLASP_PRODUCTION_CREDENTIALS: JSON.stringify({
       tokens: {
@@ -541,9 +630,40 @@ function webAppConfig(deployment) {
     REASONS.API_CLIENT_UNAVAILABLE,
   );
 
-  const updatedDeployment = validDeployment();
-  updatedDeployment.deploymentConfig.versionNumber = 9;
-  const after = snapshot(updatedDeployment);
+  let mutableDeployment = validDeployment();
+  const mutableApi = {
+    projects: {
+      deployments: {
+        async list() {
+          return { data: { deployments: [{ deploymentId }] } };
+        },
+        async get() {
+          return { data: mutableDeployment };
+        },
+      },
+    },
+  };
+  const adapterComparison = createNodeAdapters({
+    env: adapterEnv,
+    appsScriptApiFactory() {
+      return mutableApi;
+    },
+  });
+  const adapterBefore = await adapterComparison.getProductionDeploymentSnapshot();
+  mutableDeployment = comparisonDeployments.noWebApp;
+  await assertSafeRejection(
+    () => adapterComparison.verifyProductionDeploymentUpdate(
+      adapterBefore,
+      { versionNumber: 9 },
+      [],
+    ),
+    REASONS.WEB_APP_ENTRY_POINT_DISAPPEARED,
+    'update',
+    /WEB_APP entry point disappeared/,
+  );
+
+  const validUpdatedDeployment = updatedDeployment();
+  const after = comparableSnapshot(validUpdatedDeployment);
   assert.strictEqual(verifyProductionWebAppDeploymentUpdate({
     before,
     after,
@@ -552,17 +672,19 @@ function webAppConfig(deployment) {
 
   const updateCases = [
     {
-      after: { ...after, deploymentCount: 3 },
+      after: comparableSnapshot(validUpdatedDeployment, 3),
       update: { versionNumber: 9 },
       reason: REASONS.DEPLOYMENT_COUNT_CHANGED,
     },
     {
-      after: { ...after, deploymentId: 'different_fixture_value' },
+      after: comparableSnapshot(updatedDeployment((value) => {
+        value.deploymentId = 'different_fixture_value';
+      })),
       update: { versionNumber: 9 },
       reason: REASONS.DEPLOYMENT_ID_CHANGED,
     },
     {
-      after: { ...after, versionNumber: 8 },
+      after: comparableSnapshot(validDeployment()),
       update: { versionNumber: 8 },
       reason: REASONS.VERSION_DID_NOT_CHANGE,
     },
@@ -572,34 +694,34 @@ function webAppConfig(deployment) {
       reason: REASONS.UPDATED_VERSION_MISMATCH,
     },
     {
-      after: { ...after, webAppEntryPointCount: 0 },
+      after: comparisonSnapshots.noWebApp,
       update: { versionNumber: 9 },
       reason: REASONS.WEB_APP_ENTRY_POINT_DISAPPEARED,
       detail: /WEB_APP entry point disappeared/,
     },
     {
-      after: { ...after, webAppEntryPointCount: 2 },
+      after: comparisonSnapshots.multipleWebApps,
       update: { versionNumber: 9 },
       reason: REASONS.WEB_APP_ENTRY_POINT_COUNT_CHANGED,
     },
     {
-      after: { ...after, entryPointTypes: ['EXECUTION_API', 'WEB_APP'] },
+      after: comparisonSnapshots.entryPointTypeAdded,
       update: { versionNumber: 9 },
       reason: REASONS.ENTRY_POINT_TYPES_CHANGED,
     },
     {
-      after: { ...after, webAppUrlFingerprint: '0'.repeat(64) },
+      after: comparisonSnapshots.urlChanged,
       update: { versionNumber: 9 },
       reason: REASONS.WEB_APP_URL_CHANGED,
       detail: /Web App URL changed/,
     },
     {
-      after: { ...after, webAppAccess: 'DOMAIN' },
+      after: comparisonSnapshots.accessChanged,
       update: { versionNumber: 9 },
       reason: REASONS.ACCESS_CHANGED,
     },
     {
-      after: { ...after, webAppExecuteAs: 'USER_DEPLOYING' },
+      after: comparisonSnapshots.executeAsChanged,
       update: { versionNumber: 9 },
       reason: REASONS.EXECUTE_AS_CHANGED,
     },
