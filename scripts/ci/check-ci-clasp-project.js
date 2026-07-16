@@ -124,6 +124,11 @@ try {
   const finalCiHeavyWorkflow = readWorkflow('.github/workflows/final-ci-heavy.yml');
   const gasTestsWorkflow = readWorkflow('.github/workflows/gas-tests.yml');
   const gasWebE2eWorkflow = readWorkflow('.github/workflows/gas-web-e2e.yml');
+  const workflowDirectory = path.join(rootDir, '.github', 'workflows');
+  const sharedGasWorkflowPaths = fs.readdirSync(workflowDirectory)
+    .filter((fileName) => /\.ya?ml$/i.test(fileName))
+    .map((fileName) => `.github/workflows/${fileName}`)
+    .filter((workflowPath) => readWorkflow(workflowPath).includes('gas-shared-test-project'));
   const finalCiGroup = extractConcurrencyGroupExpression(
     finalCiHeavyWorkflow,
     '.github/workflows/final-ci-heavy.yml'
@@ -158,13 +163,25 @@ try {
     fail('.github/workflows/final-ci.yml must fail closed for external PRs');
   }
 
-  for (const [workflowPath, workflowSource, workflowGroup] of [
-    ['.github/workflows/final-ci-heavy.yml', finalCiHeavyWorkflow, finalCiGroup],
+  for (const expectedWorkflowPath of [
+    '.github/workflows/final-ci-heavy.yml',
+    '.github/workflows/gas-tests.yml',
+    '.github/workflows/gas-web-e2e.yml',
   ]) {
+    if (!sharedGasWorkflowPaths.includes(expectedWorkflowPath)) {
+      fail(`${expectedWorkflowPath} must use the shared GAS test project concurrency group`);
+    }
+  }
+
+  for (const workflowPath of sharedGasWorkflowPaths) {
+    const workflowSource = readWorkflow(workflowPath);
+    if (!workflowSource.includes('queue: max')) {
+      fail(`${workflowPath} must retain all pending shared GAS project runs with queue: max`);
+    }
     if (!workflowSource.includes('cancel-in-progress: false')) {
       fail(`${workflowPath} must queue instead of canceling the paired GAS workflow`);
     }
-    if (workflowGroup.includes('pull_request.number')) {
+    if (workflowPath === '.github/workflows/final-ci-heavy.yml' && finalCiGroup.includes('pull_request.number')) {
       fail(`${workflowPath} concurrency group must not depend on the PR number`);
     }
   }
@@ -177,6 +194,14 @@ try {
   }
   if (finalCiRunWorkflow.includes('gas-shared-test-project')) {
     fail('.github/workflows/final-ci-run.yml lightweight gate must not wait for the shared GAS project');
+  }
+  const gateStart = finalCiRunWorkflow.indexOf('  final-ci-gate:');
+  const heavyStart = finalCiRunWorkflow.indexOf('  final-ci-heavy:');
+  const gateSection = gateStart >= 0 && heavyStart > gateStart
+    ? finalCiRunWorkflow.slice(gateStart, heavyStart)
+    : '';
+  if (!gateSection.includes('cancel-in-progress: true') || gateSection.includes('queue: max')) {
+    fail('.github/workflows/final-ci-run.yml lightweight gate must stay PR-scoped, cancelable, and outside queue: max');
   }
   if (!finalCiWorkflow.includes('secrets: inherit')) {
     fail('.github/workflows/final-ci.yml must pass secrets only through the same-repository reusable workflow call');
@@ -198,9 +223,7 @@ try {
     if (!workflowSource.includes('group: gas-shared-test-project')) {
       fail(`${workflowPath} manual fallback must use the shared GAS test project concurrency group`);
     }
-    if (!workflowSource.includes('cancel-in-progress: false')) {
-      fail(`${workflowPath} must queue instead of canceling the paired GAS workflow`);
-    }
+    // Shared queue and cancellation behavior are checked for every matching workflow above.
   }
 
   console.log('ci clasp project config ok');

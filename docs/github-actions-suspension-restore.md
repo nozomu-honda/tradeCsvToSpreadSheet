@@ -57,7 +57,7 @@ GitHub Actionsを再開するのは、次をすべて満たし、ユーザーが
 7. backend GAS-only PRで、レビュー完了コメントの後に `run-final-ci` を付け、GAS Testsだけが1回実行されることを確認する
 8. UI・Webアプリ影響PRで、GAS Tests成功後にだけWeb E2Eが1回実行されることを確認する
 9. 同じhead/baseでラベルを付け直した場合に成功checkが再利用され、追加コミットまたはdevelop更新後は古いコメントとcheckが再利用されないことを確認する
-10. 同じPRの旧ゲートだけがキャンセル可能で、異なるPRの軽量ゲートは共有GAS lockの前で独立して進み、GAS/Web/cleanupは `gas-shared-test-project` で直列化され自動キャンセルされないことを確認する
+10. 同じPRの旧ゲートだけがキャンセル可能で、異なるPRの軽量ゲートは共有GAS lockの前で独立して進み、GAS/Web/cleanupは `gas-shared-test-project` の `queue: max` で複数待機・直列化され、実行中runと先行pending runが自動キャンセルされないことを確認する
 11. Actions消費時間と保護設定を再確認してから、本番系workflowを別途再開する
 
 旧required check名は次のとおりであり、設定確認・緊急ロールバック時の参照用に保持する。

@@ -737,15 +737,36 @@ async function readPullRequest({ env }) {
   });
 }
 
+function buildCheckRunsPath({ repository, headSha, checkName, page, pageSize }) {
+  if (
+    typeof repository !== 'string'
+    || !repository.includes('/')
+    || !/^[0-9a-f]{40}$/.test(headSha || '')
+    || typeof checkName !== 'string'
+    || !checkName
+    || !Number.isInteger(page)
+    || page < 1
+    || !Number.isInteger(pageSize)
+    || pageSize < 1
+  ) {
+    throw new Error('Final CI Check Runs request context is invalid.');
+  }
+  return `/repos/${repository}/commits/${encodeURIComponent(headSha)}/check-runs?check_name=${encodeURIComponent(checkName)}&filter=all&per_page=${pageSize}&page=${page}`;
+}
+
 async function readCheckRuns({ env, headSha, checkName }) {
   requireEnv(env, ['GITHUB_REPOSITORY']);
-  const encodedSha = encodeURIComponent(headSha);
-  const encodedName = encodeURIComponent(checkName);
   return collectPaginatedItems({
     fetchPage: async ({ page, pageSize }) => {
       const data = await fetchGitHubJson({
         env,
-        path: `/repos/${env.GITHUB_REPOSITORY}/commits/${encodedSha}/check-runs?check_name=${encodedName}&per_page=${pageSize}&page=${page}`,
+        path: buildCheckRunsPath({
+          repository: env.GITHUB_REPOSITORY,
+          headSha,
+          checkName,
+          page,
+          pageSize,
+        }),
       });
       if (!data || !Array.isArray(data.check_runs)) {
         throw new Error('GitHub Check Runs response is invalid.');
@@ -1083,6 +1104,7 @@ module.exports = {
   GAS_TESTS_CHECK_NAME,
   SNAPSHOT_ACTIONS,
   WEB_E2E_CHECK_NAME,
+  buildCheckRunsPath,
   buildFinalCiExecutionPlan,
   buildCheckRunRequest,
   classifyChangedFiles,

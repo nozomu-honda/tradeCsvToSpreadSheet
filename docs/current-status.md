@@ -81,10 +81,10 @@
 - CI用clasp project設定はrunner一時領域へ生成し、すべてのCI側clasp操作で `--project <CI専用設定ファイル>` と `--ignore <repo .claspignore>` を明示する。
 - CI用project設定の `rootDir` はリポジトリルートの絶対パスへ正規化し、`CLASP_PROJECT_JSON` の相対 `srcDir` はCIでは使わない。
 - backend GAS-onlyではGAS Testsだけを実行する。UI・Web・認証・manifest・deployment・E2E関連ではGAS Tests -> GAS Web App E2Eの順で直列実行する。未知パスは安全側でWeb E2E対象にする。
-- 同じhead/base SHAの組で成功済みのGAS Tests / Web E2Eは、head SHA上に発行されbase SHAも記録された成功Check Runを正本として重い処理だけ再利用する。
+- 同じhead/base SHAの組で成功済みのGAS Tests / Web E2Eは、head SHA上に発行されbase SHAも記録された成功Check Runを正本として重い処理だけ再利用する。Checks APIは `filter=all` と全ページ取得を使い、同名の新しい自動job checkがあってもcontext付き成功履歴を検索する。
 - Web E2EのHTTP 403 skip、Playwright未実行、動的deployment cleanup失敗、Check Run発行失敗は成功扱いにしない。
 - 旧ラベルの `run-gas-tests` / `gas-web-e2e` は最終CIの起動には使わない。
-- 軽量ゲートはPR単位のconcurrencyで同じPRの旧判定だけを置き換える。GAS Tests と GAS Web App E2E の実runは、共通の `gas-shared-test-project` concurrency groupで直列化し、cleanupを含む実行中runは自動キャンセルしない。
+- 軽量ゲートはPR単位のconcurrencyで同じPRの旧判定だけを置き換える。GAS Tests と GAS Web App E2E の実runは、共通の `gas-shared-test-project` concurrency groupへ `queue: max` で複数待機させて直列化し、cleanupを含む実行中runや先行pending runは自動キャンセルしない。
 - ゲート拒否と全check再利用はゲートrunnerだけで完了し、summary専用runnerは使わない。GAS-onlyの最終summaryはGAS job、Web E2E対象の最終summaryはWeb jobへ統合する。
 - CI用と本番用のclasp操作は分離済み。
 - 本番Apps Script操作は次の本番専用npmコマンドだけを使う。

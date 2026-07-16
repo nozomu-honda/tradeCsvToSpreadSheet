@@ -13,7 +13,7 @@
 - `.github/workflows/gas-web-e2e.yml` は `workflow_dispatch` の手動fallbackとして残す。
 - `pull_request_target` は使わない。
 - fork / external PR では Google Secrets を使う step へ進ませない。
-- 軽量ゲートはPR単位のconcurrencyで独立して判定する。GAS Tests と GAS Web App E2E は同じテスト専用 Apps Script プロジェクトと Script Properties を共有するため、重い実処理だけを共通の `gas-shared-test-project` concurrency groupへ入れ、GAS Tests -> Web E2E -> cleanupの順に直列実行する。`cancel-in-progress: false` により実行中cleanupを自動キャンセルしない。backend GAS-onlyではWeb E2E jobを起動しない。
+- 軽量ゲートはPR単位のconcurrencyで独立して判定する。GAS Tests と GAS Web App E2E は同じテスト専用 Apps Script プロジェクトと Script Properties を共有するため、重い実処理だけを共通の `gas-shared-test-project` concurrency groupへ入れ、GAS Tests -> Web E2E -> cleanupの順に直列実行する。`queue: max` と `cancel-in-progress: false` により複数の待機runを保持し、実行中cleanupや先に待機している別PRを新しいrunで置き換えない。backend GAS-onlyではWeb E2E jobを起動しない。
 - 同じhead/base SHAの組で `Deploy test Web app and run Playwright E2E` の成功Check Runが存在する場合、Final CIは既存checkを再利用し、Web E2E job、一時deployment作成、Playwright、cleanupをすべて省略する。Web E2Eを実行した場合は最終結果を対象head SHAへ同名Check Runとして明示発行し、Check Run出力にbase SHAも記録する。
 - Web E2E対象はUI、Web runtime／設定、認証、manifest、テスト用／本番用Web App deployment、`tests/e2e/**`、Playwright、E2E用workflow／scriptです。deployment更新ロジックはWeb公開境界を変えるため対象に含めます。未知の変更パスは安全側でWeb E2E対象とし、docs-onlyや既知のbackend GAS-onlyでは起動しません。
 - WebアプリURLがHTTP 403でPlaywright未実行になった場合は未検証として扱い、成功Check Runを発行しない。次回の同一head/base再実行でも再利用対象にしない。

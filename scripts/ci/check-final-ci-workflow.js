@@ -13,6 +13,7 @@ const {
   SNAPSHOT_ACTIONS,
   WEB_E2E_CHECK_NAME,
   buildCheckRunRequest,
+  buildCheckRunsPath,
   buildFinalCiExecutionPlan,
   classifyChangedFiles,
   collectPaginatedItems,
@@ -76,6 +77,7 @@ function checkWorkflowStructure() {
   assert.ok(gateJob.includes('name: Final CI review gate'), 'a lightweight review gate job must run first');
   assert.ok(gateJob.includes('group: final-ci-gate-pr-${{ inputs.pr_number }}'), 'gate concurrency must be scoped to one PR');
   assert.ok(gateJob.includes('cancel-in-progress: true'), 'an older gate for the same PR must be cancelable');
+  assert.ok(!gateJob.includes('queue: max'), 'the cancelable lightweight gate must not use the shared queue policy');
   assert.ok(gateJob.includes('Load review gate from trusted develop base'), 'gate code must come from the trusted event base');
   assert.ok(gateJob.includes('BASE_SHA: ${{ inputs.base_sha }}'), 'trusted gate code must be pinned to the event base SHA');
   assert.ok(gateJob.includes('EXPECTED_BASE_SHA: ${{ inputs.base_sha }}'), 'gate must compare event and current base SHA');
@@ -90,6 +92,7 @@ function checkWorkflowStructure() {
   assert.ok(finalCiHeavyWorkflow.includes('workflow_call:'), 'heavy workflow must be reusable only');
   assert.ok(!finalCiHeavyWorkflow.includes('pull_request_target'), 'heavy workflow must not use pull_request_target');
   assert.ok(finalCiHeavyWorkflow.includes('gas-shared-test-project'), 'GAS, Web deploy, E2E, and cleanup must share one project lock');
+  assert.ok(finalCiHeavyWorkflow.includes('queue: max'), 'shared project work must retain every pending PR run');
   assert.ok(finalCiHeavyWorkflow.includes('cancel-in-progress: false'), 'shared project work and cleanup must never be auto-cancelled');
   assert.ok(!finalCiHeavyWorkflow.includes('final-ci-summary:'), 'heavy workflow must not add a summary-only runner');
 
@@ -117,14 +120,17 @@ function checkWorkflowStructure() {
   assert.ok(finalCiHelper.includes("method: 'POST'"), 'Check Run creation failure must fail closed');
   assert.ok(finalCiHelper.includes('readPaginatedRestArray'), 'comments, reviews, and changed files must use pagination');
   assert.ok(finalCiHelper.includes('readReviewThreadState'), 'review threads must be read with GraphQL pagination');
+  assert.ok(finalCiHelper.includes('path: buildCheckRunsPath({'), 'Check Run pagination must use the filter=all request builder');
 
   assert.ok(!gasTestsWorkflow.includes('pull_request:'), 'legacy GAS Tests workflow must not run on PR labels');
   assert.ok(gasTestsWorkflow.includes('workflow_dispatch:'), 'legacy GAS Tests workflow remains manual fallback only');
   assert.ok(gasTestsWorkflow.includes('group: gas-shared-test-project'), 'legacy GAS Tests fallback must use shared concurrency');
+  assert.ok(gasTestsWorkflow.includes('queue: max'), 'legacy GAS Tests fallback must retain pending shared-project runs');
   assert.ok(gasTestsWorkflow.includes('cancel-in-progress: false'), 'legacy GAS cleanup must not be auto-cancelled');
   assert.ok(!gasWebE2eWorkflow.includes('pull_request:'), 'legacy Web E2E workflow must not run on PR labels');
   assert.ok(gasWebE2eWorkflow.includes('workflow_dispatch:'), 'legacy Web E2E workflow remains manual fallback only');
   assert.ok(gasWebE2eWorkflow.includes('group: gas-shared-test-project'), 'legacy Web E2E fallback must use shared concurrency');
+  assert.ok(gasWebE2eWorkflow.includes('queue: max'), 'legacy Web E2E fallback must retain pending shared-project runs');
   assert.ok(gasWebE2eWorkflow.includes('cancel-in-progress: false'), 'legacy Web cleanup must not be auto-cancelled');
 }
 
@@ -209,9 +215,27 @@ function checkExistingResultRules() {
     'successful exact head and base check detection',
   );
   assert.strictEqual(
+    hasSuccessfulCheckRun([
+      { name: GAS_TESTS_CHECK_NAME, conclusion: 'success', head_sha: HEAD_SHA, output: { summary: 'automatic job check without Final CI context' } },
+      successfulCheck(GAS_TESTS_CHECK_NAME, HEAD_SHA, BASE_SHA),
+    ], GAS_TESTS_CHECK_NAME, HEAD_SHA, BASE_SHA),
+    true,
+    'an older context-bound success remains reusable when a newer same-name automatic check exists',
+  );
+  assert.strictEqual(
     hasSuccessfulCheckRun([successfulCheck(GAS_TESTS_CHECK_NAME, HEAD_SHA, OLD_BASE_SHA)], GAS_TESTS_CHECK_NAME, HEAD_SHA, BASE_SHA),
     false,
     'old-base checks must not be reused',
+  );
+  assert.strictEqual(
+    hasSuccessfulCheckRun([successfulCheck(GAS_TESTS_CHECK_NAME, OLD_HEAD_SHA, BASE_SHA)], GAS_TESTS_CHECK_NAME, HEAD_SHA, BASE_SHA),
+    false,
+    'old-head checks must not be reused',
+  );
+  assert.strictEqual(
+    hasSuccessfulCheckRun([successfulCheck(`${GAS_TESTS_CHECK_NAME} automatic`, HEAD_SHA, BASE_SHA)], GAS_TESTS_CHECK_NAME, HEAD_SHA, BASE_SHA),
+    false,
+    'similar but non-exact check names must not be reused',
   );
   assert.strictEqual(
     hasSuccessfulCheckRun([{ name: GAS_TESTS_CHECK_NAME, conclusion: 'success', head_sha: HEAD_SHA }], GAS_TESTS_CHECK_NAME, HEAD_SHA, BASE_SHA),
@@ -227,6 +251,17 @@ function checkExistingResultRules() {
       `${conclusion} Web E2E checks must not be reused`,
     );
   }
+
+  const checkRunsPath = buildCheckRunsPath({
+    repository: REPOSITORY,
+    headSha: HEAD_SHA,
+    checkName: GAS_TESTS_CHECK_NAME,
+    page: 3,
+    pageSize: 100,
+  });
+  assert.ok(checkRunsPath.includes('filter=all'), 'Check Runs requests must search all matching history');
+  assert.ok(checkRunsPath.includes('per_page=100&page=3'), 'Check Runs requests must preserve pagination');
+  assert.ok(checkRunsPath.includes(`check_name=${encodeURIComponent(GAS_TESTS_CHECK_NAME)}`), 'Check Runs requests must keep the exact encoded check name');
 
   assert.strictEqual(getCheckConclusionForStatus('executed'), 'success', 'executed status publishes success');
   assert.strictEqual(getCheckConclusionForStatus('reused'), 'success', 'reused status publishes success');

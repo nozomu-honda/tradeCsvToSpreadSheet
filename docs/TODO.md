@@ -215,7 +215,8 @@ rollbackの正常系は既存E2Eで使っているが、異常系の明示確認
   - 同じhead/base SHAの組で成功済みの重い処理は再実行せず、head SHA上に発行されbase SHAも記録された成功Check Runを正本として再利用する。
   - Web E2Eの403 skip、cleanup失敗、Check Run発行失敗は成功扱いにしない。
   - 追加コミットでhead SHAが変わった場合、またはdevelop更新でbase SHAが変わった場合は、ラベルを外し、新しいhead/baseの再レビューとレビュー完了コメントを済ませてから再付与する。
-  - 軽量ゲートはPR単位で旧判定を置き換え、GAS/Web/cleanupだけを共有 `gas-shared-test-project` lockで直列化する。summary専用runnerは使わない。
+  - 軽量ゲートはPR単位で旧判定を置き換え、GAS/Web/cleanupだけを共有 `gas-shared-test-project` lockへ `queue: max` で複数待機させて直列化する。summary専用runnerは使わない。
+  - Check Run再利用検索は `filter=all` と全ページ取得を維持し、同名の自動job checkより前のcontext付き成功履歴も再利用する。
   - Actions再開は [`github-actions-suspension-restore.md`](github-actions-suspension-restore.md) の段階手順に従い、docs-onlyを存在しないrequired check待ちにしない。
 
 ## 完了済みとして未完了一覧へ戻さない項目

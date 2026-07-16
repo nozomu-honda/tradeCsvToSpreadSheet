@@ -49,7 +49,7 @@ CI用バッチ関数は `runGasTestBatch01` から `runGasTestBatch09` までで
 
 旧ラベルの `run-gas-tests` / `gas-web-e2e` は最終CIの起動には使いません。通常ラベルや旧ラベルでは、GAS Tests / Web E2Eの本体workflowを起動しません。
 
-軽量レビューゲートはPR番号ごとのconcurrency groupを使い、同じPRの古いゲートだけを置き換えます。異なるPRのゲートは共有テストprojectの待機なしで独立して判定します。GAS Tests と GAS Web App E2E は同じテスト専用 Apps Script プロジェクトへpushし、Script Propertiesも共有するため、実処理だけをPR番号を含まない共通のconcurrency group `gas-shared-test-project` に入れ、GAS Tests -> Web E2E -> cleanupまで直列実行します。この共有処理は `cancel-in-progress: false` とし、cleanupを含む実行中runを自動キャンセルしません。
+軽量レビューゲートはPR番号ごとのconcurrency groupを使い、同じPRの古いゲートだけを置き換えます。異なるPRのゲートは共有テストprojectの待機なしで独立して判定します。GAS Tests と GAS Web App E2E は同じテスト専用 Apps Script プロジェクトへpushし、Script Propertiesも共有するため、実処理だけをPR番号を含まない共通のconcurrency group `gas-shared-test-project` に入れ、GAS Tests -> Web E2E -> cleanupまで直列実行します。この共有処理は `queue: max` と `cancel-in-progress: false` を使い、実行中runと複数の待機runを新しいrunで置き換えず、cleanupまで順番に完了させます。軽量ゲートの `cancel-in-progress: true` には `queue: max` を設定しません。
 
 `.github/workflows/gas-tests.yml` と `.github/workflows/gas-web-e2e.yml` は、ラベル起動ではなく `workflow_dispatch` の手動fallbackとして残します。
 
@@ -65,7 +65,7 @@ CI用バッチ関数は `runGasTestBatch01` から `runGasTestBatch09` までで
 
 GitHub APIやpaginationに失敗した場合も安全側で拒否し、GAS Tests / Web E2Eは0回です。
 
-reusable workflowの表示名差異やPR merge commit側のcheckだけでは再利用判定ができない問題を避けるため、GAS Testsを実行した場合は同じhead SHAへ `Push test GAS project and run tests`、Web E2Eを実行した場合は同じhead SHAへ `Deploy test Web app and run Playwright E2E` というCheck Runを明示的に完了状態で発行します。Check Runの出力には検証したhead/base SHAの組を機械判定用マーカーとして保存します。失敗時は同じCheck Runをfailureにします。成功済みcheckを再利用する場合は重いjobを起動せず、既存checkを正本にします。Check Run発行前にもPRのhead/base SHAを再確認し、どちらかが変わっていた場合やCheck Run発行に失敗した場合はFinal CIを失敗させます。
+reusable workflowの表示名差異やPR merge commit側のcheckだけでは再利用判定ができない問題を避けるため、GAS Testsを実行した場合は同じhead SHAへ `Push test GAS project and run tests`、Web E2Eを実行した場合は同じhead SHAへ `Deploy test Web app and run Playwright E2E` というCheck Runを明示的に完了状態で発行します。Check Runの出力には検証したhead/base SHAの組を機械判定用マーカーとして保存します。失敗時は同じCheck Runをfailureにします。再利用検索はChecks APIへ `filter=all` を明示し、同名の新しい自動job checkがあっても全ページからcontext付き成功Check Runを探します。成功済みcheckを再利用する場合は重いjobを起動せず、既存checkを正本にします。Check Run発行前にもPRのhead/base SHAを再確認し、どちらかが変わっていた場合やCheck Run発行に失敗した場合はFinal CIを失敗させます。
 
 ゲート拒否またはGAS/Webの全結果を再利用できる場合は、軽量ゲートだけで結果をStep Summaryへ記録し、summary専用runnerは起動しません。GAS-onlyの最終結果はGAS job、Web E2E対象の最終結果はWeb jobへ統合します。
 

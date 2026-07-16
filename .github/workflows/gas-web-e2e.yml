@@ -11,6 +11,7 @@ env:
 
 concurrency:
   group: gas-shared-test-project
+  queue: max
   cancel-in-progress: false
 
 jobs:
