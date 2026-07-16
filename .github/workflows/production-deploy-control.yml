@@ -4,6 +4,13 @@ on:
   pull_request_target:
     types:
       - labeled
+    paths-ignore:
+      - 'docs/**'
+      - 'README.md'
+      - 'AGENTS.md'
+      - 'CLAUDE.md'
+      - 'src/app/README.md'
+      - 'src/test/README.md'
 
 permissions:
   contents: read
