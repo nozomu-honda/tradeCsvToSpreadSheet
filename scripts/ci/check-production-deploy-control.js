@@ -10,6 +10,7 @@ const workflowPath = path.join(repoRoot, '.github', 'workflows', 'production-dep
 const controlDocPath = path.join(repoRoot, 'docs', 'production-deploy-control.md');
 const workflow = fs.readFileSync(workflowPath, 'utf8');
 const controlDoc = fs.readFileSync(controlDocPath, 'utf8');
+const normalizedWorkflow = workflow.replace(/\r\n/g, '\n');
 
 function includes(pattern, message) {
   assert.ok(workflow.includes(pattern), message || `Expected to find: ${pattern}`);
@@ -24,6 +25,26 @@ assert.ok(!workflow.includes('actions/checkout'), 'control workflow must not che
 assert.ok(!workflow.includes('github.event.pull_request.head.sha'), 'control workflow must not execute or trust PR head code');
 assert.ok(!workflow.includes('secrets.CLASP_PRODUCTION_CREDENTIALS'), 'control workflow must not read production clasp secrets');
 assert.ok(!workflow.includes('environment:'), 'control workflow must not enter the production Environment');
+
+const workflowLines = normalizedWorkflow.split('\n');
+const pathsIgnoreLineIndex = workflowLines.indexOf('    paths-ignore:');
+assert.ok(pathsIgnoreLineIndex >= 0, 'control workflow must define docs-only paths-ignore filters');
+assert.strictEqual(
+  workflowLines.filter((line) => line === '    paths-ignore:').length,
+  1,
+  'control workflow must define exactly one pull_request_target paths-ignore block'
+);
+const actualDocsOnlyPaths = [];
+for (const line of workflowLines.slice(pathsIgnoreLineIndex + 1)) {
+  const match = line.match(/^      - '([^']+)'$/);
+  if (!match) break;
+  actualDocsOnlyPaths.push(match[1]);
+}
+assert.deepStrictEqual(
+  actualDocsOnlyPaths,
+  ['docs/**', 'README.md', 'AGENTS.md', 'CLAUDE.md', 'src/app/README.md', 'src/test/README.md'],
+  'control workflow must ignore exactly the six approved docs-only path patterns'
+);
 
 [
   'deploy-production-dry-run',
