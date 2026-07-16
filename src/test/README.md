@@ -75,6 +75,8 @@ src/
 - `runSmokeTests()`
 - `runAllTests()`
 - `runGasTestBatch01()` 〜 `runGasTestBatch09()`
+- `runGasTestSuite...()`（PR差分に応じたCI選択実行）
+- `runGasTestSuiteByName()`（許可済みスイート名だけを受け付ける入口）
 - `runSelectedTests_()`
 
 ### `test_temp_spreadsheet_helpers.gs`
@@ -467,7 +469,9 @@ Apps Script の日次クォータに当たりやすくなります。
 - `runSmokeTests()`
 - `runAllTests()`
 
-CI用バッチ関数は `runAllTests()` 相当のテスト一覧から自動生成されます。新しいテストを `CORE_TESTS_` または `FULL_ONLY_TESTS_` へ追加すると、バッチ側にも含まれます。9バッチに収まらない数まで増えた場合は、公開バッチ関数とCIの実行リストも増やします。未対応のままだと、バッチ定義検証で失敗します。
+CI用fullバッチ関数は `runAllTests()` 相当のテスト一覧から自動生成されます。新しいテストを `CORE_TESTS_` または `FULL_ONLY_TESTS_` へ追加すると、fullバッチ側にも含まれます。9バッチに収まらない数まで増えた場合は、公開バッチ関数とCIの実行リストも増やします。未対応のままだと、バッチ定義検証で失敗します。
+
+差分選択用スイートにも同じテストを重複なく登録してください。`test_runner.gs`の領域別配列と`GAS_TEST_SELECTED_SUITE_DEFINITIONS_`、`scripts/ci/gas-test-selection.js`のsuite metadataと`PATH_RULES`、`scripts/ci/check-gas-test-selection.js`の期待件数を同じPRで更新します。全テスト一覧とselected suiteの欠落・重複・総数不一致は、GAS入口とNode回帰テストの両方で失敗します。未知のスイート名と空選択もfail-closedです。
 
 ### 3. テスト名は期待結果まで分かるようにする
 悪い例:

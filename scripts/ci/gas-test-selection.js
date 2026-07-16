@@ -1,0 +1,257 @@
+#!/usr/bin/env node
+'use strict';
+
+const ALL_IMPACT_AREAS = Object.freeze([
+  'parser-input',
+  'database',
+  'staging-import',
+  'trade-calculation',
+  'output',
+  'broker-import',
+  'e2e-support',
+]);
+
+const SELECTED_SUITE_DEFINITIONS = Object.freeze([
+  suite('parser-input-01', 'parser-input', 'runGasTestSuiteParserInput01', 13),
+  suite('parser-input-02', 'parser-input', 'runGasTestSuiteParserInput02', 2),
+  suite('database-01', 'database', 'runGasTestSuiteDatabase01', 13),
+  suite('database-02', 'database', 'runGasTestSuiteDatabase02', 13),
+  suite('database-03', 'database', 'runGasTestSuiteDatabase03', 1),
+  suite('staging-import', 'staging-import', 'runGasTestSuiteStagingImport', 7),
+  suite('trade-calculation-01', 'trade-calculation', 'runGasTestSuiteTradeCalculation01', 13),
+  suite('trade-calculation-02', 'trade-calculation', 'runGasTestSuiteTradeCalculation02', 9),
+  suite('output-01', 'output', 'runGasTestSuiteOutput01', 13),
+  suite('output-02', 'output', 'runGasTestSuiteOutput02', 5),
+  suite('broker-import-01', 'broker-import', 'runGasTestSuiteBrokerImport01', 13),
+  suite('broker-import-02', 'broker-import', 'runGasTestSuiteBrokerImport02', 5),
+  suite('e2e-support', 'e2e-support', 'runGasTestSuiteE2eSupport', 9),
+]);
+
+const FULL_SUITE_DEFINITIONS = Object.freeze([
+  suite('full-batch-01', 'full', 'runGasTestBatch01', 13),
+  suite('full-batch-02', 'full', 'runGasTestBatch02', 13),
+  suite('full-batch-03', 'full', 'runGasTestBatch03', 13),
+  suite('full-batch-04', 'full', 'runGasTestBatch04', 13),
+  suite('full-batch-05', 'full', 'runGasTestBatch05', 13),
+  suite('full-batch-06', 'full', 'runGasTestBatch06', 13),
+  suite('full-batch-07', 'full', 'runGasTestBatch07', 13),
+  suite('full-batch-08', 'full', 'runGasTestBatch08', 13),
+  suite('full-batch-09', 'full', 'runGasTestBatch09', 12),
+]);
+
+const PATH_RULES = Object.freeze({
+  'src/app/parser.gs': selected('parser-input'),
+  'src/app/db.gs': selected('database'),
+  'src/app/builder.gs': selected('trade-calculation', 'output'),
+  'src/app/writer.gs': selected('output'),
+  'src/app/reorder_output_sheets.gs': selected('output'),
+  'src/app/e2e_helpers.gs': selected('e2e-support'),
+
+  'src/test/test_input_reader.gs': selected('parser-input'),
+  'src/test/test_db.gs': selected('database'),
+  'src/test/test_staging_sheet.gs': selected('staging-import'),
+  'src/test/test_test_db_validation_bypass.gs': selected('staging-import'),
+  'src/test/test_trade_rows.gs': selected('trade-calculation'),
+  'src/test/test_trade_rows_distribution_fix.gs': selected('trade-calculation'),
+  'src/test/test_trade_rows_foreign_tax_rate_fix.gs': selected('trade-calculation'),
+  'src/test/test_output_split.gs': selected('output'),
+  'src/test/test_rakuten_output_cell_comparison.gs': selected('output'),
+  'src/test/test_writer.gs': selected('output'),
+  'src/test/test_rakuten_phase1.gs': selected('broker-import'),
+  'src/test/test_e2e_helpers.gs': selected('e2e-support'),
+  'src/test/test_20260526_changes.gs': selected('trade-calculation', 'staging-import'),
+  'src/test/test_20260529_changes.gs': selected('trade-calculation', 'staging-import'),
+  'src/test/test_20260529_highlight_fix.gs': selected('staging-import'),
+  'src/test/test_date_shift_20260603.gs': selected('parser-input', 'database'),
+
+  'src/app/config.gs': full('shared configuration changed'),
+  'src/app/db_config.gs': full('shared database configuration changed'),
+  'src/app/e2e_runtime_support.gs': full('shared runtime support changed'),
+  'src/app/import.gs': full('shared import orchestration changed'),
+  'src/app/script_properties.gs': full('shared script properties changed'),
+  'src/app/source_routing_rakuten_phase1.gs': full('shared source routing changed'),
+  'src/app/utils.gs': full('shared utility changed'),
+  'src/app/web.gs': full('shared Web entry point changed'),
+  'src/test/test_runner.gs': full('GAS test runner changed'),
+  'src/test/test_support_helpers.gs': full('shared GAS test helper changed'),
+  'src/test/test_temp_db_helpers.gs': full('shared temporary DB test helper changed'),
+  'src/test/test_temp_spreadsheet_helpers.gs': full('shared temporary Spreadsheet test helper changed'),
+});
+
+const DOCS_EXACT_PATHS = new Set([
+  'AGENTS.md',
+  'CLAUDE.md',
+  'README.md',
+  'src/app/README.md',
+  'src/test/README.md',
+]);
+
+function suite(name, area, entryPoint, testCount) {
+  return Object.freeze({ name, area, entryPoint, testCount });
+}
+
+function selected(...areas) {
+  return Object.freeze({ kind: 'selected', areas: Object.freeze(areas) });
+}
+
+function full(reason) {
+  return Object.freeze({ kind: 'full', reason });
+}
+
+function normalizeRepositoryPath(filePath) {
+  if (typeof filePath !== 'string' || !filePath.trim()) {
+    throw new Error('changed file path is invalid');
+  }
+  if (/[\u0000-\u001f\u007f]/.test(filePath)) {
+    throw new Error('changed file path contains control characters');
+  }
+  const normalized = filePath.replace(/\\/g, '/').replace(/^\.\//, '');
+  if (
+    normalized.startsWith('/')
+    || normalized === '..'
+    || normalized.startsWith('../')
+    || normalized.includes('/../')
+  ) {
+    throw new Error('changed file path is invalid');
+  }
+  return normalized;
+}
+
+function isDocsPath(filePath) {
+  return filePath.startsWith('docs/') || DOCS_EXACT_PATHS.has(filePath);
+}
+
+function classifyPath(filePath) {
+  if (isDocsPath(filePath)) {
+    return { kind: 'ignore' };
+  }
+  if (PATH_RULES[filePath]) {
+    return PATH_RULES[filePath];
+  }
+  if (filePath.startsWith('src/app/')) {
+    return full('unknown src/app file changed');
+  }
+  if (filePath.startsWith('src/test/')) {
+    return full('unmapped src/test file changed');
+  }
+  if (
+    filePath.startsWith('.github/workflows/')
+    || filePath.startsWith('scripts/ci/')
+    || filePath.startsWith('scripts/')
+  ) {
+    return full('workflow or CI script changed');
+  }
+  if (
+    filePath === 'package.json'
+    || filePath === 'package-lock.json'
+    || filePath === 'appsscript.json'
+    || filePath === 'Index.html'
+    || filePath === 'playwright.config.js'
+    || filePath.startsWith('.clasp')
+    || filePath.startsWith('tests/e2e/')
+  ) {
+    return full('dependency, manifest, clasp, or Web E2E boundary changed');
+  }
+  return full('unclassified repository path changed');
+}
+
+function selectGasTestsByChangedFiles(changedFiles, options = {}) {
+  let normalizedFiles;
+  try {
+    if (!Array.isArray(changedFiles) || changedFiles.length === 0) {
+      return buildFullResult([], [], 'changed file list is missing or empty');
+    }
+    normalizedFiles = [...new Set(changedFiles.map(normalizeRepositoryPath))].sort();
+  } catch (error) {
+    return buildFullResult([], [], 'impact classification failed');
+  }
+
+  if (options.forceFull === true) {
+    return buildFullResult(normalizedFiles, [], 'full test execution was explicitly requested');
+  }
+
+  const impactAreas = new Set();
+  let fallbackReason = '';
+  for (const filePath of normalizedFiles) {
+    let rule;
+    try {
+      rule = classifyPath(filePath);
+    } catch (error) {
+      fallbackReason = 'impact classification failed';
+      break;
+    }
+    if (rule.kind === 'selected') {
+      rule.areas.forEach((area) => impactAreas.add(area));
+    } else if (rule.kind === 'full') {
+      fallbackReason = rule.reason;
+      break;
+    }
+  }
+
+  const orderedAreas = ALL_IMPACT_AREAS.filter((area) => impactAreas.has(area));
+  if (fallbackReason) {
+    return buildFullResult(normalizedFiles, orderedAreas, fallbackReason);
+  }
+
+  const selectedSuites = SELECTED_SUITE_DEFINITIONS.filter((definition) => impactAreas.has(definition.area));
+  if (selectedSuites.length === 0) {
+    return buildFullResult(normalizedFiles, orderedAreas, 'no GAS test suite was selected');
+  }
+
+  return buildResult({
+    mode: 'selected',
+    changedFiles: normalizedFiles,
+    impactAreas: orderedAreas,
+    suites: selectedSuites,
+    omittedAreas: ALL_IMPACT_AREAS.filter((area) => !impactAreas.has(area)),
+    fullFallbackReason: null,
+  });
+}
+
+function buildFullResult(changedFiles, impactAreas, reason) {
+  return buildResult({
+    mode: 'full',
+    changedFiles,
+    impactAreas,
+    suites: FULL_SUITE_DEFINITIONS,
+    omittedAreas: [],
+    fullFallbackReason: reason,
+  });
+}
+
+function createFullGasTestSelection(changedFiles, reason) {
+  let normalizedFiles = [];
+  try {
+    normalizedFiles = Array.isArray(changedFiles)
+      ? [...new Set(changedFiles.map(normalizeRepositoryPath))].sort()
+      : [];
+  } catch (error) {
+    normalizedFiles = [];
+  }
+  return buildFullResult(normalizedFiles, [], reason || 'full GAS Tests were requested');
+}
+
+function buildResult({ mode, changedFiles, impactAreas, suites, omittedAreas, fullFallbackReason }) {
+  return {
+    schemaVersion: 1,
+    mode,
+    changedFiles: [...changedFiles],
+    impactAreas: [...impactAreas],
+    suites: suites.map((definition) => definition.name),
+    suiteDetails: suites.map((definition) => ({ ...definition })),
+    testCount: suites.reduce((total, definition) => total + definition.testCount, 0),
+    omittedAreas: [...omittedAreas],
+    fullFallbackReason,
+  };
+}
+
+module.exports = {
+  ALL_IMPACT_AREAS,
+  FULL_SUITE_DEFINITIONS,
+  PATH_RULES,
+  SELECTED_SUITE_DEFINITIONS,
+  classifyPath,
+  createFullGasTestSelection,
+  normalizeRepositoryPath,
+  selectGasTestsByChangedFiles,
+};
