@@ -16,10 +16,27 @@
 
 - `docs/current-status.md`
 - `docs/TODO.md`
+- CI・E2E・GitHub Actionsに関わる場合は、最優先で `docs/ci-policy.md`
 - claspでCI用・本番用Apps Scriptへ反映する場合は `docs/clasp-operations.md`
 - 必要に応じて `docs/spec.md` / `docs/trade-rules.md`
 - Codexへの依頼テンプレートは `docs/codex-prompts.md`
 - AutoHotkeyショートカットの説明は `docs/codex-shortcuts.md`
+
+## CI・E2Eの最優先ルール（恒久）
+
+次の方針は、Codex、ChatGPT、人間のいずれが作業する場合も必ず守る。詳細は `docs/ci-policy.md` を正とする。
+
+- docs-onlyでは、docsに関連のない通常CI、GAS Tests、clasp push、Web E2E、Playwright、deployment、本番系workflowを一切実行しない。
+- PR作成、push、`synchronize`、`ready_for_review`、修正途中を重いCI・E2Eの起動条件にしない。
+- 差分レビュー、仕様確認、秘密情報確認、未解決指摘確認など、CI以外の確認がすべて完了してから、固定したhead SHAに対して初めて最終CIを実行する。
+- 最終CIは原則として同一head SHAに1回だけ実行し、成功済み結果は再利用する。
+- レビュー完了後にcommitが追加された場合、以前のレビュー完了状態と最終CI実行許可を失効させ、新しいhead SHAの再レビューが終わるまでCI・E2Eを実行しない。
+- E2EはUI、Webアプリ、認証、deployment、E2E基盤などへ影響する変更だけで実行する。通常コードPRすべての無条件後続jobにしない。
+- required checkを満たすためだけの空のActions runを作らない。docs-only PRを存在しないcheck待ちで永久blockしない。
+- この方針と矛盾するworkflow、自動化、branch protection、required checkを追加してはならない。
+- この方針を変更・緩和・迂回する場合は、ユーザーの明示承認を受けた専用Issue・専用PRで `AGENTS.md` と `docs/ci-policy.md` を同時に更新する。
+
+個別Issue、個別PR、既存workflow、過去の会話、`docs/current-status.md`、`docs/TODO.md` がこの方針と矛盾する場合は、このセクションと `docs/ci-policy.md` を優先する。
 
 ## Branch / Commit Rules
 
