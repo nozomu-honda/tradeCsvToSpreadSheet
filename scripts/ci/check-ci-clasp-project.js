@@ -121,11 +121,12 @@ try {
 
   const finalCiWorkflow = readWorkflow('.github/workflows/final-ci.yml');
   const finalCiRunWorkflow = readWorkflow('.github/workflows/final-ci-run.yml');
+  const finalCiHeavyWorkflow = readWorkflow('.github/workflows/final-ci-heavy.yml');
   const gasTestsWorkflow = readWorkflow('.github/workflows/gas-tests.yml');
   const gasWebE2eWorkflow = readWorkflow('.github/workflows/gas-web-e2e.yml');
   const finalCiGroup = extractConcurrencyGroupExpression(
-    finalCiRunWorkflow,
-    '.github/workflows/final-ci-run.yml'
+    finalCiHeavyWorkflow,
+    '.github/workflows/final-ci-heavy.yml'
   );
 
   assertEqual(
@@ -158,7 +159,7 @@ try {
   }
 
   for (const [workflowPath, workflowSource, workflowGroup] of [
-    ['.github/workflows/final-ci-run.yml', finalCiRunWorkflow, finalCiGroup],
+    ['.github/workflows/final-ci-heavy.yml', finalCiHeavyWorkflow, finalCiGroup],
   ]) {
     if (!workflowSource.includes('cancel-in-progress: false')) {
       fail(`${workflowPath} must queue instead of canceling the paired GAS workflow`);
@@ -170,6 +171,12 @@ try {
 
   if (!finalCiWorkflow.includes('uses: ./.github/workflows/final-ci-run.yml')) {
     fail('.github/workflows/final-ci.yml must call final-ci-run.yml as the reusable final CI body');
+  }
+  if (!finalCiRunWorkflow.includes('uses: ./.github/workflows/final-ci-heavy.yml')) {
+    fail('.github/workflows/final-ci-run.yml must call final-ci-heavy.yml after the lightweight gate');
+  }
+  if (finalCiRunWorkflow.includes('gas-shared-test-project')) {
+    fail('.github/workflows/final-ci-run.yml lightweight gate must not wait for the shared GAS project');
   }
   if (!finalCiWorkflow.includes('secrets: inherit')) {
     fail('.github/workflows/final-ci.yml must pass secrets only through the same-repository reusable workflow call');

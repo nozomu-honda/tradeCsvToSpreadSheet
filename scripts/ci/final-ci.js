@@ -5,6 +5,7 @@ const FINAL_CI_LABEL = 'run-final-ci';
 const GAS_TESTS_CHECK_NAME = 'Push test GAS project and run tests';
 const WEB_E2E_CHECK_NAME = 'Deploy test Web app and run Playwright E2E';
 const FINAL_CI_REVIEW_MARKER = '<!-- final-ci-review-complete:v1 -->';
+const FINAL_CI_CHECK_CONTEXT_MARKER = '<!-- final-ci-check-context:v1 -->';
 const CHANGE_CLASSIFICATIONS = Object.freeze({
   DOCS_ONLY: 'docs-only',
   GAS_TESTS_ONLY: 'gas-tests-only',
@@ -26,6 +27,7 @@ const DOCS_ONLY_EXACT_PATHS = new Set([
 const WEB_E2E_EXACT_PATHS = new Set([
   '.clasp.example.json',
   '.claspignore',
+  '.github/workflows/final-ci-heavy.yml',
   '.github/workflows/final-ci-run.yml',
   '.github/workflows/final-ci.yml',
   '.github/workflows/gas-web-e2e.yml',
@@ -125,24 +127,28 @@ function classifyChangedFiles(filePaths) {
   return CHANGE_CLASSIFICATIONS.GAS_TESTS_AND_WEB_E2E;
 }
 
-function commentHasReviewMarkerForHead(comment, headSha) {
+function commentHasReviewMarkerForContext(comment, headSha, baseSha) {
   if (
     !comment
     || !TRUSTED_MARKER_ASSOCIATIONS.has(String(comment.author_association || '').toUpperCase())
     || typeof comment.body !== 'string'
     || !/^[0-9a-f]{40}$/i.test(headSha || '')
+    || !/^[0-9a-f]{40}$/i.test(baseSha || '')
   ) {
     return false;
   }
   const markerPattern = new RegExp(
-    `${FINAL_CI_REVIEW_MARKER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[ \\t]*\\r?\\n[ \\t]*head_sha:[ \\t]*([0-9a-f]{40})[ \\t]*(?:\\r?\\n|$)`,
+    `${FINAL_CI_REVIEW_MARKER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[ \\t]*\\r?\\n[ \\t]*head_sha:[ \\t]*([0-9a-f]{40})[ \\t]*\\r?\\n[ \\t]*base_sha:[ \\t]*([0-9a-f]{40})[ \\t]*(?:\\r?\\n|$)`,
     'ig',
   );
-  return [...comment.body.matchAll(markerPattern)].some((match) => match[1].toLowerCase() === headSha.toLowerCase());
+  return [...comment.body.matchAll(markerPattern)].some((match) => (
+    match[1] === headSha
+    && match[2] === baseSha
+  ));
 }
 
-function hasReviewCompletionMarker(comments, headSha) {
-  return Array.isArray(comments) && comments.some((comment) => commentHasReviewMarkerForHead(comment, headSha));
+function hasReviewCompletionMarker(comments, headSha, baseSha) {
+  return Array.isArray(comments) && comments.some((comment) => commentHasReviewMarkerForContext(comment, headSha, baseSha));
 }
 
 function hasActiveChangesRequested(reviews) {
@@ -180,6 +186,7 @@ function currentPullRequestLabels(pullRequest) {
 function evaluateFinalCiGate({
   repository,
   expectedHeadSha,
+  expectedBaseSha,
   expectedBaseBranch,
   labelName,
   pullRequest,
@@ -194,6 +201,7 @@ function evaluateFinalCiGate({
   const currentHeadSha = pullRequest && pullRequest.head && pullRequest.head.sha;
   const headRepository = pullRequest && pullRequest.head && pullRequest.head.repo && pullRequest.head.repo.full_name;
   const baseBranch = pullRequest && pullRequest.base && pullRequest.base.ref;
+  const currentBaseSha = pullRequest && pullRequest.base && pullRequest.base.sha;
   const reject = (reason) => ({
     allowed: false,
     reason,
@@ -201,6 +209,7 @@ function evaluateFinalCiGate({
     gasAction: SNAPSHOT_ACTIONS.NOT_REQUIRED,
     webAction: SNAPSHOT_ACTIONS.NOT_REQUIRED,
     currentHeadSha: currentHeadSha || '',
+    currentBaseSha: currentBaseSha || '',
   });
 
   if (labelName !== FINAL_CI_LABEL || !currentPullRequestLabels(pullRequest).includes(FINAL_CI_LABEL)) {
@@ -221,8 +230,11 @@ function evaluateFinalCiGate({
   if (!/^[0-9a-f]{40}$/i.test(expectedHeadSha || '') || currentHeadSha !== expectedHeadSha) {
     return reject('PR head changed after final CI was requested');
   }
-  if (!hasReviewCompletionMarker(comments, currentHeadSha)) {
-    return reject('review completion marker for the current head SHA is missing');
+  if (!/^[0-9a-f]{40}$/i.test(expectedBaseSha || '') || currentBaseSha !== expectedBaseSha) {
+    return reject('PR base changed after final CI was requested');
+  }
+  if (!hasReviewCompletionMarker(comments, currentHeadSha, currentBaseSha)) {
+    return reject('review completion marker for the current head and base SHA is missing');
   }
   if (!Number.isInteger(unresolvedReviewThreadCount) || unresolvedReviewThreadCount < 0) {
     return reject('unresolved review thread state could not be verified');
@@ -244,22 +256,23 @@ function evaluateFinalCiGate({
     return reject('docs-only changes must not start Final CI');
   }
 
-  const gasAction = hasSuccessfulCheckRun(gasCheckRuns, GAS_TESTS_CHECK_NAME, currentHeadSha)
+  const gasAction = hasSuccessfulCheckRun(gasCheckRuns, GAS_TESTS_CHECK_NAME, currentHeadSha, currentBaseSha)
     ? SNAPSHOT_ACTIONS.REUSE
     : SNAPSHOT_ACTIONS.EXECUTE;
   const webRequired = classification === CHANGE_CLASSIFICATIONS.GAS_TESTS_AND_WEB_E2E;
   const webAction = !webRequired
     ? SNAPSHOT_ACTIONS.NOT_REQUIRED
-    : hasSuccessfulCheckRun(webCheckRuns, WEB_E2E_CHECK_NAME, currentHeadSha)
+    : hasSuccessfulCheckRun(webCheckRuns, WEB_E2E_CHECK_NAME, currentHeadSha, currentBaseSha)
       ? SNAPSHOT_ACTIONS.REUSE
       : SNAPSHOT_ACTIONS.EXECUTE;
   return {
     allowed: true,
-    reason: 'review completion gate passed for the current head SHA',
+    reason: 'review completion gate passed for the current head and base SHA',
     classification,
     gasAction,
     webAction,
     currentHeadSha,
+    currentBaseSha,
   };
 }
 
@@ -267,13 +280,48 @@ function isSameRepositoryPullRequest({ repository, headRepository }) {
   return Boolean(repository && headRepository && repository === headRepository);
 }
 
-function hasSuccessfulCheckRun(checkRuns, checkName, expectedHeadSha = '') {
+function checkRunHasContext(checkRun, expectedHeadSha, expectedBaseSha) {
+  const summary = checkRun && checkRun.output && checkRun.output.summary;
+  if (typeof summary !== 'string') {
+    return false;
+  }
+  const markerPattern = new RegExp(
+    `${FINAL_CI_CHECK_CONTEXT_MARKER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[ \\t]*\\r?\\n[ \\t]*head_sha:[ \\t]*([0-9a-f]{40})[ \\t]*\\r?\\n[ \\t]*base_sha:[ \\t]*([0-9a-f]{40})[ \\t]*(?:\\r?\\n|$)`,
+    'ig',
+  );
+  return [...summary.matchAll(markerPattern)].some((match) => (
+    match[1] === expectedHeadSha
+    && match[2] === expectedBaseSha
+  ));
+}
+
+function hasSuccessfulCheckRun(checkRuns, checkName, expectedHeadSha = '', expectedBaseSha = '') {
+  if (!/^[0-9a-f]{40}$/i.test(expectedHeadSha) || !/^[0-9a-f]{40}$/i.test(expectedBaseSha)) {
+    return false;
+  }
   return (checkRuns || []).some((checkRun) => (
     checkRun &&
     checkRun.name === checkName &&
     checkRun.conclusion === 'success' &&
-    (!expectedHeadSha || checkRun.head_sha === expectedHeadSha)
+    checkRun.head_sha === expectedHeadSha &&
+    checkRunHasContext(checkRun, expectedHeadSha, expectedBaseSha)
   ));
+}
+
+function buildFinalCiExecutionPlan({ gasAction, webAction }) {
+  const validActions = new Set(Object.values(SNAPSHOT_ACTIONS));
+  if (!validActions.has(gasAction) || !validActions.has(webAction)) {
+    throw new Error('Final CI execution plan contains an invalid action.');
+  }
+  if (webAction === SNAPSHOT_ACTIONS.EXECUTE && gasAction === SNAPSHOT_ACTIONS.NOT_REQUIRED) {
+    throw new Error('Final CI Web E2E cannot execute without a GAS Tests result.');
+  }
+  if (webAction === SNAPSHOT_ACTIONS.EXECUTE) {
+    return gasAction === SNAPSHOT_ACTIONS.EXECUTE
+      ? ['gas-tests', 'gas-web-e2e']
+      : ['gas-web-e2e'];
+  }
+  return gasAction === SNAPSHOT_ACTIONS.EXECUTE ? ['gas-tests'] : [];
 }
 
 function getCheckConclusionForStatus(status) {
@@ -401,12 +449,16 @@ function buildCheckRunRequest({
   repository,
   checkName,
   targetHeadSha,
+  targetBaseSha,
   checkStatus,
   checkReason,
   checkDetailsUrl,
 }) {
   if (!repository || !repository.includes('/')) {
     throw new Error('GITHUB_REPOSITORY must be owner/repo');
+  }
+  if (!/^[0-9a-f]{40}$/.test(targetHeadSha || '') || !/^[0-9a-f]{40}$/.test(targetBaseSha || '')) {
+    throw new Error('Final CI Check Run context is invalid.');
   }
   const conclusion = getCheckConclusionForStatus(checkStatus);
   return {
@@ -420,6 +472,10 @@ function buildCheckRunRequest({
       output: {
         title: checkName,
         summary: [
+          FINAL_CI_CHECK_CONTEXT_MARKER,
+          `head_sha: ${targetHeadSha}`,
+          `base_sha: ${targetBaseSha}`,
+          '',
           `Status: ${checkStatus}`,
           `Reason: ${checkReason || '(none)'}`,
           `Head SHA: ${targetHeadSha}`,
@@ -433,7 +489,9 @@ function decideCheckExecution({
   labelName,
   sameRepository,
   expectedHeadSha,
+  expectedBaseSha,
   currentHeadSha,
+  currentBaseSha,
   checkName,
   checkRuns,
 }) {
@@ -477,7 +535,31 @@ function decideCheckExecution({
     };
   }
 
-  if (hasSuccessfulCheckRun(checkRuns, checkName, expectedHeadSha)) {
+  if (!/^[0-9a-f]{40}$/.test(expectedBaseSha || '')) {
+    return {
+      action: 'fail',
+      status: 'failed',
+      reason: 'expected base SHA is missing',
+    };
+  }
+
+  if (!currentBaseSha) {
+    return {
+      action: 'fail',
+      status: 'failed',
+      reason: 'current PR base SHA could not be resolved',
+    };
+  }
+
+  if (currentBaseSha !== expectedBaseSha) {
+    return {
+      action: 'fail',
+      status: 'failed',
+      reason: 'PR base changed after run-final-ci was requested; review the new base and re-add the label',
+    };
+  }
+
+  if (hasSuccessfulCheckRun(checkRuns, checkName, expectedHeadSha, expectedBaseSha)) {
     return {
       action: 'reuse',
       status: 'reused',
@@ -676,6 +758,7 @@ async function readCheckRuns({ env, headSha, checkName }) {
 async function commandGate(env = process.env) {
   requireEnv(env, [
     'EXPECTED_BASE_BRANCH',
+    'EXPECTED_BASE_SHA',
     'EXPECTED_HEAD_SHA',
     'GITHUB_REPOSITORY',
     'LABEL_NAME',
@@ -688,6 +771,13 @@ async function commandGate(env = process.env) {
     writeOutput('gas_action', result.gasAction, env);
     writeOutput('web_action', result.webAction, env);
     writeOutput('current_head_sha', result.currentHeadSha || '', env);
+    writeOutput('current_base_sha', result.currentBaseSha || '', env);
+    const executionPlan = result.allowed
+      ? buildFinalCiExecutionPlan({ gasAction: result.gasAction, webAction: result.webAction })
+      : [];
+    writeOutput('heavy_job_count', executionPlan.length, env);
+    writeOutput('heavy_jobs', executionPlan.join(','), env);
+    writeOutput('should_run_heavy', executionPlan.length > 0 ? 'true' : 'false', env);
   };
   let result;
   try {
@@ -711,7 +801,11 @@ async function commandGate(env = process.env) {
       throw new Error('Final CI changed file response is invalid.');
     }
     const currentHeadSha = pullRequest && pullRequest.head && pullRequest.head.sha;
-    const [gasCheckRuns, webCheckRuns] = currentHeadSha === env.EXPECTED_HEAD_SHA
+    const currentBaseSha = pullRequest && pullRequest.base && pullRequest.base.sha;
+    const [gasCheckRuns, webCheckRuns] = (
+      currentHeadSha === env.EXPECTED_HEAD_SHA
+      && currentBaseSha === env.EXPECTED_BASE_SHA
+    )
       ? await Promise.all([
         readCheckRuns({ env, headSha: currentHeadSha, checkName: GAS_TESTS_CHECK_NAME }),
         readCheckRuns({ env, headSha: currentHeadSha, checkName: WEB_E2E_CHECK_NAME }),
@@ -720,6 +814,7 @@ async function commandGate(env = process.env) {
     result = evaluateFinalCiGate({
       repository: env.GITHUB_REPOSITORY,
       expectedHeadSha: env.EXPECTED_HEAD_SHA,
+      expectedBaseSha: env.EXPECTED_BASE_SHA,
       expectedBaseBranch: env.EXPECTED_BASE_BRANCH,
       labelName: env.LABEL_NAME,
       pullRequest,
@@ -739,6 +834,7 @@ async function commandGate(env = process.env) {
       gasAction: SNAPSHOT_ACTIONS.NOT_REQUIRED,
       webAction: SNAPSHOT_ACTIONS.NOT_REQUIRED,
       currentHeadSha: '',
+      currentBaseSha: '',
     };
   }
 
@@ -749,11 +845,14 @@ async function commandGate(env = process.env) {
     `- PR: #${env.PR_NUMBER}`,
     `- Requested head SHA: \`${env.EXPECTED_HEAD_SHA}\``,
     `- Current head SHA: \`${result.currentHeadSha || 'unknown'}\``,
+    `- Requested base SHA: \`${env.EXPECTED_BASE_SHA}\``,
+    `- Current base SHA: \`${result.currentBaseSha || 'unknown'}\``,
     `- Result: \`${result.allowed ? 'accepted' : 'rejected'}\``,
     `- Reason: ${result.reason}`,
     `- Change classification: \`${result.classification || 'not-classified'}\``,
     `- GAS Tests: \`${result.gasAction}\``,
     `- Web E2E: \`${result.webAction}\``,
+    `- Heavy runners: \`${result.allowed ? buildFinalCiExecutionPlan({ gasAction: result.gasAction, webAction: result.webAction }).join(',') || 'none' : 'none'}\``,
     '',
   ].join('\n'), env);
   if (!result.allowed) {
@@ -766,6 +865,7 @@ async function commandDecide(env = process.env) {
   requireEnv(env, [
     'CHECK_NAME',
     'CHECK_KIND',
+    'EXPECTED_BASE_SHA',
     'EXPECTED_HEAD_SHA',
     'GITHUB_REPOSITORY',
     'LABEL_NAME',
@@ -774,12 +874,13 @@ async function commandDecide(env = process.env) {
 
   const pullRequest = await readPullRequest({ env });
   const currentHeadSha = pullRequest.head && pullRequest.head.sha;
+  const currentBaseSha = pullRequest.base && pullRequest.base.sha;
   const headRepository = pullRequest.head && pullRequest.head.repo && pullRequest.head.repo.full_name;
   const sameRepository = isSameRepositoryPullRequest({
     repository: env.GITHUB_REPOSITORY,
     headRepository,
   });
-  const checkRuns = currentHeadSha === env.EXPECTED_HEAD_SHA
+  const checkRuns = currentHeadSha === env.EXPECTED_HEAD_SHA && currentBaseSha === env.EXPECTED_BASE_SHA
     ? await readCheckRuns({ env, headSha: env.EXPECTED_HEAD_SHA, checkName: env.CHECK_NAME })
     : [];
 
@@ -787,7 +888,9 @@ async function commandDecide(env = process.env) {
     labelName: env.LABEL_NAME,
     sameRepository,
     expectedHeadSha: env.EXPECTED_HEAD_SHA,
+    expectedBaseSha: env.EXPECTED_BASE_SHA,
     currentHeadSha,
+    currentBaseSha,
     checkName: env.CHECK_NAME,
     checkRuns,
   });
@@ -796,6 +899,7 @@ async function commandDecide(env = process.env) {
   writeOutput('status', decision.status, env);
   writeOutput('reason', decision.reason, env);
   writeOutput('current_head_sha', currentHeadSha || '', env);
+  writeOutput('current_base_sha', currentBaseSha || '', env);
   writeOutput('same_repository', sameRepository ? 'true' : 'false', env);
 
   appendSummary([
@@ -804,6 +908,8 @@ async function commandDecide(env = process.env) {
     `- PR: #${env.PR_NUMBER}`,
     `- Head SHA: \`${env.EXPECTED_HEAD_SHA}\``,
     `- Current PR head SHA: \`${currentHeadSha || 'unknown'}\``,
+    `- Base SHA: \`${env.EXPECTED_BASE_SHA}\``,
+    `- Current PR base SHA: \`${currentBaseSha || 'unknown'}\``,
     `- Same repository PR: \`${sameRepository ? 'true' : 'false'}\``,
     `- Check name: \`${env.CHECK_NAME}\``,
     `- Decision: \`${decision.status}\``,
@@ -819,19 +925,25 @@ async function commandDecide(env = process.env) {
 }
 
 async function commandAssertHead(env = process.env) {
-  requireEnv(env, ['EXPECTED_HEAD_SHA', 'GITHUB_REPOSITORY', 'PR_NUMBER']);
+  requireEnv(env, ['EXPECTED_BASE_SHA', 'EXPECTED_HEAD_SHA', 'GITHUB_REPOSITORY', 'PR_NUMBER']);
   const pullRequest = await readPullRequest({ env });
   const currentHeadSha = pullRequest.head && pullRequest.head.sha;
+  const currentBaseSha = pullRequest.base && pullRequest.base.sha;
 
   if (currentHeadSha !== env.EXPECTED_HEAD_SHA) {
     throw new Error('PR head changed after final CI started. Stop this run and re-add run-final-ci for the new head SHA.');
   }
 
+  if (currentBaseSha !== env.EXPECTED_BASE_SHA) {
+    throw new Error('PR base changed after final CI started. Stop this run, review the new base, and re-add run-final-ci.');
+  }
+
   appendSummary([
-    '### Head SHA guard',
+    '### PR head/base guard',
     '',
     `- PR: #${env.PR_NUMBER}`,
     `- Head SHA: \`${env.EXPECTED_HEAD_SHA}\``,
+    `- Base SHA: \`${env.EXPECTED_BASE_SHA}\``,
     '- Result: unchanged',
     '',
   ].join('\n'), env);
@@ -873,11 +985,13 @@ async function commandPublishCheck(env = process.env) {
     'CHECK_STATUS',
     'GITHUB_REPOSITORY',
     'PR_NUMBER',
+    'TARGET_BASE_SHA',
     'TARGET_HEAD_SHA',
   ]);
 
   const pullRequest = await readPullRequest({ env });
   const currentHeadSha = pullRequest.head && pullRequest.head.sha;
+  const currentBaseSha = pullRequest.base && pullRequest.base.sha;
   const headRepository = pullRequest.head && pullRequest.head.repo && pullRequest.head.repo.full_name;
   const sameRepository = isSameRepositoryPullRequest({
     repository: env.GITHUB_REPOSITORY,
@@ -889,13 +1003,18 @@ async function commandPublishCheck(env = process.env) {
   }
 
   if (currentHeadSha !== env.TARGET_HEAD_SHA) {
-    throw new Error(`PR head changed before publishing ${env.CHECK_KIND} Check Run. Expected ${env.TARGET_HEAD_SHA}, got ${currentHeadSha || 'unknown'}.`);
+    throw new Error(`PR head changed before publishing ${env.CHECK_KIND} Check Run.`);
+  }
+
+  if (currentBaseSha !== env.TARGET_BASE_SHA) {
+    throw new Error(`PR base changed before publishing ${env.CHECK_KIND} Check Run.`);
   }
 
   const request = buildCheckRunRequest({
     repository: env.GITHUB_REPOSITORY,
     checkName: env.CHECK_NAME,
     targetHeadSha: env.TARGET_HEAD_SHA,
+    targetBaseSha: env.TARGET_BASE_SHA,
     checkStatus: env.CHECK_STATUS,
     checkReason: env.CHECK_REASON,
     checkDetailsUrl: env.CHECK_DETAILS_URL || '',
@@ -916,6 +1035,7 @@ async function commandPublishCheck(env = process.env) {
     '',
     `- Name: \`${env.CHECK_NAME}\``,
     `- Head SHA: \`${env.TARGET_HEAD_SHA}\``,
+    `- Base SHA: \`${env.TARGET_BASE_SHA}\``,
     `- Status: \`${env.CHECK_STATUS}\``,
     `- Conclusion: \`${request.body.conclusion}\``,
     '',
@@ -957,15 +1077,18 @@ if (require.main === module) {
 
 module.exports = {
   CHANGE_CLASSIFICATIONS,
+  FINAL_CI_CHECK_CONTEXT_MARKER,
   FINAL_CI_LABEL,
   FINAL_CI_REVIEW_MARKER,
   GAS_TESTS_CHECK_NAME,
   SNAPSHOT_ACTIONS,
   WEB_E2E_CHECK_NAME,
+  buildFinalCiExecutionPlan,
   buildCheckRunRequest,
   classifyChangedFiles,
   collectPaginatedItems,
-  commentHasReviewMarkerForHead,
+  checkRunHasContext,
+  commentHasReviewMarkerForContext,
   decideCheckExecution,
   determineWebE2eStatus,
   evaluateFinalCiGate,

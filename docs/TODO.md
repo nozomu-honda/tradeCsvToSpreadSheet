@@ -209,12 +209,13 @@ rollbackの正常系は既存E2Eで使っているが、異常系の明示確認
   - CI用。
   - `runAllTests()` 相当のテスト一覧を分割して実行する。
 - PRの最終CI
-  - Actions再開後、現在head SHAのレビュー完了コメントを付けてから `run-final-ci` ラベルを付ける。
+  - Actions再開後、現在head SHAとdevelop base SHAのレビュー完了コメントを付けてから `run-final-ci` ラベルを付ける。
   - docs-onlyではActions run 0件、backend GAS-onlyではGAS Testsだけであることを確認する。
   - UI・Web・認証・manifest・deployment・E2E対象では、`Push test GAS project and run tests` の成功後に `Deploy test Web app and run Playwright E2E` の成功を確認する。
-  - 同じhead SHAで成功済みの重い処理は再実行せず、head SHA上の成功Check Runを正本として再利用する。
+  - 同じhead/base SHAの組で成功済みの重い処理は再実行せず、head SHA上に発行されbase SHAも記録された成功Check Runを正本として再利用する。
   - Web E2Eの403 skip、cleanup失敗、Check Run発行失敗は成功扱いにしない。
-  - 追加コミットでhead SHAが変わった場合は、ラベルを外し、新headの再レビューとレビュー完了コメントを済ませてから再付与する。
+  - 追加コミットでhead SHAが変わった場合、またはdevelop更新でbase SHAが変わった場合は、ラベルを外し、新しいhead/baseの再レビューとレビュー完了コメントを済ませてから再付与する。
+  - 軽量ゲートはPR単位で旧判定を置き換え、GAS/Web/cleanupだけを共有 `gas-shared-test-project` lockで直列化する。summary専用runnerは使わない。
   - Actions再開は [`github-actions-suspension-restore.md`](github-actions-suspension-restore.md) の段階手順に従い、docs-onlyを存在しないrequired check待ちにしない。
 
 ## 完了済みとして未完了一覧へ戻さない項目

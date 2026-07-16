@@ -21,7 +21,7 @@
 - PR #95反映後の本番runではsource push、remote source、deployment update、deployment version検証まで成功したが、Web access gateがHTTP 404で失敗した。
 - Production Status Issue #88は `failed`、最終失敗ステージは `smoke-test`。Apps Script管理画面では対象deploymentのWebアプリ設定消失が確認されており、復旧完了まで正常稼働の根拠にしない。
 - Issue #98の方針により、GitHub Actionsは全面停止中。workflow実行、rerun、最終CIラベル、本番workflowは使用しない。
-- Issue #99では、docs-onlyのActions run 0件、現在head SHAのレビュー完了ゲート、backend GAS-onlyとWeb E2E対象の分離、成功済み同一head check再利用を実装中。
+- Issue #99では、docs-onlyのActions run 0件、現在head/develop base SHAのレビュー完了ゲート、backend GAS-onlyとWeb E2E対象の分離、成功済み同一head/base check再利用を実装中。
 
 ## 完了済みの主な範囲
 
@@ -70,9 +70,9 @@
 
 ### GAS CI / clasp運用
 
-- Actions再開後のPR向け最終CIは、現在head SHAのレビュー完了コメント後に `run-final-ci` ラベルを付けた時だけ起動する。Actions全面停止中は使用しない。
+- Actions再開後のPR向け最終CIは、現在head SHAとdevelop base SHAのレビュー完了コメント後に `run-final-ci` ラベルを付けた時だけ起動する。Actions全面停止中は使用しない。
 - docs-onlyはcontrollerの `paths-ignore` でActions run自体を作らず、API側でも重いjob 0回で拒否する。
-- 軽量ゲートはcheckout、Node setup、npm、clasp、Google Secrets参照より前に、PR状態、base、same-repository、head SHA、レビュー完了コメント、未解決thread、最新review state、変更ファイル全ページを確認する。
+- 軽量ゲートはcheckout、Node setup、npm、clasp、Google Secrets参照より前に、PR状態、base branch、event/current head SHA、event/current base SHA、両SHAのレビュー完了コメント、same-repository、未解決thread、最新review state、変更ファイル全ページを確認する。
 - PR向けGAS CIは、テスト専用Apps Scriptプロジェクトだけへpushする。
 - CIでは `pull_request_target` を使わず、fork / external PRへGoogle Secretsを渡さない。
 - GAS CIは `runAllTests()` の1回実行ではなく、`runGasTestBatch01` から `runGasTestBatch09` までの9バッチを順番に実行する。
@@ -81,10 +81,11 @@
 - CI用clasp project設定はrunner一時領域へ生成し、すべてのCI側clasp操作で `--project <CI専用設定ファイル>` と `--ignore <repo .claspignore>` を明示する。
 - CI用project設定の `rootDir` はリポジトリルートの絶対パスへ正規化し、`CLASP_PROJECT_JSON` の相対 `srcDir` はCIでは使わない。
 - backend GAS-onlyではGAS Testsだけを実行する。UI・Web・認証・manifest・deployment・E2E関連ではGAS Tests -> GAS Web App E2Eの順で直列実行する。未知パスは安全側でWeb E2E対象にする。
-- 同じhead SHAで成功済みのGAS Tests / Web E2Eは、head SHA上の成功Check Runを正本として重い処理だけ再利用する。
+- 同じhead/base SHAの組で成功済みのGAS Tests / Web E2Eは、head SHA上に発行されbase SHAも記録された成功Check Runを正本として重い処理だけ再利用する。
 - Web E2EのHTTP 403 skip、Playwright未実行、動的deployment cleanup失敗、Check Run発行失敗は成功扱いにしない。
 - 旧ラベルの `run-gas-tests` / `gas-web-e2e` は最終CIの起動には使わない。
-- GAS Tests と GAS Web App E2E の実runは、共通の `gas-shared-test-project` concurrency groupで直列化する。
+- 軽量ゲートはPR単位のconcurrencyで同じPRの旧判定だけを置き換える。GAS Tests と GAS Web App E2E の実runは、共通の `gas-shared-test-project` concurrency groupで直列化し、cleanupを含む実行中runは自動キャンセルしない。
+- ゲート拒否と全check再利用はゲートrunnerだけで完了し、summary専用runnerは使わない。GAS-onlyの最終summaryはGAS job、Web E2E対象の最終summaryはWeb jobへ統合する。
 - CI用と本番用のclasp操作は分離済み。
 - 本番Apps Script操作は次の本番専用npmコマンドだけを使う。
   - `npm run gas:production:open`
@@ -245,10 +246,10 @@ GitHub Actions経由では、URL内deployment IDとの一致、更新前の `WEB
 - 軽い手動確認は `runSmokeTests()` を使う。
 - 手動の一括確認入口は `runAllTests()` を使う。
 - CIではApps Scriptの実行時間上限を避けるため、`runAllTests()` 相当の一覧を `runGasTestBatch01` から `runGasTestBatch09` までに分割して実行する。
-- Actions再開後のPR最終確認は、現在head SHAのレビュー完了コメントを付けた後に `run-final-ci` ラベルで起動する。
+- Actions再開後のPR最終確認は、現在head SHAとdevelop base SHAのレビュー完了コメントを付けた後に `run-final-ci` ラベルで起動する。
 - Final CIでは変更分類に応じてGAS Testsだけ、またはGAS Tests成功後のWeb E2Eを実行する。docs-onlyではActions runを作らない。
-- Final CIの再利用判定はhead SHA上の成功Check Runだけを対象にする。Web E2Eの403 skipやcleanup失敗は再利用対象外。
-- 追加コミットでhead SHAが変わった場合は、ラベルを外し、新しいheadを再レビューして新しいレビュー完了コメントを付けてから再付与する。
+- Final CIの再利用判定は、head SHA上に発行され、同じdevelop base SHAを記録した成功Check Runだけを対象にする。Web E2Eの403 skipやcleanup失敗は再利用対象外。
+- 追加コミットでhead SHAが変わった場合、またはdevelop更新でbase SHAが変わった場合は、ラベルを外し、新しいhead/baseの組を再レビューして新しいレビュー完了コメントを付けてから再付与する。
 
 ## Codexへの伝え方
 

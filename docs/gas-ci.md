@@ -18,18 +18,18 @@ CI用バッチ関数は `runGasTestBatch01` から `runGasTestBatch09` までで
 
 - PR作成時には重いGASテストを実行しない。
 - PRブランチへのpushごとには重いGASテストを実行しない。
-- 最終レビュー後、現在head SHAに対するレビュー完了コメントを付け、その後に `run-final-ci` ラベルを付けた時だけ最終CIを起動する。
+- 最終レビュー後、現在head SHAとレビュー対象のdevelop base SHAに対するレビュー完了コメントを付け、その後に `run-final-ci` ラベルを付けた時だけ最終CIを起動する。
 - docs-onlyではcontrollerの `paths-ignore` によりGitHub Actions run自体を作らない。API側の再判定でもdocs-onlyなら安全側で拒否する。
 - backend GAS-onlyではGAS Testsだけを実行し、Web E2E jobは起動しない。
 - UI・Web・認証・manifest・deployment・E2Eへ影響する変更では、GAS Tests成功後にWeb E2Eを実行する。
-- 同じhead SHAで `Push test GAS project and run tests` が成功済みの場合は、既存checkを再利用して重いGAS実行をスキップする。
-- 同じhead SHAで `Deploy test Web app and run Playwright E2E` が成功済みの場合は、Web E2Eの重い処理をスキップする。
-- GAS Tests / Web E2Eはいずれも、対象head SHAへ明示発行した成功Check Runだけを再利用対象にする。
+- 同じhead SHAかつ同じdevelop base SHAで `Push test GAS project and run tests` が成功済みの場合は、既存checkを再利用して重いGAS実行をスキップする。
+- 同じhead SHAかつ同じdevelop base SHAで `Deploy test Web app and run Playwright E2E` が成功済みの場合は、Web E2Eの重い処理をスキップする。
+- GAS Tests / Web E2Eはいずれも、対象head SHAへ明示発行し、出力に同じbase SHAを記録した成功Check Runだけを再利用対象にする。
 - Web E2EのHTTP 403 skip、Playwright未実行、動的deployment cleanup失敗、Check Run発行失敗は成功扱いにしない。
 - `clasp run` が実行権限エラーで使えない場合は、CI上では `clasp run unavailable` として記録し、`clasp push` とソース検証が通っていればrequired checkは成功させる。
 - テスト失敗、例外、実行時間超過は認証不能fallbackと混同せず、required checkを失敗させる。
 - コード変更PRでは、必要に応じて Apps Script エディタでCI用バッチ関数を手動実行し、結果をPR本文へ残す。
-- テスト成功後またはレビュー完了コメント後に追加コミットした場合は、ラベルを外し、新しいheadを再レビューして新しいレビュー完了コメントを付けてから再度ラベルを付ける。
+- テスト成功後またはレビュー完了コメント後に追加コミットした場合、またはdevelopが進んでPRのbase SHAが変わった場合は、ラベルを外し、新しいhead/baseの組を再レビューして新しいレビュー完了コメントを付けてから再度ラベルを付ける。
 - `pull_request_target` は使わない。
 - forkや外部PRにはGoogle Secretsを渡さない。
 
@@ -49,7 +49,7 @@ CI用バッチ関数は `runGasTestBatch01` から `runGasTestBatch09` までで
 
 旧ラベルの `run-gas-tests` / `gas-web-e2e` は最終CIの起動には使いません。通常ラベルや旧ラベルでは、GAS Tests / Web E2Eの本体workflowを起動しません。
 
-GAS Tests と GAS Web App E2E は同じテスト専用 Apps Script プロジェクトへpushし、Script Propertiesも共有します。そのため、Web E2E対象変更では `Final CI` workflowがPR番号を含まない共通のconcurrency group `gas-shared-test-project` を使い、GAS Tests -> Web E2E の順に直列実行します。
+軽量レビューゲートはPR番号ごとのconcurrency groupを使い、同じPRの古いゲートだけを置き換えます。異なるPRのゲートは共有テストprojectの待機なしで独立して判定します。GAS Tests と GAS Web App E2E は同じテスト専用 Apps Script プロジェクトへpushし、Script Propertiesも共有するため、実処理だけをPR番号を含まない共通のconcurrency group `gas-shared-test-project` に入れ、GAS Tests -> Web E2E -> cleanupまで直列実行します。この共有処理は `cancel-in-progress: false` とし、cleanupを含む実行中runを自動キャンセルしません。
 
 `.github/workflows/gas-tests.yml` と `.github/workflows/gas-web-e2e.yml` は、ラベル起動ではなく `workflow_dispatch` の手動fallbackとして残します。
 
@@ -57,31 +57,35 @@ GAS Tests と GAS Web App E2E は同じテスト専用 Apps Script プロジェ�
 
 - PRがopenかつDraft解除済みで、baseが `develop` である
 - eventのhead SHAと現在のPR head SHAが一致する
+- eventのbase SHAと現在のPR base SHAが一致する
 - 同一リポジトリPRである
-- 現在head SHAのレビュー完了コメントがある
+- 現在head SHAとbase SHAの両方に一致するレビュー完了コメントがある
 - 未解決review threadが0件で、reviewerごとの最新状態に有効な `CHANGES_REQUESTED` がない
 - 変更ファイルを全ページ取得でき、docs-onlyではない
 
 GitHub APIやpaginationに失敗した場合も安全側で拒否し、GAS Tests / Web E2Eは0回です。
 
-reusable workflowの表示名差異やPR merge commit側のcheckだけではhead SHA再利用判定ができない問題を避けるため、GAS Testsを実行した場合は同じhead SHAへ `Push test GAS project and run tests`、Web E2Eを実行した場合は同じhead SHAへ `Deploy test Web app and run Playwright E2E` というCheck Runを明示的に完了状態で発行します。失敗時は同じCheck Runをfailureにします。成功済みcheckを再利用する場合は重いjobを起動せず、既存checkを正本にします。Check Run発行前にもPR head SHAを再確認し、headが変わっていた場合やCheck Run発行に失敗した場合はFinal CIを失敗させます。
+reusable workflowの表示名差異やPR merge commit側のcheckだけでは再利用判定ができない問題を避けるため、GAS Testsを実行した場合は同じhead SHAへ `Push test GAS project and run tests`、Web E2Eを実行した場合は同じhead SHAへ `Deploy test Web app and run Playwright E2E` というCheck Runを明示的に完了状態で発行します。Check Runの出力には検証したhead/base SHAの組を機械判定用マーカーとして保存します。失敗時は同じCheck Runをfailureにします。成功済みcheckを再利用する場合は重いjobを起動せず、既存checkを正本にします。Check Run発行前にもPRのhead/base SHAを再確認し、どちらかが変わっていた場合やCheck Run発行に失敗した場合はFinal CIを失敗させます。
+
+ゲート拒否またはGAS/Webの全結果を再利用できる場合は、軽量ゲートだけで結果をStep Summaryへ記録し、summary専用runnerは起動しません。GAS-onlyの最終結果はGAS job、Web E2E対象の最終結果はWeb jobへ統合します。
 
 ## 推奨マージフロー
 
 1. 実装を完了する。
 2. Draftを解除し、差分レビュー、未解決thread、`CHANGES_REQUESTED`、base branch、head SHAを確認する。
-3. 現在の40文字head SHAを使い、PRへ次のレビュー完了コメントを投稿する。
+3. 現在の40文字head SHAと、PRが参照する40文字develop base SHAを使い、PRへ次のレビュー完了コメントを投稿する。
 
    ```text
    <!-- final-ci-review-complete:v1 -->
    head_sha: <current 40-character head SHA>
+   base_sha: <reviewed develop base 40-character SHA>
    ```
 
 4. コメント投稿後にPRへ `run-final-ci` ラベルを付ける。
 5. 変更分類に応じて `Push test GAS project and run tests`、必要な場合は続けて `Deploy test Web app and run Playwright E2E` が成功することを確認する。
 6. 以降コード変更や追加ラベル操作をせずにマージする。
 
-レビュー完了コメントまたはテスト成功後に追加コミットした場合、古いコメントとcheckは無効です。`run-final-ci` ラベルを一度外し、新しいheadを再レビューし、新しいhead SHAのコメントを投稿してからラベルを再度付けてください。マーカーコメントはリポジトリの `OWNER`、`MEMBER`、`COLLABORATOR` によるものだけを受け付けます。
+レビュー完了コメントまたはテスト成功後に追加コミットした場合、またはdevelop更新でPRのbase SHAが変わった場合、古いコメントとcheckは無効です。`run-final-ci` ラベルを一度外し、新しいhead/baseの組を再レビューし、両SHAを含むコメントを投稿してからラベルを再度付けてください。マーカーコメントはリポジトリの `OWNER`、`MEMBER`、`COLLABORATOR` によるものだけを受け付けます。
 
 ## Codexにマージを依頼する場合
 
@@ -89,7 +93,7 @@ reusable workflowの表示名差異やPR merge commit側のcheckだけではhead
 
 1. 対象PRのhead SHA、base branch、mergeable状態を確認する。
 2. 未解決threadや有効な `CHANGES_REQUESTED` がなく、現在headのレビューが完了していることを確認する。
-3. 現在head SHAのレビュー完了コメントを投稿する。
+3. 現在head SHAとbase SHAのレビュー完了コメントを投稿する。
 4. `run-final-ci` ラベルが付いていない場合は付ける。既に付いていて最新headの最終CIが未確認の場合は、一度外して再度付ける。
 5. 変更分類に応じたcheckが最新headで成功するまで待つ。
 6. チェック成功後にhead SHAを再確認し、変わっていなければマージする。
@@ -108,7 +112,7 @@ GitHub Actions全面停止中はrequired checkから一時的に外していま�
 
 ## GAS実行対象の判定
 
-`run-final-ci` ラベルが付いた場合、軽量ゲートでレビュー状態と変更ファイルを全ページ確認し、次の3種類に分類します。各重い処理の直前にもGitHub APIでPR head SHAを再確認し、変わっていた場合は停止します。
+`run-final-ci` ラベルが付いた場合、軽量ゲートでレビュー状態と変更ファイルを全ページ確認し、次の3種類に分類します。各重い処理の直前とCheck Run発行前にもGitHub APIでPRのhead/base SHAを再確認し、どちらかが変わっていた場合は停止します。
 
 - `docs-only`: Actions run自体を作らない。API再判定まで到達した場合も重いjobは0回。
 - `gas-tests-only`: backend GAS、GAS単体テスト、本番用CIスクリプトなど。GAS Testsだけを実行する。
@@ -116,13 +120,13 @@ GitHub Actions全面停止中はrequired checkから一時的に外していま�
 
 分類できない新規パスは安全側で `gas-tests-and-web-e2e` とします。文書とコードの混在はdocs-onlyにしません。
 
-同じhead SHAに成功済みのcheckがある場合は、その結果を再利用します。
+同じhead/base SHAの組に成功済みのcheckがある場合は、その結果を再利用します。
 
 - `Push test GAS project and run tests` 成功済み: 既存checkを再利用し、GAS Tests job、`clasp push`、GAS実行を省略する。
 - `Deploy test Web app and run Playwright E2E` 成功済み: 既存checkを再利用し、Web E2E job、一時deployment作成、Playwright実行、cleanupを省略する。
 - Web E2EがHTTP 403でPlaywright未実行になった場合: 未検証のため成功Check Runは発行せず、再利用対象外にする。
 - 動的Web app deploymentのcleanupに失敗した場合: Playwrightが成功していてもWeb E2E全体を失敗にする。
-- head SHAが変わった場合: 古いheadの成功結果は再利用しない。
+- head SHAまたはbase SHAが変わった場合: 古い組の成功結果は再利用しない。
 
 ## セキュリティ
 
