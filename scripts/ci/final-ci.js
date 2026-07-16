@@ -4,16 +4,275 @@
 const FINAL_CI_LABEL = 'run-final-ci';
 const GAS_TESTS_CHECK_NAME = 'Push test GAS project and run tests';
 const WEB_E2E_CHECK_NAME = 'Deploy test Web app and run Playwright E2E';
+const FINAL_CI_REVIEW_MARKER = '<!-- final-ci-review-complete:v1 -->';
+const CHANGE_CLASSIFICATIONS = Object.freeze({
+  DOCS_ONLY: 'docs-only',
+  GAS_TESTS_ONLY: 'gas-tests-only',
+  GAS_TESTS_AND_WEB_E2E: 'gas-tests-and-web-e2e',
+});
+const SNAPSHOT_ACTIONS = Object.freeze({
+  EXECUTE: 'execute',
+  REUSE: 'reuse',
+  NOT_REQUIRED: 'not-required',
+});
+const TRUSTED_MARKER_ASSOCIATIONS = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
+const DOCS_ONLY_EXACT_PATHS = new Set([
+  'AGENTS.md',
+  'CLAUDE.md',
+  'README.md',
+  'src/app/README.md',
+  'src/test/README.md',
+]);
+const WEB_E2E_EXACT_PATHS = new Set([
+  '.clasp.example.json',
+  '.claspignore',
+  '.github/workflows/final-ci-run.yml',
+  '.github/workflows/final-ci.yml',
+  '.github/workflows/gas-web-e2e.yml',
+  '.github/workflows/deploy-production.yml',
+  '.github/workflows/production-deploy-control.yml',
+  'Index.html',
+  'appsscript.json',
+  'package-lock.json',
+  'package.json',
+  'playwright.config.js',
+  'scripts/ci/check-final-ci-workflow.js',
+  'scripts/ci/check-web-e2e-output-reset.js',
+  'scripts/ci/check-web-e2e-source-transform.js',
+  'scripts/ci/delete-dynamic-webapp-deployment.sh',
+  'scripts/ci/deploy-test-webapp.sh',
+  'scripts/ci/final-ci.js',
+  'scripts/ci/prepare-web-e2e-source.js',
+  'scripts/ci/production-deploy-adapters.js',
+  'scripts/ci/production-deploy-orchestrator.js',
+  'scripts/ci/production-runtime-verification.js',
+  'scripts/ci/production-smoke-test.js',
+  'scripts/ci/production-web-app-deployment.js',
+  'scripts/ci/run-production-deploy.js',
+  'scripts/ci/write-ci-clasp-config.js',
+  'src/app/config.gs',
+  'src/app/db_config.gs',
+  'src/app/e2e_helpers.gs',
+  'src/app/e2e_runtime_support.gs',
+  'src/app/script_properties.gs',
+  'src/app/web.gs',
+]);
+const KNOWN_GAS_ONLY_EXACT_PATHS = new Set([
+  '.clasp.production.example.json',
+  '.clasp.productionignore',
+  '.github/workflows/gas-tests.yml',
+  '.github/workflows/update-production-status.yml',
+  'scripts/ci/check-ci-clasp-project.js',
+  'scripts/ci/run-gas-tests.sh',
+  'scripts/gas-production.js',
+  'scripts/ci/production-deploy-state.js',
+  'scripts/ci/production-status-parser.js',
+  'scripts/ci/production-status-renderer.js',
+  'scripts/ci/production-status-sync.js',
+  'scripts/ci/sync-production-status.js',
+  'src/app/builder.gs',
+  'src/app/db.gs',
+  'src/app/import.gs',
+  'src/app/parser.gs',
+  'src/app/reorder_output_sheets.gs',
+  'src/app/source_routing_rakuten_phase1.gs',
+  'src/app/utils.gs',
+  'src/app/writer.gs',
+]);
+
+function normalizeRepositoryPath(filePath) {
+  if (typeof filePath !== 'string' || !filePath.trim()) {
+    throw new Error('Final CI changed file path is invalid.');
+  }
+  const normalized = filePath.replace(/\\/g, '/').replace(/^\.\//, '');
+  if (normalized.startsWith('/') || normalized === '..' || normalized.startsWith('../') || normalized.includes('/../')) {
+    throw new Error('Final CI changed file path is invalid.');
+  }
+  return normalized;
+}
+
+function isDocsOnlyPath(filePath) {
+  const normalized = normalizeRepositoryPath(filePath);
+  return normalized.startsWith('docs/') || DOCS_ONLY_EXACT_PATHS.has(normalized);
+}
+
+function isWebE2eAffectedPath(filePath) {
+  const normalized = normalizeRepositoryPath(filePath);
+  return WEB_E2E_EXACT_PATHS.has(normalized) || normalized.startsWith('tests/e2e/');
+}
+
+function isKnownGasOnlyPath(filePath) {
+  const normalized = normalizeRepositoryPath(filePath);
+  return KNOWN_GAS_ONLY_EXACT_PATHS.has(normalized)
+    || normalized.startsWith('src/test/')
+    || normalized.startsWith('scripts/ci/check-production-');
+}
+
+function classifyChangedFiles(filePaths) {
+  if (!Array.isArray(filePaths) || filePaths.length === 0) {
+    throw new Error('Final CI changed file list is missing or empty.');
+  }
+  const normalized = filePaths.map(normalizeRepositoryPath);
+  if (normalized.every(isDocsOnlyPath)) {
+    return CHANGE_CLASSIFICATIONS.DOCS_ONLY;
+  }
+  if (normalized.some(isWebE2eAffectedPath)) {
+    return CHANGE_CLASSIFICATIONS.GAS_TESTS_AND_WEB_E2E;
+  }
+  if (normalized.every((filePath) => isDocsOnlyPath(filePath) || isKnownGasOnlyPath(filePath))) {
+    return CHANGE_CLASSIFICATIONS.GAS_TESTS_ONLY;
+  }
+  return CHANGE_CLASSIFICATIONS.GAS_TESTS_AND_WEB_E2E;
+}
+
+function commentHasReviewMarkerForHead(comment, headSha) {
+  if (
+    !comment
+    || !TRUSTED_MARKER_ASSOCIATIONS.has(String(comment.author_association || '').toUpperCase())
+    || typeof comment.body !== 'string'
+    || !/^[0-9a-f]{40}$/i.test(headSha || '')
+  ) {
+    return false;
+  }
+  const markerPattern = new RegExp(
+    `${FINAL_CI_REVIEW_MARKER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[ \\t]*\\r?\\n[ \\t]*head_sha:[ \\t]*([0-9a-f]{40})[ \\t]*(?:\\r?\\n|$)`,
+    'ig',
+  );
+  return [...comment.body.matchAll(markerPattern)].some((match) => match[1].toLowerCase() === headSha.toLowerCase());
+}
+
+function hasReviewCompletionMarker(comments, headSha) {
+  return Array.isArray(comments) && comments.some((comment) => commentHasReviewMarkerForHead(comment, headSha));
+}
+
+function hasActiveChangesRequested(reviews) {
+  if (!Array.isArray(reviews)) {
+    throw new Error('Final CI review list is invalid.');
+  }
+  const decisiveStates = new Set(['APPROVED', 'CHANGES_REQUESTED', 'DISMISSED']);
+  const latestByReviewer = new Map();
+  reviews.forEach((review, index) => {
+    const login = review && review.user && review.user.login;
+    const state = String(review && review.state || '').toUpperCase();
+    if (!login || !decisiveStates.has(state)) {
+      return;
+    }
+    const timestamp = Date.parse(review.submitted_at || review.submittedAt || '') || 0;
+    const candidate = { state, timestamp, index };
+    const reviewerKey = login.toLowerCase();
+    const current = latestByReviewer.get(reviewerKey);
+    if (!current || candidate.timestamp > current.timestamp || (
+      candidate.timestamp === current.timestamp && candidate.index > current.index
+    )) {
+      latestByReviewer.set(reviewerKey, candidate);
+    }
+  });
+  return [...latestByReviewer.values()].some((review) => review.state === 'CHANGES_REQUESTED');
+}
+
+function currentPullRequestLabels(pullRequest) {
+  if (!pullRequest || !Array.isArray(pullRequest.labels)) {
+    return [];
+  }
+  return pullRequest.labels.map((label) => typeof label === 'string' ? label : label && label.name).filter(Boolean);
+}
+
+function evaluateFinalCiGate({
+  repository,
+  expectedHeadSha,
+  expectedBaseBranch,
+  labelName,
+  pullRequest,
+  comments,
+  reviews,
+  reviewDecision,
+  unresolvedReviewThreadCount,
+  changedFiles,
+  gasCheckRuns = [],
+  webCheckRuns = [],
+}) {
+  const currentHeadSha = pullRequest && pullRequest.head && pullRequest.head.sha;
+  const headRepository = pullRequest && pullRequest.head && pullRequest.head.repo && pullRequest.head.repo.full_name;
+  const baseBranch = pullRequest && pullRequest.base && pullRequest.base.ref;
+  const reject = (reason) => ({
+    allowed: false,
+    reason,
+    classification: '',
+    gasAction: SNAPSHOT_ACTIONS.NOT_REQUIRED,
+    webAction: SNAPSHOT_ACTIONS.NOT_REQUIRED,
+    currentHeadSha: currentHeadSha || '',
+  });
+
+  if (labelName !== FINAL_CI_LABEL || !currentPullRequestLabels(pullRequest).includes(FINAL_CI_LABEL)) {
+    return reject(`current PR does not have the ${FINAL_CI_LABEL} label`);
+  }
+  if (!pullRequest || pullRequest.state !== 'open') {
+    return reject('pull request is not open');
+  }
+  if (pullRequest.draft) {
+    return reject('pull request is still Draft');
+  }
+  if (expectedBaseBranch !== 'develop' || baseBranch !== 'develop') {
+    return reject('pull request base branch is not develop');
+  }
+  if (!isSameRepositoryPullRequest({ repository, headRepository })) {
+    return reject('secret-backed final CI is disabled for fork or external PRs');
+  }
+  if (!/^[0-9a-f]{40}$/i.test(expectedHeadSha || '') || currentHeadSha !== expectedHeadSha) {
+    return reject('PR head changed after final CI was requested');
+  }
+  if (!hasReviewCompletionMarker(comments, currentHeadSha)) {
+    return reject('review completion marker for the current head SHA is missing');
+  }
+  if (!Number.isInteger(unresolvedReviewThreadCount) || unresolvedReviewThreadCount < 0) {
+    return reject('unresolved review thread state could not be verified');
+  }
+  if (unresolvedReviewThreadCount > 0) {
+    return reject('unresolved review threads remain');
+  }
+  if (String(reviewDecision || '').toUpperCase() === 'CHANGES_REQUESTED' || hasActiveChangesRequested(reviews)) {
+    return reject('an active changes-requested review remains');
+  }
+
+  let classification;
+  try {
+    classification = classifyChangedFiles(changedFiles);
+  } catch (error) {
+    return reject(error.message);
+  }
+  if (classification === CHANGE_CLASSIFICATIONS.DOCS_ONLY) {
+    return reject('docs-only changes must not start Final CI');
+  }
+
+  const gasAction = hasSuccessfulCheckRun(gasCheckRuns, GAS_TESTS_CHECK_NAME, currentHeadSha)
+    ? SNAPSHOT_ACTIONS.REUSE
+    : SNAPSHOT_ACTIONS.EXECUTE;
+  const webRequired = classification === CHANGE_CLASSIFICATIONS.GAS_TESTS_AND_WEB_E2E;
+  const webAction = !webRequired
+    ? SNAPSHOT_ACTIONS.NOT_REQUIRED
+    : hasSuccessfulCheckRun(webCheckRuns, WEB_E2E_CHECK_NAME, currentHeadSha)
+      ? SNAPSHOT_ACTIONS.REUSE
+      : SNAPSHOT_ACTIONS.EXECUTE;
+  return {
+    allowed: true,
+    reason: 'review completion gate passed for the current head SHA',
+    classification,
+    gasAction,
+    webAction,
+    currentHeadSha,
+  };
+}
 
 function isSameRepositoryPullRequest({ repository, headRepository }) {
   return Boolean(repository && headRepository && repository === headRepository);
 }
 
-function hasSuccessfulCheckRun(checkRuns, checkName) {
+function hasSuccessfulCheckRun(checkRuns, checkName, expectedHeadSha = '') {
   return (checkRuns || []).some((checkRun) => (
     checkRun &&
     checkRun.name === checkName &&
-    checkRun.conclusion === 'success'
+    checkRun.conclusion === 'success' &&
+    (!expectedHeadSha || checkRun.head_sha === expectedHeadSha)
   ));
 }
 
@@ -218,7 +477,7 @@ function decideCheckExecution({
     };
   }
 
-  if (hasSuccessfulCheckRun(checkRuns, checkName)) {
+  if (hasSuccessfulCheckRun(checkRuns, checkName, expectedHeadSha)) {
     return {
       action: 'reuse',
       status: 'reused',
@@ -271,11 +530,121 @@ async function fetchGitHubJson({ env, path, method = 'GET', body }) {
   });
 
   if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`GitHub API request failed: ${response.status} ${response.statusText}: ${body.slice(0, 300)}`);
+    throw new Error(`GitHub API request failed with HTTP ${response.status}.`);
   }
 
-  return response.json();
+  try {
+    return await response.json();
+  } catch (error) {
+    throw new Error('GitHub API returned invalid JSON.');
+  }
+}
+
+async function collectPaginatedItems({ fetchPage, pageSize = 100, maxPages = 100 }) {
+  if (typeof fetchPage !== 'function' || !Number.isInteger(pageSize) || pageSize < 1 || !Number.isInteger(maxPages) || maxPages < 1) {
+    throw new Error('Final CI gate pagination configuration is invalid.');
+  }
+  const items = [];
+  for (let page = 1; page <= maxPages; page += 1) {
+    let pageItems;
+    try {
+      pageItems = await fetchPage({ page, pageSize });
+    } catch (error) {
+      throw new Error('Final CI gate pagination failed.');
+    }
+    if (!Array.isArray(pageItems)) {
+      throw new Error('Final CI gate pagination response is invalid.');
+    }
+    items.push(...pageItems);
+    if (pageItems.length < pageSize) {
+      return items;
+    }
+  }
+  throw new Error('Final CI gate pagination exceeded the safety limit.');
+}
+
+async function readPaginatedRestArray({ env, path, pageSize = 100 }) {
+  return collectPaginatedItems({
+    pageSize,
+    fetchPage: async ({ page }) => {
+      const separator = path.includes('?') ? '&' : '?';
+      const data = await fetchGitHubJson({
+        env,
+        path: `${path}${separator}per_page=${pageSize}&page=${page}`,
+      });
+      if (!Array.isArray(data)) {
+        throw new Error('GitHub REST pagination response is invalid.');
+      }
+      return data;
+    },
+  });
+}
+
+async function fetchGitHubGraphql({ env, query, variables }) {
+  const data = await fetchGitHubJson({
+    env,
+    path: '/graphql',
+    method: 'POST',
+    body: { query, variables },
+  });
+  if (!data || typeof data !== 'object' || (Array.isArray(data.errors) && data.errors.length > 0)) {
+    throw new Error('GitHub GraphQL request failed.');
+  }
+  return data.data;
+}
+
+async function readReviewThreadState({ env }) {
+  requireEnv(env, ['GITHUB_REPOSITORY', 'PR_NUMBER']);
+  const [owner, name] = env.GITHUB_REPOSITORY.split('/');
+  if (!owner || !name || !/^\d+$/.test(env.PR_NUMBER)) {
+    throw new Error('Final CI pull request context is invalid.');
+  }
+  const query = `
+    query FinalCiReviewThreads($owner: String!, $name: String!, $number: Int!, $cursor: String) {
+      repository(owner: $owner, name: $name) {
+        pullRequest(number: $number) {
+          reviewDecision
+          reviewThreads(first: 100, after: $cursor) {
+            nodes { isResolved }
+            pageInfo { hasNextPage endCursor }
+          }
+        }
+      }
+    }
+  `;
+  const seenCursors = new Set();
+  let cursor = null;
+  let reviewDecision = '';
+  let unresolvedReviewThreadCount = 0;
+  for (let page = 0; page < 100; page += 1) {
+    let data;
+    try {
+      data = await fetchGitHubGraphql({
+        env,
+        query,
+        variables: { owner, name, number: Number(env.PR_NUMBER), cursor },
+      });
+    } catch (error) {
+      throw new Error('Final CI review thread pagination failed.');
+    }
+    const pullRequest = data && data.repository && data.repository.pullRequest;
+    const threads = pullRequest && pullRequest.reviewThreads;
+    if (!pullRequest || !threads || !Array.isArray(threads.nodes) || !threads.pageInfo) {
+      throw new Error('Final CI review thread response is invalid.');
+    }
+    reviewDecision = pullRequest.reviewDecision || '';
+    unresolvedReviewThreadCount += threads.nodes.filter((thread) => !thread || thread.isResolved !== true).length;
+    if (!threads.pageInfo.hasNextPage) {
+      return { reviewDecision, unresolvedReviewThreadCount };
+    }
+    const nextCursor = threads.pageInfo.endCursor;
+    if (typeof nextCursor !== 'string' || !nextCursor || seenCursors.has(nextCursor)) {
+      throw new Error('Final CI review thread pagination cursor is invalid.');
+    }
+    seenCursors.add(nextCursor);
+    cursor = nextCursor;
+  }
+  throw new Error('Final CI review thread pagination exceeded the safety limit.');
 }
 
 async function readPullRequest({ env }) {
@@ -290,11 +659,107 @@ async function readCheckRuns({ env, headSha, checkName }) {
   requireEnv(env, ['GITHUB_REPOSITORY']);
   const encodedSha = encodeURIComponent(headSha);
   const encodedName = encodeURIComponent(checkName);
-  const data = await fetchGitHubJson({
-    env,
-    path: `/repos/${env.GITHUB_REPOSITORY}/commits/${encodedSha}/check-runs?check_name=${encodedName}&per_page=100`,
+  return collectPaginatedItems({
+    fetchPage: async ({ page, pageSize }) => {
+      const data = await fetchGitHubJson({
+        env,
+        path: `/repos/${env.GITHUB_REPOSITORY}/commits/${encodedSha}/check-runs?check_name=${encodedName}&per_page=${pageSize}&page=${page}`,
+      });
+      if (!data || !Array.isArray(data.check_runs)) {
+        throw new Error('GitHub Check Runs response is invalid.');
+      }
+      return data.check_runs;
+    },
   });
-  return data.check_runs || [];
+}
+
+async function commandGate(env = process.env) {
+  requireEnv(env, [
+    'EXPECTED_BASE_BRANCH',
+    'EXPECTED_HEAD_SHA',
+    'GITHUB_REPOSITORY',
+    'LABEL_NAME',
+    'PR_NUMBER',
+  ]);
+  const writeGateOutputs = (result) => {
+    writeOutput('allowed', result.allowed ? 'true' : 'false', env);
+    writeOutput('reason', result.reason, env);
+    writeOutput('classification', result.classification || '', env);
+    writeOutput('gas_action', result.gasAction, env);
+    writeOutput('web_action', result.webAction, env);
+    writeOutput('current_head_sha', result.currentHeadSha || '', env);
+  };
+  let result;
+  try {
+    const pullRequest = await readPullRequest({ env });
+    const [comments, reviews, changedFileRecords, reviewThreadState] = await Promise.all([
+      readPaginatedRestArray({
+        env,
+        path: `/repos/${env.GITHUB_REPOSITORY}/issues/${encodeURIComponent(env.PR_NUMBER)}/comments`,
+      }),
+      readPaginatedRestArray({
+        env,
+        path: `/repos/${env.GITHUB_REPOSITORY}/pulls/${encodeURIComponent(env.PR_NUMBER)}/reviews`,
+      }),
+      readPaginatedRestArray({
+        env,
+        path: `/repos/${env.GITHUB_REPOSITORY}/pulls/${encodeURIComponent(env.PR_NUMBER)}/files`,
+      }),
+      readReviewThreadState({ env }),
+    ]);
+    if (changedFileRecords.some((file) => !file || typeof file.filename !== 'string')) {
+      throw new Error('Final CI changed file response is invalid.');
+    }
+    const currentHeadSha = pullRequest && pullRequest.head && pullRequest.head.sha;
+    const [gasCheckRuns, webCheckRuns] = currentHeadSha === env.EXPECTED_HEAD_SHA
+      ? await Promise.all([
+        readCheckRuns({ env, headSha: currentHeadSha, checkName: GAS_TESTS_CHECK_NAME }),
+        readCheckRuns({ env, headSha: currentHeadSha, checkName: WEB_E2E_CHECK_NAME }),
+      ])
+      : [[], []];
+    result = evaluateFinalCiGate({
+      repository: env.GITHUB_REPOSITORY,
+      expectedHeadSha: env.EXPECTED_HEAD_SHA,
+      expectedBaseBranch: env.EXPECTED_BASE_BRANCH,
+      labelName: env.LABEL_NAME,
+      pullRequest,
+      comments,
+      reviews,
+      reviewDecision: reviewThreadState.reviewDecision,
+      unresolvedReviewThreadCount: reviewThreadState.unresolvedReviewThreadCount,
+      changedFiles: changedFileRecords.map((file) => file.filename),
+      gasCheckRuns,
+      webCheckRuns,
+    });
+  } catch (error) {
+    result = {
+      allowed: false,
+      reason: error && error.message ? error.message : 'Final CI gate verification failed.',
+      classification: '',
+      gasAction: SNAPSHOT_ACTIONS.NOT_REQUIRED,
+      webAction: SNAPSHOT_ACTIONS.NOT_REQUIRED,
+      currentHeadSha: '',
+    };
+  }
+
+  writeGateOutputs(result);
+  appendSummary([
+    '## Final CI review gate',
+    '',
+    `- PR: #${env.PR_NUMBER}`,
+    `- Requested head SHA: \`${env.EXPECTED_HEAD_SHA}\``,
+    `- Current head SHA: \`${result.currentHeadSha || 'unknown'}\``,
+    `- Result: \`${result.allowed ? 'accepted' : 'rejected'}\``,
+    `- Reason: ${result.reason}`,
+    `- Change classification: \`${result.classification || 'not-classified'}\``,
+    `- GAS Tests: \`${result.gasAction}\``,
+    `- Web E2E: \`${result.webAction}\``,
+    '',
+  ].join('\n'), env);
+  if (!result.allowed) {
+    throw new Error(result.reason);
+  }
+  return result;
 }
 
 async function commandDecide(env = process.env) {
@@ -459,6 +924,10 @@ async function commandPublishCheck(env = process.env) {
 
 async function main() {
   const command = process.argv[2];
+  if (command === 'gate') {
+    await commandGate();
+    return;
+  }
   if (command === 'decide') {
     await commandDecide();
     return;
@@ -487,13 +956,22 @@ if (require.main === module) {
 }
 
 module.exports = {
+  CHANGE_CLASSIFICATIONS,
   FINAL_CI_LABEL,
+  FINAL_CI_REVIEW_MARKER,
   GAS_TESTS_CHECK_NAME,
+  SNAPSHOT_ACTIONS,
   WEB_E2E_CHECK_NAME,
   buildCheckRunRequest,
+  classifyChangedFiles,
+  collectPaginatedItems,
+  commentHasReviewMarkerForHead,
   decideCheckExecution,
   determineWebE2eStatus,
+  evaluateFinalCiGate,
   getCheckConclusionForStatus,
+  hasActiveChangesRequested,
+  hasReviewCompletionMarker,
   hasSuccessfulCheckRun,
   isSameRepositoryPullRequest,
 };

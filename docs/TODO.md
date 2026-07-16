@@ -20,6 +20,7 @@
 - Web App E2Eは、野村1ケース + 楽天7ケースの合計8ケースまで完了済み。
 - PR #95反映後の本番runはsource pushとremote source／deployment version検証まで成功したが、deployment更新後にWeb App entry pointが消失し、Web access gateがHTTP 404で失敗した。
 - Production Status Issue #88は `failed`。本番Webアプリを復旧して更新前後の `WEB_APP`検証を通すまで正常稼働の根拠にしない。
+- Issue #98の方針によりGitHub Actionsは全面停止中。Issue #99の最終CIレビューゲートをローカル検証し、ユーザーの明示承認まではActions、最終CIラベル、本番workflowを使用しない。
 
 ## 最優先: 本番復旧確認
 
@@ -208,12 +209,13 @@ rollbackの正常系は既存E2Eで使っているが、異常系の明示確認
   - CI用。
   - `runAllTests()` 相当のテスト一覧を分割して実行する。
 - PRの最終CI
-  - `run-final-ci` ラベルを付ける。
-  - `Push test GAS project and run tests` の成功を確認する。
-  - 続けて `Deploy test Web app and run Playwright E2E` の成功を確認する。
+  - Actions再開後、現在head SHAのレビュー完了コメントを付けてから `run-final-ci` ラベルを付ける。
+  - docs-onlyではActions run 0件、backend GAS-onlyではGAS Testsだけであることを確認する。
+  - UI・Web・認証・manifest・deployment・E2E対象では、`Push test GAS project and run tests` の成功後に `Deploy test Web app and run Playwright E2E` の成功を確認する。
   - 同じhead SHAで成功済みの重い処理は再実行せず、head SHA上の成功Check Runを正本として再利用する。
   - Web E2Eの403 skip、cleanup失敗、Check Run発行失敗は成功扱いにしない。
-  - 追加コミットでhead SHAが変わった場合は、`run-final-ci` ラベルを外して再付与する。
+  - 追加コミットでhead SHAが変わった場合は、ラベルを外し、新headの再レビューとレビュー完了コメントを済ませてから再付与する。
+  - Actions再開は [`github-actions-suspension-restore.md`](github-actions-suspension-restore.md) の段階手順に従い、docs-onlyを存在しないrequired check待ちにしない。
 
 ## 完了済みとして未完了一覧へ戻さない項目
 
