@@ -35,34 +35,18 @@ function extractTestFunctionDefinitions(source, filePath) {
     throw new Error(`unable to parse GAS test source: ${filePath}${location}`);
   }
 
-  const definitions = [];
-  const pendingNodes = [program];
-  while (pendingNodes.length > 0) {
-    const node = pendingNodes.pop();
-    if (
-      (node.type === 'FunctionDeclaration' || node.type === 'FunctionExpression') &&
+  return program.body
+    .filter((node) => (
+      node.type === 'FunctionDeclaration' &&
       node.id &&
       node.id.type === 'Identifier' &&
       TEST_FUNCTION_NAME_PATTERN.test(node.id.name)
-    ) {
-      definitions.push({
-        filePath,
-        line: node.loc.start.line,
-        name: node.id.name,
-      });
-    }
-
-    for (const value of Object.values(node)) {
-      if (Array.isArray(value)) {
-        for (let index = value.length - 1; index >= 0; index -= 1) {
-          if (value[index] && typeof value[index].type === 'string') pendingNodes.push(value[index]);
-        }
-      } else if (value && typeof value.type === 'string') {
-        pendingNodes.push(value);
-      }
-    }
-  }
-  return definitions;
+    ))
+    .map((node) => ({
+      filePath,
+      line: node.loc.start.line,
+      name: node.id.name,
+    }));
 }
 
 function listGasTestSourceFiles({ testRoot = defaultTestRoot, runnerPath = defaultRunnerPath } = {}) {

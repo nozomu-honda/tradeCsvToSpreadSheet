@@ -22,6 +22,7 @@ const {
   assertSourceDefinitionsMatchManifest,
   assertGasRunnerMatchesManifest,
   collectTestFunctionDefinitions,
+  extractTestFunctionDefinitions,
   listGasTestSourceFiles,
   resultTestNames,
   verifyGasTestManifestSync,
@@ -205,6 +206,23 @@ function checkSelectedTestFileMappingAudit() {
     })[0].actualAreas,
     ['database', 'staging-import'],
     'a mapping that covers every manifest area must pass the audit',
+  );
+  const localHelpersSummary = auditSelectedTestFileMappings({
+    pathRules: { [fixturePath]: { kind: 'selected', areas: ['database'] } },
+    manifest: fixtureManifest,
+    readSource: readFixture([
+      `function ${databaseTest}() {`,
+      '  function test_mapping_audit_nested_local_() {}',
+      '}',
+      'const callback = function test_mapping_audit_named_expression_local_() {};',
+      'consume(function test_mapping_audit_callback_local_() {});',
+    ].join('\n')),
+  })[0];
+  assert.deepStrictEqual(localHelpersSummary.actualAreas, ['database']);
+  assert.deepStrictEqual(
+    localHelpersSummary.testNames,
+    [databaseTest],
+    'mapped file areas must be derived only from top-level GAS test declarations',
   );
   assert.throws(
     () => auditSelectedTestFileMappings({
@@ -463,6 +481,37 @@ function checkSourceDefinitionCollection() {
   });
 }
 
+function checkTopLevelSourceDefinitionCollection() {
+  const fixtureSource = [
+    'function test_top_level_real_() {',
+    '  function test_nested_local_() {}',
+    '}',
+    'const namedExpression = function test_named_expression_local_() {};',
+    'consume(function test_callback_local_() {});',
+    'const templateValue = `${(() => {',
+    '  return function test_template_local_() {};',
+    '})()}`;',
+    'const fixture = {',
+    '  test_object_method_() {},',
+    '};',
+    'class Fixture {',
+    '  test_class_method_() {}',
+    '}',
+    'const test_arrow_local_ = () => {};',
+    '',
+  ].join('\n');
+
+  assert.deepStrictEqual(
+    extractTestFunctionDefinitions(fixtureSource, 'src/test/test_top_level_fixture.gs'),
+    [{
+      name: 'test_top_level_real_',
+      filePath: 'src/test/test_top_level_fixture.gs',
+      line: 1,
+    }],
+    'only top-level function test_* declarations can be GAS test entry points',
+  );
+}
+
 function checkTemplateLiteralDefinitionCollection() {
   const fixtureLines = [
     "const nestedBody = `outer ${`",
@@ -501,13 +550,9 @@ function checkTemplateLiteralDefinitionCollection() {
     assert.deepStrictEqual(
       definitions.map(({ name, line }) => ({ name, line })),
       [
-        { name: 'test_escaped_backslash_expression_fixture_', line: 23 },
-        { name: 'test_nested_template_expression_fixture_', line: 9 },
         { name: 'test_real_after_templates_fixture_', line: 24 },
-        { name: 'test_template_brace_depth_fixture_', line: 18 },
-        { name: 'test_template_expression_fixture_', line: 5 },
       ],
-      'template bodies must stay masked while real definitions in nested interpolation expressions remain visible',
+      'template bodies and local function expressions must be ignored while later top-level declarations remain visible',
     );
   });
 }
@@ -896,6 +941,28 @@ function checkShellSelectionValidation() {
   assert.match(selectedResult.summary, /Apps Script wait:/);
   assert.match(selectedResult.summary, /Actual GAS tests:/);
 
+  const localHelpersResult = runGasShellSelectionFixture(selected, {
+    extraTestFiles: {
+      'src/test/test_local_helpers_fixture.gs': [
+        'function localContainer_() {',
+        '  function test_nested_local_fixture_() {}',
+        '}',
+        'const namedExpression = function test_named_expression_local_fixture_() {};',
+        'consume(function test_callback_local_fixture_() {});',
+        'const templateValue = `${(() => {',
+        '  return function test_template_local_fixture_() {};',
+        '})()}`;',
+        '',
+      ].join('\n'),
+    },
+  });
+  assertSuccessfulShellFixture(localHelpersResult, 'selected with local test-like helpers');
+  assert.deepStrictEqual(
+    claspRunFunctions(localHelpersResult.calls),
+    selected.suiteDetails.map((detail) => detail.entryPoint),
+    'local test-like helpers must not change selected GAS entry points',
+  );
+
   const validationBypassSelection = selectGasTestsByChangedFiles([
     'src/test/test_test_db_validation_bypass.gs',
   ]);
@@ -1060,6 +1127,7 @@ checkSelectedTestFileMappingAudit();
 checkSelectionPayloadValidation();
 checkExactGitDiffInput();
 checkSourceDefinitionCollection();
+checkTopLevelSourceDefinitionCollection();
 checkTemplateLiteralDefinitionCollection();
 checkRegularExpressionAndDivisionDefinitionCollection();
 checkSourceManifestMismatchFixtures();

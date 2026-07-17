@@ -471,9 +471,9 @@ Apps Script の日次クォータに当たりやすくなります。
 
 CI用fullバッチ関数は `runAllTests()` 相当のテスト一覧から自動生成されます。新しいテストを `CORE_TESTS_` または `FULL_ONLY_TESTS_` へ追加すると、fullバッチ側にも含まれます。9バッチに収まらない数まで増えた場合は、公開バッチ関数とCIの実行リストも増やします。未対応のままだと、バッチ定義検証で失敗します。
 
-suite名、area、entry point、所属する実テスト関数名と順序の正本は`scripts/ci/gas-test-suite-manifest.js`です。新しいテストは`test_runner.gs`以外の`src/test/**/*.gs`へ`function test_*`形式で定義し、manifestへ同じ関数名、影響領域、`fullOnly`を登録してから、`test_runner.gs`の`CORE_TESTS_` / `FULL_ONLY_TESTS_`と領域別配列をmanifest順に同期してください。Final CI preflightはコメント、文字列、template literal、単なる関数参照を実定義として数えず、実ファイル・manifest・runner・selected/full entry pointを完全照合します。実定義の未登録・重複、manifest側だけの不存在テスト、同数のsuite間交換、欠落、別suite混入、順序変更は`clasp push`前に失敗します。
+suite名、area、entry point、所属する実テスト関数名と順序の正本は`scripts/ci/gas-test-suite-manifest.js`です。新しいテストは`test_runner.gs`以外の`src/test/**/*.gs`のトップレベルへ`function test_*(){}`形式で定義し、manifestへ同じ関数名、影響領域、`fullOnly`を登録してから、`test_runner.gs`の`CORE_TESTS_` / `FULL_ONLY_TESTS_`と領域別配列をmanifest順に同期してください。Final CI preflightは`Program.body`直下の`FunctionDeclaration`だけを実定義として数え、ネスト宣言、名前付き関数式、callback、object/class method、arrow function、template interpolation内のローカル関数、コメント、文字列、regex、単なる関数参照を除外して、実ファイル・manifest・runner・selected/full entry pointを完全照合します。実定義の未登録・重複、manifest側だけの不存在テスト、同数のsuite間交換、欠落、別suite混入、順序変更は`clasp push`前に失敗します。
 
-selected対象のテストファイルを追加・変更する場合は、ファイル内に定義された全テストのmanifest areaの和集合を`scripts/ci/gas-test-selection.js`の`PATH_RULES`へ反映してください。`scripts/ci/check-gas-test-file-mappings.js`は、selected対象の各`src/test/**/*.gs`に実テストが1件以上あること、全テストがmanifestへ登録済みであること、manifest areaがPATH_RULESから欠落していないことを監査します。Final CIはこのpreflightを差分選択と`clasp push`より前に直接実行し、Node回帰テストも同じ監査関数を使用します。
+selected対象のテストファイルを追加・変更する場合は、ファイル内に定義された全トップレベルテストのmanifest areaの和集合を`scripts/ci/gas-test-selection.js`の`PATH_RULES`へ反映してください。`scripts/ci/check-gas-test-file-mappings.js`は、selected対象の各`src/test/**/*.gs`にトップレベル実テストが1件以上あること、全テストがmanifestへ登録済みであること、manifest areaがPATH_RULESから欠落していないことを監査します。ローカルhelperやcallbackの`test_*`名はarea監査へ混入しません。Final CIはこのpreflightを差分選択と`clasp push`より前に直接実行し、Node回帰テストも同じ監査関数を使用します。
 
 実装sourceを追加・変更する場合は、テストが入力、DB、計算、出力など複数層を跨ぐか確認し、`PATH_RULES`で必要領域の和集合を選んでください。source fileを必ず1領域へ閉じ込める前提にはしません。安全に判断できないsourceはselectedへ登録せずfull fallbackにします。`scripts/ci/check-gas-test-selection.js`のsource棚卸し期待値も同じPRで更新します。
 
