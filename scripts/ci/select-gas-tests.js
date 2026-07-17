@@ -7,6 +7,7 @@ const { spawnSync } = require('child_process');
 const {
   createFullGasTestSelection,
   selectGasTestsByChangedFiles,
+  validateAndResolveGasTestSelection,
 } = require('./gas-test-selection');
 
 function parseArguments(argv) {
@@ -61,6 +62,7 @@ function main() {
     selection = createFullGasTestSelection([], 'changed file collection failed; full GAS Tests selected');
     console.warn('GAS Tests changed file collection failed; using full mode.');
   }
+  selection = validateAndResolveGasTestSelection(selection);
   const outputPath = path.resolve(options.output);
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
   fs.writeFileSync(outputPath, `${JSON.stringify(selection, null, 2)}\n`, { mode: 0o600 });

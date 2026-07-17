@@ -12,6 +12,7 @@ const {
   FULL_SUITE_DEFINITIONS,
   SELECTED_SUITE_DEFINITIONS,
   selectGasTestsByChangedFiles,
+  validateAndResolveGasTestSelection,
 } = require('./gas-test-selection');
 const {
   CHANGE_CLASSIFICATIONS,
@@ -26,10 +27,6 @@ const { readChangedFiles } = require('./select-gas-tests');
 const rootDir = path.resolve(__dirname, '..', '..');
 const HEAD_SHA = '1'.repeat(40);
 const BASE_SHA = '2'.repeat(40);
-
-function suiteNames(selection) {
-  return selection.suites;
-}
 
 function assertSelected(changedFiles, expectedAreas, expectedSuites) {
   const selection = selectGasTestsByChangedFiles(changedFiles);
@@ -89,6 +86,76 @@ function checkSelectionRules() {
     ALL_IMPACT_AREAS,
     'every impact area must have selected suites',
   );
+}
+
+function cloneSelection(selection) {
+  return JSON.parse(JSON.stringify(selection));
+}
+
+function assertSelectionRejected(selection, messagePattern) {
+  assert.throws(
+    () => validateAndResolveGasTestSelection(selection),
+    messagePattern || /GAS test selection validation failed/,
+  );
+}
+
+function checkSelectionPayloadValidation() {
+  const selected = selectGasTestsByChangedFiles(['src/app/parser.gs']);
+  const full = selectGasTestsByChangedFiles(['scripts/ci/run-gas-tests.sh'], { forceFull: true });
+
+  assert.deepStrictEqual(validateAndResolveGasTestSelection(selected), selected);
+  assert.deepStrictEqual(validateAndResolveGasTestSelection(full), full);
+
+  const selectedWithFullSuite = cloneSelection(selected);
+  selectedWithFullSuite.suites[0] = FULL_SUITE_DEFINITIONS[0].name;
+  selectedWithFullSuite.suiteDetails[0] = { ...FULL_SUITE_DEFINITIONS[0] };
+  assertSelectionRejected(selectedWithFullSuite, /canonical definition/);
+
+  const fullWithSelectedSuite = cloneSelection(full);
+  fullWithSelectedSuite.suites[0] = SELECTED_SUITE_DEFINITIONS[0].name;
+  fullWithSelectedSuite.suiteDetails[0] = { ...SELECTED_SUITE_DEFINITIONS[0] };
+  assertSelectionRejected(fullWithSelectedSuite, /canonical definition/);
+
+  const alteredEntryPoint = cloneSelection(selected);
+  alteredEntryPoint.suiteDetails[0].entryPoint = SELECTED_SUITE_DEFINITIONS[2].entryPoint;
+  assertSelectionRejected(alteredEntryPoint, /suite detail does not match/);
+
+  const alteredSuiteCount = cloneSelection(selected);
+  alteredSuiteCount.suiteDetails[0].testCount += 1;
+  assertSelectionRejected(alteredSuiteCount, /suite detail does not match/);
+
+  const alteredTotalCount = cloneSelection(selected);
+  alteredTotalCount.testCount += 1;
+  assertSelectionRejected(alteredTotalCount, /total test count/);
+
+  const duplicateSuite = cloneSelection(selected);
+  duplicateSuite.suites[1] = duplicateSuite.suites[0];
+  duplicateSuite.suiteDetails[1] = { ...duplicateSuite.suiteDetails[0] };
+  assertSelectionRejected(duplicateSuite, /suites contains duplicates/);
+
+  const duplicateEntryPoint = cloneSelection(selected);
+  duplicateEntryPoint.suiteDetails[1].entryPoint = duplicateEntryPoint.suiteDetails[0].entryPoint;
+  assertSelectionRejected(duplicateEntryPoint, /entry points contains duplicates/);
+
+  const unknownSuite = cloneSelection(selected);
+  unknownSuite.suites[0] = 'unknown-suite';
+  unknownSuite.suiteDetails[0].name = 'unknown-suite';
+  assertSelectionRejected(unknownSuite, /unknown suite/);
+
+  const unknownEntryPoint = cloneSelection(selected);
+  unknownEntryPoint.suiteDetails[0].entryPoint = 'runUnknownGasTestSuite';
+  assertSelectionRejected(unknownEntryPoint, /unknown entry point/);
+
+  const reordered = cloneSelection(selected);
+  reordered.suites.reverse();
+  reordered.suiteDetails.reverse();
+  assertSelectionRejected(reordered, /canonical definition/);
+
+  const missingSuite = cloneSelection(selected);
+  missingSuite.suites.pop();
+  missingSuite.suiteDetails.pop();
+  missingSuite.testCount = missingSuite.suiteDetails[0].testCount;
+  assertSelectionRejected(missingSuite, /canonical definition/);
 }
 
 function checkExactGitDiffInput() {
@@ -212,12 +279,20 @@ function checkWorkflowAndShellContract() {
     'GAS CI must push to the test Apps Script project exactly once',
   );
   assert.ok(runScript.includes('selection_test_count'), 'GAS CI must verify the selected total test count');
+  assert.ok(
+    runScript.includes('validateAndResolveGasTestSelection'),
+    'GAS CI must validate the untrusted selection against canonical definitions',
+  );
+  assert.ok(
+    runScript.includes('RESOLVED_GAS_TEST_SELECTION_PATH'),
+    'GAS CI must execute only the resolved canonical selection',
+  );
   assert.ok(runScript.includes('GAS_TEST_METRICS'), 'GAS CI must require GAS runtime metrics');
   assert.ok(runScript.includes('Apps Script wait'), 'GAS CI summary must report Apps Script wait time');
   assert.ok(runScript.includes('Actual GAS tests'), 'GAS CI summary must report actual GAS test time');
 }
 
-function checkSelectedShellExecution() {
+function runGasShellSelectionFixture(selection) {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'gas-test-selection-shell-'));
   try {
     for (const relativePath of [
@@ -232,11 +307,12 @@ function checkSelectedShellExecution() {
       fs.mkdirSync(path.dirname(targetPath), { recursive: true });
       fs.copyFileSync(path.join(rootDir, relativePath), targetPath);
     }
-    const selection = selectGasTestsByChangedFiles(['src/app/parser.gs']);
     fs.writeFileSync(path.join(tempRoot, 'selection.json'), `${JSON.stringify(selection, null, 2)}\n`);
     const fakeBinDir = path.join(tempRoot, 'fake-bin');
     fs.mkdirSync(fakeBinDir, { recursive: true });
     const fakeClaspPath = path.join(fakeBinDir, 'clasp');
+    const fakeRunCases = [...SELECTED_SUITE_DEFINITIONS, ...FULL_SUITE_DEFINITIONS]
+      .map((definition) => `    ${definition.entryPoint}) count=${definition.testCount} ;;`);
     fs.writeFileSync(fakeClaspPath, [
       '#!/usr/bin/env bash',
       'set -euo pipefail',
@@ -251,8 +327,7 @@ function checkSelectedShellExecution() {
       'done',
       'if [[ -n "${function_name}" ]]; then',
       '  case "${function_name}" in',
-      '    runGasTestSuiteParserInput01) count=13 ;;',
-      '    runGasTestSuiteParserInput02) count=2 ;;',
+      ...fakeRunCases,
       '    *) echo "Script function not found"; exit 1 ;;',
       '  esac',
       '  echo "Result: GAS_TEST_METRICS testCount=${count} durationMs=5"',
@@ -289,27 +364,74 @@ source scripts/ci/run-gas-tests.sh
       encoding: 'utf8',
       maxBuffer: 16 * 1024 * 1024,
     });
-    if (result.status !== 0) {
-      process.stderr.write(`${result.stdout || ''}\n${result.stderr || ''}\n`);
-      assert.fail(`selected GAS shell execution failed with exit ${result.status}`);
-    }
-
-    const calls = fs.readFileSync(path.join(tempRoot, 'fake-clasp.log'), 'utf8')
-      .trim().split(/\r?\n/);
-    assert.strictEqual(calls.filter((call) => call.includes(' push --force')).length, 1, 'selected execution must push once');
-    assert.strictEqual(calls.filter((call) => call.includes(' run runGasTestSuiteParserInput01')).length, 1);
-    assert.strictEqual(calls.filter((call) => call.includes(' run runGasTestSuiteParserInput02')).length, 1);
-    assert.strictEqual(calls.filter((call) => / run runGasTestBatch\d+/.test(call)).length, 0, 'selected execution must skip full batches');
-
-    const summary = fs.readFileSync(path.join(tempRoot, 'summary.md'), 'utf8');
-    assert.match(summary, /Mode: `selected`/);
-    assert.match(summary, /Expected tests: `15`/);
-    assert.match(summary, /All selected GAS test functions passed \(15 tests/);
-    assert.match(summary, /Apps Script wait:/);
-    assert.match(summary, /Actual GAS tests:/);
+    const logPath = path.join(tempRoot, 'fake-clasp.log');
+    const summaryPath = path.join(tempRoot, 'summary.md');
+    return {
+      status: result.status,
+      output: `${result.stdout || ''}\n${result.stderr || ''}`,
+      calls: fs.existsSync(logPath)
+        ? fs.readFileSync(logPath, 'utf8').trim().split(/\r?\n/).filter(Boolean)
+        : [],
+      summary: fs.existsSync(summaryPath) ? fs.readFileSync(summaryPath, 'utf8') : '',
+    };
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
+}
+
+function claspRunFunctions(calls) {
+  return calls.flatMap((call) => {
+    const match = call.match(/(?:^|\s)run\s+([A-Za-z][A-Za-z0-9]*)/);
+    return match ? [match[1]] : [];
+  });
+}
+
+function assertSuccessfulShellFixture(result, label) {
+  if (result.status !== 0) {
+    process.stderr.write(`${result.output}\n`);
+    assert.fail(`${label} GAS shell execution failed with exit ${result.status}`);
+  }
+  assert.strictEqual(
+    result.calls.filter((call) => call.includes(' push --force')).length,
+    1,
+    `${label} execution must push once`,
+  );
+}
+
+function checkShellSelectionValidation() {
+  const selected = selectGasTestsByChangedFiles(['src/app/parser.gs']);
+  const selectedResult = runGasShellSelectionFixture(selected);
+  assertSuccessfulShellFixture(selectedResult, 'selected');
+  assert.deepStrictEqual(
+    claspRunFunctions(selectedResult.calls),
+    selected.suiteDetails.map((detail) => detail.entryPoint),
+    'selected execution must run only canonical selected entry points in order',
+  );
+  assert.match(selectedResult.summary, /Mode: `selected`/);
+  assert.match(selectedResult.summary, /Expected tests: `15`/);
+  assert.match(selectedResult.summary, /All selected GAS test functions passed \(15 tests/);
+  assert.match(selectedResult.summary, /Apps Script wait:/);
+  assert.match(selectedResult.summary, /Actual GAS tests:/);
+
+  const full = selectGasTestsByChangedFiles(['scripts/ci/run-gas-tests.sh'], { forceFull: true });
+  const fullResult = runGasShellSelectionFixture(full);
+  assertSuccessfulShellFixture(fullResult, 'full');
+  assert.deepStrictEqual(
+    claspRunFunctions(fullResult.calls),
+    FULL_SUITE_DEFINITIONS.map((definition) => definition.entryPoint),
+    'full execution must run only canonical full batch entry points in order',
+  );
+  assert.match(fullResult.summary, /Mode: `full`/);
+  assert.match(fullResult.summary, /Expected tests: `116`/);
+  assert.match(fullResult.summary, /All selected GAS test functions passed \(116 tests/);
+
+  const tampered = cloneSelection(selected);
+  tampered.suiteDetails[0].entryPoint = SELECTED_SUITE_DEFINITIONS[2].entryPoint;
+  const tamperedResult = runGasShellSelectionFixture(tampered);
+  assert.notStrictEqual(tamperedResult.status, 0, 'tampered selection JSON must fail');
+  assert.deepStrictEqual(tamperedResult.calls, [], 'tampered selection JSON must fail before clasp push or run');
+  assert.match(tamperedResult.output, /Invalid GAS test selection/);
+  assert.match(tamperedResult.output, /suite detail does not match the canonical definition/);
 }
 
 function checkFinalCiContracts() {
@@ -337,9 +459,10 @@ function checkFinalCiContracts() {
 }
 
 checkSelectionRules();
+checkSelectionPayloadValidation();
 checkExactGitDiffInput();
 checkGasRunnerContract();
 checkWorkflowAndShellContract();
-checkSelectedShellExecution();
+checkShellSelectionValidation();
 checkFinalCiContracts();
 console.log('gas test selection ok');

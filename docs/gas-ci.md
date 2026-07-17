@@ -34,7 +34,7 @@ Final CIでは、固定済みのPR `base SHA...head SHA`から変更ファイル
 - 分類エラー、変更ファイルなし、選択スイート0件
 - 明示的なfull指定、または安全な和集合を作れない差分
 
-GAS側のselected mode入口は`src/test/test_runner.gs`の`runGasTestSuite...`関数です。許可済みスイート名は明示的な関数配列へ対応し、`eval`は使いません。未知名、空選択、スイート定義の欠落・重複、実行結果のテスト件数不一致はfullへ黙って切り替えず、CIをfail-closedで失敗させます。差分判定側の不確実性だけがfull fallbackの対象です。
+GAS側のselected mode入口は`src/test/test_runner.gs`の`runGasTestSuite...`関数です。許可済みスイート名は明示的な関数配列へ対応し、`eval`は使いません。選択JSONは未信頼入力として扱い、`scripts/ci/gas-test-selection.js`のselected/full正規定義とスイート名、順序、入口、件数を完全照合してから、正規定義だけで実行一覧を再構築します。JSON内の`entryPoint`をそのまま`clasp run`へ渡しません。selected/full混在、未知名・未知入口、空選択、定義の欠落・重複・順序変更、`testCount`改ざんはfullへ黙って切り替えず、`clasp push`より前にCIをfail-closedで失敗させます。差分判定側の不確実性だけがfull fallbackの対象です。
 
 Actions Summaryには、変更ファイル、影響領域、selected/full、スイート、期待テスト数、省略領域、fallback理由を表示します。時間はcheckout、setup/selection、clasp push、Apps Script待ち、GAS内の実テスト、job開始からテスト完了までを分けます。GAS関数が返す`GAS_TEST_METRICS`と選択JSONの件数が一致しない場合も失敗します。Script ID、OAuth情報、Web App URLなどの実値は表示しません。
 

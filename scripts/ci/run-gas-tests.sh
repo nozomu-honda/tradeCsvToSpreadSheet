@@ -4,6 +4,7 @@ set -Eeuo pipefail
 readonly SUMMARY_FILE="${GITHUB_STEP_SUMMARY:-}"
 readonly CLASP_RC_PATH="${HOME}/.clasprc.json"
 readonly CLASP_PROJECT_PATH="${RUNNER_TEMP:-/tmp}/gas-ci-clasp-project.json"
+readonly RESOLVED_GAS_TEST_SELECTION_PATH="${RUNNER_TEMP:-/tmp}/gas-test-selection-resolved.json"
 readonly CI_REPO_ROOT="${GITHUB_WORKSPACE:-${PWD}}"
 readonly CLASP_IGNORE_PATH="${CI_REPO_ROOT}/.claspignore"
 readonly DEPLOYMENT_DESCRIPTION="GAS CI ${GITHUB_SHA:-local} ${GITHUB_RUN_ID:-manual}"
@@ -58,28 +59,28 @@ NODE
     return 1
   fi
 
-  node - "${selection_path}" <<'NODE'
+  node - "${selection_path}" "${RESOLVED_GAS_TEST_SELECTION_PATH}" <<'NODE'
 const fs = require('fs');
-const selection = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
-if (!['selected', 'full'].includes(selection.mode)) throw new Error('selection mode is invalid');
-if (!Array.isArray(selection.changedFiles) || !Array.isArray(selection.impactAreas)
-  || !Array.isArray(selection.suites) || !Array.isArray(selection.suiteDetails)
-  || !Array.isArray(selection.omittedAreas)) throw new Error('selection arrays are invalid');
-if (selection.suiteDetails.length === 0 || selection.suiteDetails.length !== selection.suites.length) {
-  throw new Error('selection suite details are missing');
-}
-let total = 0;
-for (const detail of selection.suiteDetails) {
-  if (!detail || !/^[A-Za-z][A-Za-z0-9]*$/.test(detail.entryPoint || '')) {
-    throw new Error('selection entry point is invalid');
+const { validateAndResolveGasTestSelection } = require('./scripts/ci/gas-test-selection');
+
+try {
+  let untrustedSelection;
+  try {
+    untrustedSelection = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+  } catch (error) {
+    throw new Error('GAS test selection validation failed: JSON is invalid');
   }
-  if (!Number.isInteger(detail.testCount) || detail.testCount <= 0) {
-    throw new Error('selection test count is invalid');
-  }
-  total += detail.testCount;
+  const resolvedSelection = validateAndResolveGasTestSelection(untrustedSelection);
+  fs.writeFileSync(process.argv[3], `${JSON.stringify(resolvedSelection, null, 2)}\n`, { mode: 0o600 });
+} catch (error) {
+  const message = error && /^GAS test selection validation failed: /.test(error.message || '')
+    ? error.message
+    : 'GAS test selection validation failed: unexpected validation error';
+  console.error(`::error title=Invalid GAS test selection::${message}`);
+  process.exit(1);
 }
-if (total !== selection.testCount) throw new Error('selection total test count is inconsistent');
 NODE
+  selection_path="${RESOLVED_GAS_TEST_SELECTION_PATH}"
 
   selection_mode="$(node -e "const s=require(process.argv[1]); process.stdout.write(s.mode);" "${selection_path}")"
   selection_test_count="$(node -e "const s=require(process.argv[1]); process.stdout.write(String(s.testCount));" "${selection_path}")"
@@ -283,6 +284,7 @@ is_clasp_run_permission_unavailable() {
 cleanup() {
   rm -f "${CLASP_RC_PATH}"
   rm -f "${CLASP_PROJECT_PATH}"
+  rm -f "${RESOLVED_GAS_TEST_SELECTION_PATH}"
 }
 trap cleanup EXIT
 
