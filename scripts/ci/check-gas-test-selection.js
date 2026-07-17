@@ -510,6 +510,51 @@ function checkTopLevelSourceDefinitionCollection() {
     }],
     'only top-level function test_* declarations can be GAS test entry points',
   );
+
+  const helperFixtureSource = [
+    'async function asyncHelper_() {}',
+    'function* generatorHelper_() {}',
+    'async function* asyncGeneratorHelper_() {}',
+    'function test_sync_with_nested_helpers_() {',
+    '  async function test_nested_async_local_() {}',
+    '  function* test_nested_generator_local_() {}',
+    '  async function* test_nested_async_generator_local_() {}',
+    '}',
+    '',
+  ].join('\n');
+  assert.deepStrictEqual(
+    extractTestFunctionDefinitions(helperFixtureSource, 'src/test/test_helper_forms_fixture.gs'),
+    [{
+      name: 'test_sync_with_nested_helpers_',
+      filePath: 'src/test/test_helper_forms_fixture.gs',
+      line: 4,
+    }],
+    'non-test async/generator helpers and nested test-like helpers must be ignored',
+  );
+
+  for (const fixture of [
+    {
+      name: 'test_async_example_',
+      source: 'async function test_async_example_() {}\n',
+    },
+    {
+      name: 'test_generator_example_',
+      source: 'function* test_generator_example_() {}\n',
+    },
+    {
+      name: 'test_async_generator_example_',
+      source: 'async function* test_async_generator_example_() {}\n',
+    },
+  ]) {
+    assert.throws(
+      () => extractTestFunctionDefinitions(fixture.source, 'src/test/test_unsupported_fixture.gs'),
+      new RegExp(
+        `unsupported GAS test declaration: ${fixture.name} ` +
+        '\\(src/test/test_unsupported_fixture\\.gs:1\\): async/generator tests are not supported',
+      ),
+      `${fixture.name} must fail the GAS test source preflight`,
+    );
+  }
 }
 
 function checkTemplateLiteralDefinitionCollection() {
@@ -1085,6 +1130,43 @@ function checkShellSelectionValidation() {
   assert.deepStrictEqual(unregisteredSourceResult.calls, [], 'an unregistered source test must cause zero clasp push and run calls');
   assert.match(unregisteredSourceResult.output, /source test function is not registered in manifest/);
   assert.match(unregisteredSourceResult.output, /test_unregistered_manifest_fixture_/);
+
+  for (const unsupportedFixture of [
+    {
+      label: 'async',
+      name: 'test_async_shell_fixture_',
+      source: 'async function test_async_shell_fixture_() {}\n',
+    },
+    {
+      label: 'generator',
+      name: 'test_generator_shell_fixture_',
+      source: 'function* test_generator_shell_fixture_() {}\n',
+    },
+    {
+      label: 'async generator',
+      name: 'test_async_generator_shell_fixture_',
+      source: 'async function* test_async_generator_shell_fixture_() {}\n',
+    },
+  ]) {
+    const unsupportedResult = runGasShellSelectionFixture(selected, {
+      extraTestFiles: {
+        [`src/test/test_${unsupportedFixture.label.replace(/ /g, '_')}_shell_fixture.gs`]: unsupportedFixture.source,
+      },
+    });
+    assert.notStrictEqual(
+      unsupportedResult.status,
+      0,
+      `${unsupportedFixture.label} GAS test declarations must fail the Final CI preflight`,
+    );
+    assert.deepStrictEqual(
+      unsupportedResult.calls,
+      [],
+      `${unsupportedFixture.label} GAS test declarations must cause zero clasp push and run calls`,
+    );
+    assert.match(unsupportedResult.output, /unsupported GAS test declaration/);
+    assert.match(unsupportedResult.output, new RegExp(unsupportedFixture.name));
+    assert.match(unsupportedResult.output, /async\/generator tests are not supported/);
+  }
 
   const tampered = cloneSelection(selected);
   tampered.suiteDetails[0].entryPoint = SELECTED_SUITE_DEFINITIONS.find(

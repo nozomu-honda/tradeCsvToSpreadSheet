@@ -35,13 +35,24 @@ function extractTestFunctionDefinitions(source, filePath) {
     throw new Error(`unable to parse GAS test source: ${filePath}${location}`);
   }
 
-  return program.body
+  const testDeclarations = program.body
     .filter((node) => (
       node.type === 'FunctionDeclaration' &&
       node.id &&
       node.id.type === 'Identifier' &&
       TEST_FUNCTION_NAME_PATTERN.test(node.id.name)
-    ))
+    ));
+  const unsupportedDeclaration = testDeclarations.find((node) => (
+    node.async !== false || node.generator !== false
+  ));
+  if (unsupportedDeclaration) {
+    throw new Error(
+      `unsupported GAS test declaration: ${unsupportedDeclaration.id.name} ` +
+      `(${filePath}:${unsupportedDeclaration.loc.start.line}): async/generator tests are not supported`,
+    );
+  }
+
+  return testDeclarations
     .map((node) => ({
       filePath,
       line: node.loc.start.line,

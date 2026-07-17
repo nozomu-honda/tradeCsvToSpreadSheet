@@ -8,7 +8,7 @@ CI用と本番用のどちらへ、どのコマンドで反映するかを先に
 
 全実行用のCIバッチ関数は `runGasTestBatch01` から `runGasTestBatch09` までです。各バッチは `scripts/ci/gas-test-suite-manifest.js` に登録した116テストを最大13件ずつに分けます。GAS runtimeでは `CORE_TESTS_` と `FULL_ONLY_TESTS_` を結合して実行し、Node回帰テストがmanifestと関数名・順序を完全照合します。`runAllTests()` は既存の手動確認用入口として残しますが、CIのfull modeではApps Scriptの実行時間上限を避けるため、1回の一括実行ではなく全バッチを逐次実行します。
 
-Final CIでは、固定済みのPR `base SHA...head SHA`を再検証し、lockfile固定のCI依存を導入した後に`scripts/ci/check-gas-test-manifest-sync.js`を実行します。preflightは`test_runner.gs`を除く`src/test/**/*.gs`を再帰走査し、各ファイルの`Program.body`直下にあるトップレベルの`function test_*(){}`宣言、manifest、runner、selected入口、full 9バッチを完全照合します。未登録、不存在、重複、所属・順序不一致は差分選択と`clasp push`より前にfail-closedで停止します。同期確認後、固定済みSHAから変更ファイルを取得し、`scripts/ci/gas-test-selection.js`の純粋関数で影響範囲を判定します。既知かつ局所的な差分はselected modeで関係するスイートだけを実行し、少しでも不確実な差分はfull modeへ戻します。どちらのmodeでもテスト専用Apps Scriptへの`clasp push --force`は1回だけです。
+Final CIでは、固定済みのPR `base SHA...head SHA`を再検証し、lockfile固定のCI依存を導入した後に`scripts/ci/check-gas-test-manifest-sync.js`を実行します。preflightは`test_runner.gs`を除く`src/test/**/*.gs`を再帰走査し、各ファイルの`Program.body`直下にあるトップレベルかつ同期形式の`function test_*(){}`宣言、manifest、runner、selected入口、full 9バッチを完全照合します。トップレベル`test_*`がasyncまたはgeneratorの場合は、ファイルパス・行番号・関数名を示して明示的に拒否します。未登録、不存在、重複、所属・順序不一致は差分選択と`clasp push`より前にfail-closedで停止します。同期確認後、固定済みSHAから変更ファイルを取得し、`scripts/ci/gas-test-selection.js`の純粋関数で影響範囲を判定します。既知かつ局所的な差分はselected modeで関係するスイートだけを実行し、少しでも不確実な差分はfull modeへ戻します。どちらのmodeでもテスト専用Apps Scriptへの`clasp push --force`は1回だけです。
 
 ## 差分とGAS Testsの対応
 
@@ -46,7 +46,7 @@ selected対象の`src/test/**/*.gs`では、ファイル内にトップレベル
 - 分類エラー、変更ファイルなし、選択スイート0件
 - 明示的なfull指定、または安全な和集合を作れない差分
 
-suite名、area、entry point、所属する実テスト関数名と順序の正本は`scripts/ci/gas-test-suite-manifest.js`です。`scripts/ci/gas-test-selection.js`はmanifestからselected/full定義を読み、選択JSONには必要な公開metadataだけを書きます。GAS側のselected mode入口は`src/test/test_runner.gs`の`runGasTestSuite...`関数です。許可済みスイート名は明示的な関数配列へ対応し、`eval`は使いません。Final CI本体の同期preflightは、Apps Script上でグローバル関数として参照できるトップレベルの`FunctionDeclaration`だけを実テスト定義として収集し、ファイルパスと行番号を保持します。ネストした関数宣言、名前付き関数式、callback、object/class method、arrow function、template interpolation内のローカル関数、コメント、文字列、regex、単なる関数参照は収集しません。実定義とmanifestを双方向照合した後、`runAllTests`、`runSmokeTests`、selected入口、full 9バッチの各戻り値に含まれる`OK <testFunctionName>`列をmanifestと順序込みで完全照合します。実定義の未登録・重複、manifest側だけの不存在テスト、件数が同じsuite間交換、欠落、別suite混入、順序変更も失敗し、同期preflightの失敗はGAS Testsの失敗理由としてSummaryへ記録されます。
+suite名、area、entry point、所属する実テスト関数名と順序の正本は`scripts/ci/gas-test-suite-manifest.js`です。`scripts/ci/gas-test-selection.js`はmanifestからselected/full定義を読み、選択JSONには必要な公開metadataだけを書きます。GAS側のselected mode入口は`src/test/test_runner.gs`の`runGasTestSuite...`関数です。許可済みスイート名は明示的な関数配列へ対応し、`eval`は使いません。Final CI本体の同期preflightは、Apps Script上でグローバル関数として参照できるトップレベルの同期`FunctionDeclaration`だけを実テスト定義として収集し、ファイルパスと行番号を保持します。トップレベル`test_*`の`async`、generator、async generator宣言は未登録扱いで見逃さず、unsupported declarationとして失敗させます。ネストした関数宣言、名前付き関数式、callback、object/class method、arrow function、template interpolation内のローカル関数、コメント、文字列、regex、単なる関数参照は収集しません。実定義とmanifestを双方向照合した後、`runAllTests`、`runSmokeTests`、selected入口、full 9バッチの各戻り値に含まれる`OK <testFunctionName>`列をmanifestと順序込みで完全照合します。実定義の未登録・重複、manifest側だけの不存在テスト、件数が同じsuite間交換、欠落、別suite混入、順序変更も失敗し、同期preflightの失敗はGAS Testsの失敗理由としてSummaryへ記録されます。
 
 選択JSONは未信頼入力として扱い、manifest由来のselected/full正規定義とスイート名、順序、入口、件数を完全照合してから、正規定義だけで実行一覧を再構築します。JSON内の`entryPoint`をそのまま`clasp run`へ渡しません。selected/full混在、未知名・未知入口、空選択、定義の欠落・重複・順序変更、`testCount`改ざんはfullへ黙って切り替えず、`clasp push`より前にCIをfail-closedで失敗させます。差分判定側の不確実性だけがfull fallbackの対象です。
 
@@ -54,7 +54,7 @@ Actions Summaryには、変更ファイル、影響領域、selected/full、ス�
 
 新しい`src/app/**`または`src/test/**`を追加するときは、同じPRで次を更新します。
 
-1. `src/test/**/*.gs`（`test_runner.gs`を除く）のトップレベルへ`function test_*(){}`形式で実テストを定義する。ローカルhelperやcallbackはmanifestへ登録する実テストとして扱わない
+1. `src/test/**/*.gs`（`test_runner.gs`を除く）のトップレベルへ同期`function test_*(){}`形式で実テストを定義する。`async function`、generator、async generatorは使用しない。ローカルhelperやcallbackはmanifestへ登録する実テストとして扱わない
 2. `scripts/ci/gas-test-suite-manifest.js`へ同じテスト関数名、領域、`fullOnly`を登録する。suite分割、入口、件数、順序はここから導出する
 3. `src/test/test_runner.gs`の`CORE_TESTS_` / `FULL_ONLY_TESTS_`と領域別配列をmanifest順に同期する。実定義・manifest・runnerの未登録、不存在、重複、順序不一致はFinal CI preflightで失敗する
 4. selected対象のテストファイルを追加・変更する場合は、ファイル内全テストのmanifest areaの和集合を`scripts/ci/gas-test-selection.js`の`PATH_RULES`へ登録する
