@@ -92,6 +92,10 @@ jobs:
         id: gas_manifest_sync
         run: node scripts/ci/check-gas-test-manifest-sync.js
 
+      - name: Verify mapped GAS test file areas
+        id: gas_test_file_mappings
+        run: node scripts/ci/check-gas-test-file-mappings.js
+
       - name: Select GAS Tests from exact PR diff
         id: select_gas_tests
         env:
@@ -135,6 +139,7 @@ jobs:
           HEAD_GUARD_OUTCOME: ${{ steps.gas_head_guard.outcome }}
           INSTALL_OUTCOME: ${{ steps.install_clasp.outcome }}
           MANIFEST_SYNC_OUTCOME: ${{ steps.gas_manifest_sync.outcome }}
+          TEST_FILE_MAPPINGS_OUTCOME: ${{ steps.gas_test_file_mappings.outcome }}
           RUN_OUTCOME: ${{ steps.run_gas_tests.outcome }}
           SELECTION_OUTCOME: ${{ steps.select_gas_tests.outcome }}
         run: |
@@ -144,15 +149,18 @@ jobs:
           if [[ "${HEAD_GUARD_OUTCOME}" != "success" ]]; then
             status="failed"
             reason="PR head or base changed before GAS Tests started"
-          elif [[ "${MANIFEST_SYNC_OUTCOME}" != "success" ]]; then
-            status="failed"
-            reason="GAS test sources, manifest, and test_runner.gs are not synchronized"
-          elif [[ "${SELECTION_OUTCOME}" != "success" ]]; then
-            status="failed"
-            reason="GAS Tests impact selection failed"
           elif [[ "${INSTALL_OUTCOME}" != "success" ]]; then
             status="failed"
             reason="clasp installation failed"
+          elif [[ "${MANIFEST_SYNC_OUTCOME}" != "success" ]]; then
+            status="failed"
+            reason="GAS test sources, manifest, and test_runner.gs are not synchronized"
+          elif [[ "${TEST_FILE_MAPPINGS_OUTCOME}" != "success" ]]; then
+            status="failed"
+            reason="GAS test file mappings do not cover their manifest areas"
+          elif [[ "${SELECTION_OUTCOME}" != "success" ]]; then
+            status="failed"
+            reason="GAS Tests impact selection failed"
           elif [[ "${RUN_OUTCOME}" != "success" ]]; then
             status="failed"
             reason="GAS Tests failed"

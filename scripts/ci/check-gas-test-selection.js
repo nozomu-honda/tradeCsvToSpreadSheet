@@ -22,11 +22,11 @@ const {
   assertSourceDefinitionsMatchManifest,
   assertGasRunnerMatchesManifest,
   collectTestFunctionDefinitions,
-  extractTestFunctionDefinitions,
   listGasTestSourceFiles,
   resultTestNames,
   verifyGasTestManifestSync,
 } = require('./check-gas-test-manifest-sync');
+const { auditSelectedTestFileMappings } = require('./check-gas-test-file-mappings');
 const {
   CHANGE_CLASSIFICATIONS,
   FINAL_CI_CHECK_CONTEXT_MARKER,
@@ -143,51 +143,17 @@ function checkSelectedSourceAudit() {
   );
 }
 
-function auditSelectedTestFileMappings({
-  pathRules = PATH_RULES,
-  manifest = GAS_TEST_MANIFEST,
-  readSource = (filePath) => fs.readFileSync(path.join(rootDir, filePath), 'utf8'),
-} = {}) {
-  const manifestByName = new Map(manifest.map((definition) => [definition.name, definition]));
-  return Object.entries(pathRules)
-    .filter(([filePath, rule]) => filePath.startsWith('src/test/') && rule.kind === 'selected')
-    .sort(([leftPath], [rightPath]) => leftPath.localeCompare(rightPath))
-    .map(([filePath, rule]) => {
-      const definitions = extractTestFunctionDefinitions(readSource(filePath), filePath);
-      if (definitions.length === 0) {
-        throw new Error(`selected test file has no test function definitions: ${filePath}`);
-      }
-
-      const unregistered = definitions.filter((definition) => !manifestByName.has(definition.name));
-      if (unregistered.length > 0) {
-        throw new Error(`selected test file contains a source test not registered in manifest: ${unregistered.map(
-          (definition) => `${definition.name} (${filePath}:${definition.line})`,
-        ).join(', ')}`);
-      }
-
-      const actualAreas = [...new Set(
-        definitions.map((definition) => manifestByName.get(definition.name).area),
-      )].sort();
-      const missingAreas = actualAreas.filter((area) => !rule.areas.includes(area));
-      if (missingAreas.length > 0) {
-        throw new Error(
-          `selected test file PATH_RULES is missing manifest areas: ${filePath} ` +
-          `(missing: ${missingAreas.join(', ')}; mapped: ${rule.areas.join(', ')})`,
-        );
-      }
-
-      return {
-        actualAreas,
-        filePath,
-        mappedAreas: [...rule.areas],
-        testNames: definitions.map((definition) => definition.name).sort(),
-      };
-    });
-}
-
 function checkSelectedTestFileMappingAudit() {
   const summaries = auditSelectedTestFileMappings();
-  assert.strictEqual(summaries.length, 16, 'every selected src/test mapping must be audited');
+  const expectedMappedTestFiles = Object.entries(PATH_RULES)
+    .filter(([filePath, rule]) => filePath.startsWith('src/test/') && rule.kind === 'selected')
+    .map(([filePath]) => filePath)
+    .sort((leftPath, rightPath) => leftPath.localeCompare(rightPath));
+  assert.deepStrictEqual(
+    summaries.map((summary) => summary.filePath),
+    expectedMappedTestFiles,
+    'every selected src/test mapping must be audited exactly once',
+  );
   const validationBypass = summaries.find(
     (summary) => summary.filePath === 'src/test/test_test_db_validation_bypass.gs',
   );
@@ -214,7 +180,7 @@ function checkSelectedTestFileMappingAudit() {
       manifest: fixtureManifest,
       readSource: readFixture(`function ${databaseTest}() {}`),
     }),
-    /missing manifest areas: .*missing: database; mapped: staging-import/,
+    /missing manifest areas: src\/test\/test_mapping_audit_fixture\.gs \(missing: database; mapped: staging-import\)/,
     'a database test mapped only to staging-import must fail the audit',
   );
 
@@ -257,6 +223,17 @@ function checkSelectedTestFileMappingAudit() {
     }),
     /source test not registered in manifest/,
     'selected test files with unregistered source tests must fail closed',
+  );
+  assert.throws(
+    () => auditSelectedTestFileMappings({
+      pathRules: { [fixturePath]: { kind: 'selected', areas: ['database'] } },
+      manifest: fixtureManifest,
+      readSource() {
+        throw new Error('fixture file missing');
+      },
+    }),
+    /selected test file cannot be read: src\/test\/test_mapping_audit_fixture\.gs/,
+    'missing selected test files must fail closed',
   );
 }
 
@@ -692,10 +669,14 @@ function checkWorkflowAndShellContract() {
   for (const expected of [
     'Verify GAS test source, manifest, and runner sync',
     'node scripts/ci/check-gas-test-manifest-sync.js',
+    'Verify mapped GAS test file areas',
+    'node scripts/ci/check-gas-test-file-mappings.js',
     'Install GAS CI dependencies',
     'npm ci --ignore-scripts',
     'node_modules/.bin:${PATH}',
     'MANIFEST_SYNC_OUTCOME: ${{ steps.gas_manifest_sync.outcome }}',
+    'TEST_FILE_MAPPINGS_OUTCOME: ${{ steps.gas_test_file_mappings.outcome }}',
+    'GAS test file mappings do not cover their manifest areas',
     'GAS test sources, manifest, and test_runner.gs are not synchronized',
     'Select GAS Tests from exact PR diff',
     'node scripts/ci/select-gas-tests.js',
@@ -711,18 +692,24 @@ function checkWorkflowAndShellContract() {
   const headGuardIndex = gasJob.indexOf('id: gas_head_guard');
   const installIndex = gasJob.indexOf('id: install_clasp');
   const manifestSyncIndex = gasJob.indexOf('id: gas_manifest_sync');
+  const testFileMappingsIndex = gasJob.indexOf('id: gas_test_file_mappings');
   const selectionIndex = gasJob.indexOf('id: select_gas_tests');
   const runIndex = gasJob.indexOf('id: run_gas_tests');
   assert.ok(
     headGuardIndex < installIndex &&
       installIndex < manifestSyncIndex &&
-      manifestSyncIndex < selectionIndex &&
-      manifestSyncIndex < runIndex,
-    'dependencies and manifest sync must run after the head guard and before selection and push',
+      manifestSyncIndex < testFileMappingsIndex &&
+      testFileMappingsIndex < selectionIndex &&
+      testFileMappingsIndex < runIndex,
+    'manifest and mapped test file preflights must run after the head guard and dependencies but before selection and push',
   );
   assert.ok(
     !runScript.includes('check-gas-test-manifest-sync.js'),
     'the GAS shell must not recursively invoke the workflow manifest sync preflight',
+  );
+  assert.ok(
+    !runScript.includes('check-gas-test-file-mappings.js'),
+    'the GAS shell must not recursively invoke the mapped test file preflight',
   );
   assert.strictEqual(
     (runScript.match(/run_clasp_step "clasp --project push" push --force/g) || []).length,
@@ -754,6 +741,7 @@ function runGasShellSelectionFixture(selection, options = {}) {
       '.claspignore',
       'appsscript.json',
       'scripts/ci/gas-test-selection.js',
+      'scripts/ci/check-gas-test-file-mappings.js',
       'scripts/ci/check-gas-test-manifest-sync.js',
       'scripts/ci/gas-test-suite-manifest.js',
       'scripts/ci/run-gas-tests.sh',
@@ -769,6 +757,13 @@ function runGasShellSelectionFixture(selection, options = {}) {
       const runnerPath = path.join(tempRoot, 'src', 'test', 'test_runner.gs');
       const runnerSource = fs.readFileSync(runnerPath, 'utf8');
       fs.writeFileSync(runnerPath, options.mutateRunnerSource(runnerSource));
+    }
+    if (options.mutateSelectionSource) {
+      const selectionSourcePath = path.join(tempRoot, 'scripts', 'ci', 'gas-test-selection.js');
+      const selectionSource = fs.readFileSync(selectionSourcePath, 'utf8');
+      const mutatedSource = options.mutateSelectionSource(selectionSource);
+      assert.notStrictEqual(mutatedSource, selectionSource, 'selection source fixture mutation must change the file');
+      fs.writeFileSync(selectionSourcePath, mutatedSource);
     }
     for (const [relativePath, source] of Object.entries(options.extraTestFiles || {})) {
       assert.match(relativePath, /^src[\\/]test[\\/].+\.gs$/, 'extra fixture files must stay under src/test');
@@ -823,6 +818,7 @@ export GAS_TEST_SELECTION_PATH="$(pwd)/selection.json"
 export CLASPRC_JSON='{"placeholder":true}'
 export GAS_TEST_SCRIPT_ID='TEST_SCRIPT_ID_PLACEHOLDER'
 node scripts/ci/check-gas-test-manifest-sync.js
+node scripts/ci/check-gas-test-file-mappings.js
 source scripts/ci/run-gas-tests.sh
 `;
     const windowsGitBash = 'C:\\Program Files\\Git\\bin\\bash.exe';
@@ -938,6 +934,45 @@ function checkShellSelectionValidation() {
     !claspRunFunctions(validationBypassResult.calls).includes('runGasTestSuiteStagingImport'),
     'the validation bypass test file must not execute the staging-import entry point',
   );
+
+  const areaMismatchResult = runGasShellSelectionFixture(validationBypassSelection, {
+    mutateSelectionSource(source) {
+      const expected = "'src/test/test_test_db_validation_bypass.gs': selected('database')";
+      assert.ok(source.includes(expected), 'validation bypass mapping fixture must exist');
+      return source.replace(expected, "'src/test/test_test_db_validation_bypass.gs': selected('staging-import')");
+    },
+  });
+  assert.notStrictEqual(areaMismatchResult.status, 0, 'a mapped area mismatch must fail the preflight');
+  assert.deepStrictEqual(areaMismatchResult.calls, [], 'a mapped area mismatch must cause zero clasp push and run calls');
+  assert.match(areaMismatchResult.output, /GAS test file mapping audit failed/);
+  assert.match(
+    areaMismatchResult.output,
+    /test_test_db_validation_bypass\.gs \(missing: database; mapped: staging-import\)/,
+  );
+
+  const multiAreaMismatchResult = runGasShellSelectionFixture(validationBypassSelection, {
+    mutateSelectionSource(source) {
+      const expected = "'src/test/test_20260526_changes.gs': selected('trade-calculation', 'staging-import')";
+      assert.ok(source.includes(expected), 'multi-area mapping fixture must exist');
+      return source.replace(expected, "'src/test/test_20260526_changes.gs': selected('trade-calculation')");
+    },
+  });
+  assert.notStrictEqual(multiAreaMismatchResult.status, 0, 'a partial multi-area mapping must fail the preflight');
+  assert.deepStrictEqual(
+    multiAreaMismatchResult.calls,
+    [],
+    'a partial multi-area mapping must cause zero clasp push and run calls',
+  );
+  assert.match(multiAreaMismatchResult.output, /missing: staging-import; mapped: trade-calculation/);
+
+  const zeroTestResult = runGasShellSelectionFixture(validationBypassSelection, {
+    extraTestFiles: {
+      'src/test/test_test_db_validation_bypass.gs': '// no test definitions\n',
+    },
+  });
+  assert.notStrictEqual(zeroTestResult.status, 0, 'a mapped test file with zero tests must fail the preflight');
+  assert.deepStrictEqual(zeroTestResult.calls, [], 'a zero-test file must cause zero clasp push and run calls');
+  assert.match(zeroTestResult.output, /manifest test function has no source definition/);
 
   const full = selectGasTestsByChangedFiles(['scripts/ci/run-gas-tests.sh'], { forceFull: true });
   const fullResult = runGasShellSelectionFixture(full);

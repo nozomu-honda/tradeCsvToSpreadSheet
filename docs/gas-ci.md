@@ -36,7 +36,7 @@ source fileは1領域に限定せず、既存テストが跨ぐ層を棚卸し�
 
 `src/app/e2e_helpers.gs`はE2E準備、cleanup、出力Spreadsheet、test DB状態を跨ぐため、局所的なselected対象にせずfull fallbackとします。ほかにも影響領域を安全に判断できないsourceはselectedへ無理に残しません。docsがコード差分と混在してもdocs自体は選択へ影響しません。docs-only判定は従来どおりFinal CIゲートで拒否されるため、GAS Testsは起動しません。
 
-selected対象の`src/test/**/*.gs`では、ファイル内に実テストが1件以上必要です。各`function test_*`のmanifest areaを集計し、その全areaが`PATH_RULES[filePath].areas`に含まれることをNode回帰テストで自動監査します。テストを追加・移動した際にareaの和集合を更新しない場合や、source定義がmanifestへ未登録の場合は失敗します。
+selected対象の`src/test/**/*.gs`では、ファイル内に実テストが1件以上必要です。`scripts/ci/check-gas-test-file-mappings.js`が各`function test_*`のmanifest areaを集計し、その全areaが`PATH_RULES[filePath].areas`に含まれることを監査します。この再利用可能preflightはFinal CIでmanifest同期後・差分選択前に直接実行し、Node回帰テストも同じ監査関数を使用します。テストを追加・移動した際にareaの和集合を更新しない場合や、source定義がmanifestへ未登録の場合は`clasp push`前に失敗します。
 
 次の場合は必ずfull modeです。
 
@@ -59,7 +59,7 @@ Actions Summaryには、変更ファイル、影響領域、selected/full、ス�
 3. `src/test/test_runner.gs`の`CORE_TESTS_` / `FULL_ONLY_TESTS_`と領域別配列をmanifest順に同期する。実定義・manifest・runnerの未登録、不存在、重複、順序不一致はFinal CI preflightで失敗する
 4. selected対象のテストファイルを追加・変更する場合は、ファイル内全テストのmanifest areaの和集合を`scripts/ci/gas-test-selection.js`の`PATH_RULES`へ登録する
 5. 実装sourceを追加・変更する場合は、跨層テストを確認して`PATH_RULES`へ必要領域の和集合を登録する。判断できなければfull fallbackにする
-6. `scripts/ci/check-gas-test-selection.js`のsource棚卸し、mapped test file監査、全件網羅、suite所属・順序の回帰テストと、このマッピング表を更新する
+6. `scripts/ci/check-gas-test-file-mappings.js`のFinal CI preflightと`scripts/ci/check-gas-test-selection.js`のsource棚卸し、mapped test file監査、全件網羅、suite所属・順序の回帰テストを確認し、このマッピング表を更新する
 
 未更新の新規実装・テストファイルは自動的にfull modeになり、選択実行で見落としません。
 
@@ -242,17 +242,18 @@ GAS実行対象と判定された場合、workflowは次を行います。
 1. PRの固定済みbase/head SHAを再検証する。
 2. `npm ci --ignore-scripts`でlockfile固定のparserとローカルclaspを導入する。
 3. `test_runner.gs`以外の`src/test/**/*.gs`にある実テスト宣言、manifest、`runAllTests`、`runSmokeTests`、selected入口、full 9バッチを完全照合する。未登録、不存在、重複、所属・順序不一致なら`clasp push`前に停止する。
-4. 固定済みのbase/head SHAから変更ファイルを取得し、selected/fullと実行入口をJSONへ固定する。判定失敗時はfullへフォールバックする。
-5. `CLASPRC_JSON` から `~/.clasprc.json` を生成する。
-6. `GAS_TEST_SCRIPT_ID` からrunner一時領域にCI専用project設定JSONを生成する。`CLASP_PROJECT_JSON` がある場合もそのまま書き込まず、`scriptId`、`rootDir`、`srcDir` をCI側で正規化する。
-7. `CLASP_USER` がある場合は `clasp --user "$CLASP_USER" ...` として実行し、すべての `clasp` 呼び出しで `--project <CI専用設定ファイル>` を明示する。
-8. ソース管理された `.gs` / `.js` ファイル内に選択されたCI入口がすべて存在することを確認する。
-9. `.gs` ファイルを Node VM parser で構文チェックする。GAS固有APIの実行はしない。
-10. CI runner上の `appsscript.json` に `executionApi: { access: 'ANYONE' }` を注入する。
-11. テスト専用 Apps Script プロジェクトへ `clasp --project <ci-project> push --force` する。
-12. `GAS_TEST_DEPLOYMENT_ID` が設定されている場合だけ、API executable deployment を更新する。未設定の場合は、新しいversioned deploymentを作成せずスキップする。
-13. 最新のpush済みコードに対して、selected modeでは選択入口、full modeでは`runGasTestBatch01`から`runGasTestBatch09`を順番に実行する。`clasp push`とdeployment更新は1回だけ行う。
-14. GAS側で全件網羅、欠落、重複、入口数、実行件数を検証する。実行権限エラーで使えない場合だけ`clasp run unavailable`として記録し、手動実行へ切り替える。
+4. selected対象の全テストファイルについて、実テストが存在し、manifest areaの全要素を`PATH_RULES`が含むことを監査する。不整合ならfullへ切り替えず失敗する。
+5. 固定済みのbase/head SHAから変更ファイルを取得し、selected/fullと実行入口をJSONへ固定する。判定失敗時はfullへフォールバックする。
+6. `CLASPRC_JSON` から `~/.clasprc.json` を生成する。
+7. `GAS_TEST_SCRIPT_ID` からrunner一時領域にCI専用project設定JSONを生成する。`CLASP_PROJECT_JSON` がある場合もそのまま書き込まず、`scriptId`、`rootDir`、`srcDir` をCI側で正規化する。
+8. `CLASP_USER` がある場合は `clasp --user "$CLASP_USER" ...` として実行し、すべての `clasp` 呼び出しで `--project <CI専用設定ファイル>` を明示する。
+9. ソース管理された `.gs` / `.js` ファイル内に選択されたCI入口がすべて存在することを確認する。
+10. `.gs` ファイルを Node VM parser で構文チェックする。GAS固有APIの実行はしない。
+11. CI runner上の `appsscript.json` に `executionApi: { access: 'ANYONE' }` を注入する。
+12. テスト専用 Apps Script プロジェクトへ `clasp --project <ci-project> push --force` する。
+13. `GAS_TEST_DEPLOYMENT_ID` が設定されている場合だけ、API executable deployment を更新する。未設定の場合は、新しいversioned deploymentを作成せずスキップする。
+14. 最新のpush済みコードに対して、selected modeでは選択入口、full modeでは`runGasTestBatch01`から`runGasTestBatch09`を順番に実行する。`clasp push`とdeployment更新は1回だけ行う。
+15. GAS側で全件網羅、欠落、重複、入口数、実行件数を検証する。実行権限エラーで使えない場合だけ`clasp run unavailable`として記録し、手動実行へ切り替える。
 
 ## ログと失敗判定
 
