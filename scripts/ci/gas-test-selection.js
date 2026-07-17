@@ -27,7 +27,7 @@ const ALL_SUITE_NAMES = new Set(ALL_SUITE_DEFINITIONS.map((definition) => defini
 const ALL_ENTRY_POINTS = new Set(ALL_SUITE_DEFINITIONS.map((definition) => definition.entryPoint));
 
 const PATH_RULES = Object.freeze({
-  'src/app/parser.gs': selected('parser-input', 'database'),
+  'src/app/parser.gs': selected('parser-input', 'database', 'staging-import'),
   'src/app/db.gs': selected('database', 'output'),
   'src/app/builder.gs': selected('trade-calculation', 'output'),
   'src/app/writer.gs': selected('output'),

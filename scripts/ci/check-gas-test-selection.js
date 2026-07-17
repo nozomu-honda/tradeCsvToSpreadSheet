@@ -5,7 +5,6 @@ const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const vm = require('vm');
 const { spawnSync } = require('child_process');
 const {
   ALL_IMPACT_AREAS,
@@ -17,9 +16,12 @@ const {
 } = require('./gas-test-selection');
 const {
   ALL_GAS_TEST_FUNCTIONS,
-  CORE_GAS_TEST_FUNCTIONS,
   GAS_TEST_MANIFEST,
 } = require('./gas-test-suite-manifest');
+const {
+  assertGasRunnerMatchesManifest,
+  resultTestNames,
+} = require('./check-gas-test-manifest-sync');
 const {
   CHANGE_CLASSIFICATIONS,
   FINAL_CI_CHECK_CONTEXT_MARKER,
@@ -55,8 +57,8 @@ function assertFull(changedFiles, reasonPattern, options) {
 function checkSelectionRules() {
   assertSelected(
     ['src/app/parser.gs'],
-    ['parser-input', 'database'],
-    ['parser-input-01', 'parser-input-02', 'database-01', 'database-02', 'database-03'],
+    ['parser-input', 'database', 'staging-import'],
+    ['parser-input-01', 'parser-input-02', 'database-01', 'database-02', 'database-03', 'staging-import'],
   );
   assertSelected(
     ['src/app/db.gs'],
@@ -65,8 +67,8 @@ function checkSelectionRules() {
   );
   assertSelected(
     ['src/app/parser.gs', 'src/app/writer.gs'],
-    ['parser-input', 'database', 'output'],
-    ['parser-input-01', 'parser-input-02', 'database-01', 'database-02', 'database-03', 'output-01', 'output-02'],
+    ['parser-input', 'database', 'staging-import', 'output'],
+    ['parser-input-01', 'parser-input-02', 'database-01', 'database-02', 'database-03', 'staging-import', 'output-01', 'output-02'],
   );
   assertSelected(
     ['docs/gas-ci.md', 'src/test/test_rakuten_phase1.gs'],
@@ -107,7 +109,7 @@ function checkSelectionRules() {
 
 function checkSelectedSourceAudit() {
   const expectedSelectedSources = {
-    'src/app/parser.gs': ['parser-input', 'database'],
+    'src/app/parser.gs': ['parser-input', 'database', 'staging-import'],
     'src/app/db.gs': ['database', 'output'],
     'src/app/builder.gs': ['trade-calculation', 'output'],
     'src/app/writer.gs': ['output'],
@@ -235,77 +237,6 @@ function checkExactGitDiffInput() {
   }
 }
 
-function createGasRunnerContext(runnerSource) {
-  const testFunctionNames = [...new Set(
-    [...runnerSource.matchAll(/\b(test_[A-Za-z0-9_]+)\b/g)].map((match) => match[1]),
-  )];
-  const context = {
-    Logger: { log() {} },
-    cleanupSuiteTempSpreadsheet_() {},
-    cleanupSuiteTempDbSpreadsheets_() {},
-  };
-  for (const name of testFunctionNames) context[name] = { [name]: function() {} }[name];
-  vm.createContext(context);
-  vm.runInContext(runnerSource, context, { filename: 'src/test/test_runner.gs' });
-  return context;
-}
-
-function resultTestNames(result) {
-  return [...result.matchAll(/^OK\s+(test_[A-Za-z0-9_]+)/gm)].map((match) => match[1]);
-}
-
-function assertGasRunnerMatchesManifest(runnerSource) {
-  const context = createGasRunnerContext(runnerSource);
-
-  assert.strictEqual(typeof context.runSmokeTests, 'function', 'runSmokeTests must remain available');
-  assert.strictEqual(typeof context.runAllTests, 'function', 'runAllTests must remain available');
-  const allTestsResult = context.runAllTests();
-  assert.match(allTestsResult, /GAS_TEST_METRICS testCount=116 durationMs=\d+/);
-  assert.deepStrictEqual(
-    resultTestNames(allTestsResult),
-    ALL_GAS_TEST_FUNCTIONS,
-    'runAllTests order must match the canonical manifest',
-  );
-  const smokeTestsResult = context.runSmokeTests();
-  assert.match(smokeTestsResult, /GAS_TEST_METRICS testCount=110 durationMs=\d+/);
-  assert.deepStrictEqual(
-    resultTestNames(smokeTestsResult),
-    CORE_GAS_TEST_FUNCTIONS,
-    'runSmokeTests order must match the canonical manifest',
-  );
-
-  for (const definition of SELECTED_SUITE_DEFINITIONS) {
-    assert.strictEqual(typeof context[definition.entryPoint], 'function', `${definition.entryPoint} must be public`);
-    const result = context[definition.entryPoint]();
-    assert.match(
-      result,
-      new RegExp(`GAS_TEST_METRICS testCount=${definition.testCount} durationMs=\\d+`),
-      `${definition.name} must report its exact test count`,
-    );
-    assert.deepStrictEqual(
-      resultTestNames(result),
-      definition.tests,
-      `${definition.name} test functions and order must match the canonical manifest`,
-    );
-  }
-  for (const definition of FULL_SUITE_DEFINITIONS) {
-    assert.strictEqual(typeof context[definition.entryPoint], 'function', `${definition.entryPoint} must remain public`);
-    const result = context[definition.entryPoint]();
-    assert.match(
-      result,
-      new RegExp(`GAS_TEST_METRICS testCount=${definition.testCount} durationMs=\\d+`),
-      `${definition.name} must report its exact full-batch test count`,
-    );
-    assert.deepStrictEqual(
-      resultTestNames(result),
-      definition.tests,
-      `${definition.name} test functions and order must match the canonical manifest`,
-    );
-  }
-
-  return { context, allTestsResult };
-}
-
 function mutateRunnerArray(runnerSource, arrayName, mutateBody) {
   const pattern = new RegExp(`(const ${arrayName} = \\[)([\\s\\S]*?)(\\n\\];)`);
   const match = runnerSource.match(pattern);
@@ -420,6 +351,9 @@ function checkWorkflowAndShellContract() {
   const gasJob = workflow.slice(workflow.indexOf('  gas-tests:'), workflow.indexOf('  gas-web-e2e:'));
 
   for (const expected of [
+    'Verify GAS test manifest and runner sync',
+    'node scripts/ci/check-gas-test-manifest-sync.js',
+    'MANIFEST_SYNC_OUTCOME: ${{ steps.gas_manifest_sync.outcome }}',
     'Select GAS Tests from exact PR diff',
     'node scripts/ci/select-gas-tests.js',
     'GAS_TEST_BASE_SHA: ${{ inputs.base_sha }}',
@@ -430,6 +364,22 @@ function checkWorkflowAndShellContract() {
   ]) {
     assert.ok(gasJob.includes(expected), `Final CI GAS job must include ${expected}`);
   }
+  const headGuardIndex = gasJob.indexOf('id: gas_head_guard');
+  const manifestSyncIndex = gasJob.indexOf('id: gas_manifest_sync');
+  const selectionIndex = gasJob.indexOf('id: select_gas_tests');
+  const installIndex = gasJob.indexOf('id: install_clasp');
+  const runIndex = gasJob.indexOf('id: run_gas_tests');
+  assert.ok(
+    headGuardIndex < manifestSyncIndex &&
+      manifestSyncIndex < selectionIndex &&
+      manifestSyncIndex < installIndex &&
+      manifestSyncIndex < runIndex,
+    'manifest sync must run after the head guard and before selection, clasp installation, and push',
+  );
+  assert.ok(
+    !runScript.includes('check-gas-test-manifest-sync.js'),
+    'the GAS shell must not recursively invoke the workflow manifest sync preflight',
+  );
   assert.strictEqual(
     (runScript.match(/run_clasp_step "clasp --project push" push --force/g) || []).length,
     1,
@@ -449,13 +399,14 @@ function checkWorkflowAndShellContract() {
   assert.ok(runScript.includes('Actual GAS tests'), 'GAS CI summary must report actual GAS test time');
 }
 
-function runGasShellSelectionFixture(selection) {
+function runGasShellSelectionFixture(selection, options = {}) {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'gas-test-selection-shell-'));
   try {
     for (const relativePath of [
       '.claspignore',
       'appsscript.json',
       'scripts/ci/gas-test-selection.js',
+      'scripts/ci/check-gas-test-manifest-sync.js',
       'scripts/ci/gas-test-suite-manifest.js',
       'scripts/ci/run-gas-tests.sh',
       'scripts/ci/write-ci-clasp-config.js',
@@ -464,6 +415,11 @@ function runGasShellSelectionFixture(selection) {
       const targetPath = path.join(tempRoot, relativePath);
       fs.mkdirSync(path.dirname(targetPath), { recursive: true });
       fs.copyFileSync(path.join(rootDir, relativePath), targetPath);
+    }
+    if (options.mutateRunnerSource) {
+      const runnerPath = path.join(tempRoot, 'src', 'test', 'test_runner.gs');
+      const runnerSource = fs.readFileSync(runnerPath, 'utf8');
+      fs.writeFileSync(runnerPath, options.mutateRunnerSource(runnerSource));
     }
     fs.writeFileSync(path.join(tempRoot, 'selection.json'), `${JSON.stringify(selection, null, 2)}\n`);
     const fakeBinDir = path.join(tempRoot, 'fake-bin');
@@ -511,6 +467,7 @@ export GITHUB_STEP_SUMMARY="$(pwd)/summary.md"
 export GAS_TEST_SELECTION_PATH="$(pwd)/selection.json"
 export CLASPRC_JSON='{"placeholder":true}'
 export GAS_TEST_SCRIPT_ID='TEST_SCRIPT_ID_PLACEHOLDER'
+node scripts/ci/check-gas-test-manifest-sync.js
 source scripts/ci/run-gas-tests.sh
 `;
     const windowsGitBash = 'C:\\Program Files\\Git\\bin\\bash.exe';
@@ -558,6 +515,14 @@ function assertSuccessfulShellFixture(result, label) {
 
 function checkShellSelectionValidation() {
   const selected = selectGasTestsByChangedFiles(['src/app/parser.gs']);
+  assert.deepStrictEqual(
+    selected.suites,
+    ['parser-input-01', 'parser-input-02', 'database-01', 'database-02', 'database-03', 'staging-import'],
+  );
+  assert.strictEqual(selected.testCount, 49, 'parser.gs must select 15 parser, 27 database, and 7 staging tests');
+  assert.ok(!selected.impactAreas.includes('output'));
+  assert.ok(!selected.impactAreas.includes('broker-import'));
+  assert.ok(!selected.impactAreas.includes('e2e-support'));
   const selectedResult = runGasShellSelectionFixture(selected);
   assertSuccessfulShellFixture(selectedResult, 'selected');
   assert.deepStrictEqual(
@@ -585,6 +550,29 @@ function checkShellSelectionValidation() {
   assert.match(fullResult.summary, /Mode: `full`/);
   assert.match(fullResult.summary, /Expected tests: `116`/);
   assert.match(fullResult.summary, /All selected GAS test functions passed \(116 tests/);
+  assert.strictEqual(FULL_SUITE_DEFINITIONS.length, 9, 'full mode must retain nine batches');
+
+  const parserTest = 'test_collectInputAlerts_supportedForeignBond_';
+  const databaseTest = 'test_buildRowHash_sameRecord_sameHash_';
+  const manifestMismatchResult = runGasShellSelectionFixture(selected, {
+    mutateRunnerSource(runnerSource) {
+      let result = mutateRunnerArray(
+        runnerSource,
+        'PARSER_INPUT_TESTS_',
+        (body) => replaceArrayTest(body, parserTest, databaseTest),
+      );
+      result = mutateRunnerArray(
+        result,
+        'DATABASE_TESTS_',
+        (body) => replaceArrayTest(body, databaseTest, parserTest),
+      );
+      return result;
+    },
+  });
+  assert.notStrictEqual(manifestMismatchResult.status, 0, 'manifest mismatch must fail before the GAS shell starts');
+  assert.deepStrictEqual(manifestMismatchResult.calls, [], 'manifest mismatch must cause zero clasp push and run calls');
+  assert.match(manifestMismatchResult.output, /GAS test manifest sync failed/);
+  assert.match(manifestMismatchResult.output, /canonical manifest/);
 
   const tampered = cloneSelection(selected);
   tampered.suiteDetails[0].entryPoint = SELECTED_SUITE_DEFINITIONS.find(

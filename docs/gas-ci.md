@@ -8,7 +8,7 @@ CI用と本番用のどちらへ、どのコマンドで反映するかを先に
 
 全実行用のCIバッチ関数は `runGasTestBatch01` から `runGasTestBatch09` までです。各バッチは `scripts/ci/gas-test-suite-manifest.js` に登録した116テストを最大13件ずつに分けます。GAS runtimeでは `CORE_TESTS_` と `FULL_ONLY_TESTS_` を結合して実行し、Node回帰テストがmanifestと関数名・順序を完全照合します。`runAllTests()` は既存の手動確認用入口として残しますが、CIのfull modeではApps Scriptの実行時間上限を避けるため、1回の一括実行ではなく全バッチを逐次実行します。
 
-Final CIでは、固定済みのPR `base SHA...head SHA`から変更ファイルを取得し、`scripts/ci/gas-test-selection.js`の純粋関数で影響範囲を判定します。既知かつ局所的な差分はselected modeで関係するスイートだけを実行し、少しでも不確実な差分はfull modeへ戻します。どちらのmodeでもテスト専用Apps Scriptへの`clasp push --force`は1回だけです。
+Final CIでは、固定済みのPR `base SHA...head SHA`を再検証した直後に`scripts/ci/check-gas-test-manifest-sync.js`を実行し、manifestと`src/test/test_runner.gs`の関数名・所属・順序を完全照合します。同期不一致は差分選択、clasp導入、`clasp push`より前にfail-closedで停止します。同期確認後、固定済みSHAから変更ファイルを取得し、`scripts/ci/gas-test-selection.js`の純粋関数で影響範囲を判定します。既知かつ局所的な差分はselected modeで関係するスイートだけを実行し、少しでも不確実な差分はfull modeへ戻します。どちらのmodeでもテスト専用Apps Scriptへの`clasp push --force`は1回だけです。
 
 ## 差分とGAS Testsの対応
 
@@ -28,7 +28,7 @@ source fileは1領域に限定せず、既存テストが跨ぐ層を棚卸し�
 
 | source | 選択領域 | 棚卸し根拠 |
 | --- | --- | --- |
-| `src/app/parser.gs` | parser-input + database | 入力単体テストに加え、Spreadsheet入力からDB保存・出力まで進むdatabase統合テストがある |
+| `src/app/parser.gs` | parser-input + database + staging-import | 入力単体15件、DB統合27件、一次受け取込7件の合計49件。parser出力を入力に使う一次受け取込経路まで確認する |
 | `src/app/db.gs` | database + output | DB保存・読込の直接テストに加え、DB経由の楽天出力セル比較テストがoutput suiteにある |
 | `src/app/builder.gs` | trade-calculation + output | 取引計算の直接テストと、DBレコードから各出力行を生成するoutputテストの両方が通る |
 | `src/app/writer.gs` | output | 出力書式の直接テストと出力生成テストが通る |
@@ -44,7 +44,7 @@ source fileは1領域に限定せず、既存テストが跨ぐ層を棚卸し�
 - 分類エラー、変更ファイルなし、選択スイート0件
 - 明示的なfull指定、または安全な和集合を作れない差分
 
-suite名、area、entry point、所属する実テスト関数名と順序の正本は`scripts/ci/gas-test-suite-manifest.js`です。`scripts/ci/gas-test-selection.js`はmanifestからselected/full定義を読み、選択JSONには必要な公開metadataだけを書きます。GAS側のselected mode入口は`src/test/test_runner.gs`の`runGasTestSuite...`関数です。許可済みスイート名は明示的な関数配列へ対応し、`eval`は使いません。Node回帰テストは各entry pointが返す`OK <testFunctionName>`列をmanifestと順序込みで完全照合するため、件数が同じsuite間交換、欠落、別suite混入、順序変更も失敗します。
+suite名、area、entry point、所属する実テスト関数名と順序の正本は`scripts/ci/gas-test-suite-manifest.js`です。`scripts/ci/gas-test-selection.js`はmanifestからselected/full定義を読み、選択JSONには必要な公開metadataだけを書きます。GAS側のselected mode入口は`src/test/test_runner.gs`の`runGasTestSuite...`関数です。許可済みスイート名は明示的な関数配列へ対応し、`eval`は使いません。Final CI本体の同期preflightとNode回帰テストは、`runAllTests`、`runSmokeTests`、selected入口、full 9バッチの各戻り値に含まれる`OK <testFunctionName>`列をmanifestと順序込みで完全照合します。件数が同じsuite間交換、欠落、別suite混入、順序変更も失敗し、同期preflightの失敗はGAS Testsの失敗理由としてSummaryへ記録されます。
 
 選択JSONは未信頼入力として扱い、manifest由来のselected/full正規定義とスイート名、順序、入口、件数を完全照合してから、正規定義だけで実行一覧を再構築します。JSON内の`entryPoint`をそのまま`clasp run`へ渡しません。selected/full混在、未知名・未知入口、空選択、定義の欠落・重複・順序変更、`testCount`改ざんはfullへ黙って切り替えず、`clasp push`より前にCIをfail-closedで失敗させます。差分判定側の不確実性だけがfull fallbackの対象です。
 
@@ -235,17 +235,19 @@ OAuth token、Script ID、deployment ID、Spreadsheet ID、Drive folder ID、本
 
 GAS実行対象と判定された場合、workflowは次を行います。
 
-1. `CLASPRC_JSON` から `~/.clasprc.json` を生成する。
-2. `GAS_TEST_SCRIPT_ID` からrunner一時領域にCI専用project設定JSONを生成する。`CLASP_PROJECT_JSON` がある場合もそのまま書き込まず、`scriptId`、`rootDir`、`srcDir` をCI側で正規化する。
-3. `CLASP_USER` がある場合は `clasp --user "$CLASP_USER" ...` として実行し、すべての `clasp` 呼び出しで `--project <CI専用設定ファイル>` を明示する。
-4. 固定済みのbase/head SHAから変更ファイルを取得し、selected/fullと実行入口をJSONへ固定する。判定失敗時はfullへフォールバックする。
-5. ソース管理された `.gs` / `.js` ファイル内に選択されたCI入口がすべて存在することを確認する。
-6. `.gs` ファイルを Node VM parser で構文チェックする。GAS固有APIの実行はしない。
-7. CI runner上の `appsscript.json` に `executionApi: { access: 'ANYONE' }` を注入する。
-8. テスト専用 Apps Script プロジェクトへ `clasp --project <ci-project> push --force` する。
-9. `GAS_TEST_DEPLOYMENT_ID` が設定されている場合だけ、API executable deployment を更新する。未設定の場合は、新しいversioned deploymentを作成せずスキップする。
-10. 最新のpush済みコードに対して、selected modeでは選択入口、full modeでは`runGasTestBatch01`から`runGasTestBatch09`を順番に実行する。`clasp push`とdeployment更新は1回だけ行う。
-11. GAS側で全件網羅、欠落、重複、入口数、実行件数を検証する。実行権限エラーで使えない場合だけ`clasp run unavailable`として記録し、手動実行へ切り替える。
+1. PRの固定済みbase/head SHAを再検証する。
+2. manifestと`test_runner.gs`の`runAllTests`、`runSmokeTests`、selected入口、full 9バッチを完全照合する。不一致ならclasp導入前に停止する。
+3. 固定済みのbase/head SHAから変更ファイルを取得し、selected/fullと実行入口をJSONへ固定する。判定失敗時はfullへフォールバックする。
+4. `CLASPRC_JSON` から `~/.clasprc.json` を生成する。
+5. `GAS_TEST_SCRIPT_ID` からrunner一時領域にCI専用project設定JSONを生成する。`CLASP_PROJECT_JSON` がある場合もそのまま書き込まず、`scriptId`、`rootDir`、`srcDir` をCI側で正規化する。
+6. `CLASP_USER` がある場合は `clasp --user "$CLASP_USER" ...` として実行し、すべての `clasp` 呼び出しで `--project <CI専用設定ファイル>` を明示する。
+7. ソース管理された `.gs` / `.js` ファイル内に選択されたCI入口がすべて存在することを確認する。
+8. `.gs` ファイルを Node VM parser で構文チェックする。GAS固有APIの実行はしない。
+9. CI runner上の `appsscript.json` に `executionApi: { access: 'ANYONE' }` を注入する。
+10. テスト専用 Apps Script プロジェクトへ `clasp --project <ci-project> push --force` する。
+11. `GAS_TEST_DEPLOYMENT_ID` が設定されている場合だけ、API executable deployment を更新する。未設定の場合は、新しいversioned deploymentを作成せずスキップする。
+12. 最新のpush済みコードに対して、selected modeでは選択入口、full modeでは`runGasTestBatch01`から`runGasTestBatch09`を順番に実行する。`clasp push`とdeployment更新は1回だけ行う。
+13. GAS側で全件網羅、欠落、重複、入口数、実行件数を検証する。実行権限エラーで使えない場合だけ`clasp run unavailable`として記録し、手動実行へ切り替える。
 
 ## ログと失敗判定
 
