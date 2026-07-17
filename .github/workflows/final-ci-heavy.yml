@@ -84,6 +84,10 @@ jobs:
           PR_NUMBER: ${{ inputs.pr_number }}
         run: node scripts/ci/final-ci.js assert-head
 
+      - name: Install GAS CI dependencies
+        id: install_clasp
+        run: npm ci --ignore-scripts
+
       - name: Verify GAS test source, manifest, and runner sync
         id: gas_manifest_sync
         run: node scripts/ci/check-gas-test-manifest-sync.js
@@ -98,10 +102,6 @@ jobs:
           --base-sha "${GAS_TEST_BASE_SHA}"
           --head-sha "${GAS_TEST_HEAD_SHA}"
           --output "${RUNNER_TEMP}/gas-test-selection.json"
-
-      - name: Install clasp
-        id: install_clasp
-        run: npm install --global @google/clasp
 
       - name: Record setup timing
         id: gas_setup_timing
@@ -123,7 +123,9 @@ jobs:
           GAS_CI_JOB_STARTED_AT_EPOCH_SECONDS: ${{ steps.gas_job_timing.outputs.started_at }}
           GAS_CI_SETUP_SECONDS: ${{ steps.gas_setup_timing.outputs.seconds }}
           GAS_TEST_SELECTION_PATH: ${{ runner.temp }}/gas-test-selection.json
-        run: bash scripts/ci/run-gas-tests.sh
+        run: |
+          export PATH="${GITHUB_WORKSPACE}/node_modules/.bin:${PATH}"
+          bash scripts/ci/run-gas-tests.sh
 
       - name: Record GAS Tests status
         id: gas_result

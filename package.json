@@ -32,6 +32,7 @@
   "devDependencies": {
     "@google/clasp": "3.3.0",
     "@playwright/test": "^1.61.1",
+    "acorn": "8.17.0",
     "googleapis": "148.0.0"
   }
 }

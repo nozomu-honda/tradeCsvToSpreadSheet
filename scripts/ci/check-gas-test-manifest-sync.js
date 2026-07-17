@@ -2,6 +2,7 @@
 'use strict';
 
 const assert = require('assert');
+const acorn = require('acorn');
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
@@ -15,155 +16,53 @@ const {
 const rootDir = path.resolve(__dirname, '..', '..');
 const defaultRunnerPath = path.join(rootDir, 'src', 'test', 'test_runner.gs');
 const defaultTestRoot = path.join(rootDir, 'src', 'test');
-const REGULAR_EXPRESSION_PREFIX_KEYWORDS = new Set([
-  'case',
-  'delete',
-  'in',
-  'instanceof',
-  'new',
-  'return',
-  'throw',
-  'typeof',
-  'void',
-  'yield',
-]);
+const TEST_FUNCTION_NAME_PATTERN = /^test_[A-Za-z0-9_]+$/;
 
 function toRepositoryPath(repositoryRoot, filePath) {
   return path.relative(repositoryRoot, filePath).split(path.sep).join('/');
 }
 
-function maskNonCodeText(source) {
-  const masked = source.split('');
-  const contexts = [{ type: 'code', templateExpression: false, braceDepth: 0 }];
-
-  function canStartRegularExpression(index) {
-    let previousIndex = index - 1;
-    while (previousIndex >= 0 && /\s/.test(source[previousIndex])) previousIndex -= 1;
-    if (previousIndex < 0) return true;
-    if ('([{:;,=!?&|+-*%^~<>'.includes(source[previousIndex])) return true;
-    const previousWord = source.slice(0, previousIndex + 1).match(/([A-Za-z_$][A-Za-z0-9_$]*)$/);
-    return previousWord !== null && REGULAR_EXPRESSION_PREFIX_KEYWORDS.has(previousWord[1]);
-  }
-
-  function mask(index) {
-    if (masked[index] !== '\n' && masked[index] !== '\r') masked[index] = ' ';
-  }
-
-  for (let index = 0; index < source.length; index += 1) {
-    const current = source[index];
-    const next = source[index + 1];
-    const context = contexts[contexts.length - 1];
-
-    if (context.type === 'code') {
-      if (context.templateExpression && current === '}') {
-        if (context.braceDepth === 0) {
-          mask(index);
-          contexts.pop();
-        } else {
-          context.braceDepth -= 1;
-        }
-        continue;
-      }
-      if (current === '/' && next === '/') {
-        mask(index);
-        mask(index + 1);
-        contexts.push({ type: 'line-comment' });
-        index += 1;
-      } else if (current === '/' && next === '*') {
-        mask(index);
-        mask(index + 1);
-        contexts.push({ type: 'block-comment' });
-        index += 1;
-      } else if (current === "'") {
-        mask(index);
-        contexts.push({ type: 'quote', delimiter: "'" });
-      } else if (current === '"') {
-        mask(index);
-        contexts.push({ type: 'quote', delimiter: '"' });
-      } else if (current === '`') {
-        mask(index);
-        contexts.push({ type: 'template' });
-      } else if (current === '/' && canStartRegularExpression(index)) {
-        mask(index);
-        contexts.push({ type: 'regular-expression', inCharacterClass: false });
-      } else if (context.templateExpression && current === '{') {
-        context.braceDepth += 1;
-      }
-      continue;
-    }
-
-    if (context.type === 'line-comment') {
-      mask(index);
-      if (current === '\n' || current === '\r') contexts.pop();
-      continue;
-    }
-
-    if (context.type === 'block-comment') {
-      mask(index);
-      if (current === '*' && next === '/') {
-        mask(index + 1);
-        contexts.pop();
-        index += 1;
-      }
-      continue;
-    }
-
-    if (context.type === 'regular-expression') {
-      mask(index);
-      if (current === '\\') {
-        if (next !== undefined) {
-          mask(index + 1);
-          index += 1;
-        }
-      } else if (!context.inCharacterClass && current === '[') {
-        context.inCharacterClass = true;
-      } else if (context.inCharacterClass && current === ']') {
-        context.inCharacterClass = false;
-      } else if (!context.inCharacterClass && current === '/') {
-        contexts.pop();
-      }
-      continue;
-    }
-
-    if (context.type === 'template') {
-      mask(index);
-      if (current === '\\') {
-        if (next !== undefined) {
-          mask(index + 1);
-          index += 1;
-        }
-      } else if (current === '`') {
-        contexts.pop();
-      } else if (current === '$' && next === '{') {
-        mask(index + 1);
-        contexts.push({ type: 'code', templateExpression: true, braceDepth: 0 });
-        index += 1;
-      }
-      continue;
-    }
-
-    mask(index);
-    if (current === '\\') {
-      if (next !== undefined) {
-        mask(index + 1);
-        index += 1;
-      }
-    } else if (context.type === 'quote' && current === context.delimiter) {
-      contexts.pop();
-    }
-  }
-
-  return masked.join('');
-}
-
 function extractTestFunctionDefinitions(source, filePath) {
-  const maskedSource = maskNonCodeText(source);
-  const definitionPattern = /\bfunction[\t \r\n]+(test_[A-Za-z0-9_]+)[\t \r\n]*\(/g;
-  return [...maskedSource.matchAll(definitionPattern)].map((match) => ({
-    filePath,
-    line: source.slice(0, match.index).split(/\r\n|\r|\n/).length,
-    name: match[1],
-  }));
+  let program;
+  try {
+    program = acorn.parse(source, {
+      ecmaVersion: 'latest',
+      locations: true,
+      sourceType: 'script',
+    });
+  } catch (error) {
+    const location = error && error.loc ? `:${error.loc.line}:${error.loc.column + 1}` : '';
+    throw new Error(`unable to parse GAS test source: ${filePath}${location}`);
+  }
+
+  const definitions = [];
+  const pendingNodes = [program];
+  while (pendingNodes.length > 0) {
+    const node = pendingNodes.pop();
+    if (
+      (node.type === 'FunctionDeclaration' || node.type === 'FunctionExpression') &&
+      node.id &&
+      node.id.type === 'Identifier' &&
+      TEST_FUNCTION_NAME_PATTERN.test(node.id.name)
+    ) {
+      definitions.push({
+        filePath,
+        line: node.loc.start.line,
+        name: node.id.name,
+      });
+    }
+
+    for (const value of Object.values(node)) {
+      if (Array.isArray(value)) {
+        for (let index = value.length - 1; index >= 0; index -= 1) {
+          if (value[index] && typeof value[index].type === 'string') pendingNodes.push(value[index]);
+        }
+      } else if (value && typeof value.type === 'string') {
+        pendingNodes.push(value);
+      }
+    }
+  }
+  return definitions;
 }
 
 function listGasTestSourceFiles({ testRoot = defaultTestRoot, runnerPath = defaultRunnerPath } = {}) {
@@ -361,7 +260,6 @@ module.exports = {
   createGasRunnerContext,
   extractTestFunctionDefinitions,
   listGasTestSourceFiles,
-  maskNonCodeText,
   resultTestNames,
   verifyGasTestManifestSync,
 };

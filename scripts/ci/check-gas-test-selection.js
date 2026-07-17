@@ -23,7 +23,6 @@ const {
   assertGasRunnerMatchesManifest,
   collectTestFunctionDefinitions,
   listGasTestSourceFiles,
-  maskNonCodeText,
   resultTestNames,
   verifyGasTestManifestSync,
 } = require('./check-gas-test-manifest-sync');
@@ -411,14 +410,62 @@ function checkTemplateLiteralDefinitionCollection() {
       'template bodies must stay masked while real definitions in nested interpolation expressions remain visible',
     );
   });
+}
 
-  const maskedSource = maskNonCodeText(fixtureSource);
-  assert.strictEqual(maskedSource.length, fixtureSource.length, 'masking must preserve source offsets');
-  assert.deepStrictEqual(
-    [...maskedSource.matchAll(/\r\n|\r|\n/g)].map((match) => match.index),
-    [...fixtureSource.matchAll(/\r\n|\r|\n/g)].map((match) => match.index),
-    'masking must preserve newline offsets for diagnostic line numbers',
-  );
+function checkRegularExpressionAndDivisionDefinitionCollection() {
+  const fixtureLines = [
+    'if (enabled) /function test_if_regex_fake_() {}/.test(value);',
+    'while (enabled) /function test_while_regex_fake_() {}/g.test(value);',
+    'for (; enabled;) /function test_for_regex_fake_() {}/i.test(value);',
+    'with (context) /function test_with_regex_fake_() {}/m.test(value);',
+    'do {} while (enabled); /function test_do_while_regex_fake_\\(\\) \\{\\}/u.test(value);',
+    'if (enabled) {}',
+    '/function test_after_block_regex_fake_() {}/y.test(value);',
+    'function regexFactory_() {',
+    '  return /function test_return_regex_fake_() {}/;',
+    '}',
+    'function throwRegex_() {',
+    '  throw /function test_throw_regex_fake_() {}/;',
+    '}',
+    'const assignedRegex = /function test_assignment_regex_fake_() {}/;',
+    'const regexArray = [/function test_array_regex_fake_() {}/];',
+    'consume(/function test_argument_regex_fake_() {}/);',
+    'const conditionalRegex = enabled',
+    '  ? /function test_ternary_true_regex_fake_() {}/',
+    '  : /function test_ternary_false_regex_fake_() {}/;',
+    'const escapedRegex = /[\\/]function\\s+test_character_class_regex_fake_\\(\\)\\s+\\{\\}/giu;',
+    'const quotient = amount / divisor;',
+    'amount /= divisor;',
+    'const parenthesizedQuotient = (amount + fee) / divisor;',
+    'call() / value;',
+    'function test_real_after_division_fixture_() {}',
+    '/function test_final_regex_fake_() {}/.test(value);',
+    'function test_real_after_regex_fixture_() {}',
+    '',
+  ];
+
+  withTestSourceFixture({
+    'src/test/test_regex_and_division_parser.gs': fixtureLines.join('\n'),
+    'src/test/test_runner.gs': '',
+  }, ({ repositoryRoot, runnerPath, testRoot }) => {
+    const definitions = collectTestFunctionDefinitions({ repositoryRoot, runnerPath, testRoot });
+    assert.deepStrictEqual(
+      definitions.map(({ name, filePath, line }) => ({ name, filePath, line })),
+      [
+        {
+          name: 'test_real_after_division_fixture_',
+          filePath: 'src/test/test_regex_and_division_parser.gs',
+          line: 25,
+        },
+        {
+          name: 'test_real_after_regex_fixture_',
+          filePath: 'src/test/test_regex_and_division_parser.gs',
+          line: 27,
+        },
+      ],
+      'regex bodies must be ignored while real definitions after regex and division remain discoverable',
+    );
+  });
 }
 
 function checkSourceManifestMismatchFixtures() {
@@ -522,6 +569,9 @@ function checkWorkflowAndShellContract() {
   for (const expected of [
     'Verify GAS test source, manifest, and runner sync',
     'node scripts/ci/check-gas-test-manifest-sync.js',
+    'Install GAS CI dependencies',
+    'npm ci --ignore-scripts',
+    'node_modules/.bin:${PATH}',
     'MANIFEST_SYNC_OUTCOME: ${{ steps.gas_manifest_sync.outcome }}',
     'GAS test sources, manifest, and test_runner.gs are not synchronized',
     'Select GAS Tests from exact PR diff',
@@ -534,17 +584,18 @@ function checkWorkflowAndShellContract() {
   ]) {
     assert.ok(gasJob.includes(expected), `Final CI GAS job must include ${expected}`);
   }
+  assert.ok(!gasJob.includes('npm install --global @google/clasp'), 'GAS CI must not install clasp twice');
   const headGuardIndex = gasJob.indexOf('id: gas_head_guard');
+  const installIndex = gasJob.indexOf('id: install_clasp');
   const manifestSyncIndex = gasJob.indexOf('id: gas_manifest_sync');
   const selectionIndex = gasJob.indexOf('id: select_gas_tests');
-  const installIndex = gasJob.indexOf('id: install_clasp');
   const runIndex = gasJob.indexOf('id: run_gas_tests');
   assert.ok(
-    headGuardIndex < manifestSyncIndex &&
+    headGuardIndex < installIndex &&
+      installIndex < manifestSyncIndex &&
       manifestSyncIndex < selectionIndex &&
-      manifestSyncIndex < installIndex &&
       manifestSyncIndex < runIndex,
-    'manifest sync must run after the head guard and before selection, clasp installation, and push',
+    'dependencies and manifest sync must run after the head guard and before selection and push',
   );
   assert.ok(
     !runScript.includes('check-gas-test-manifest-sync.js'),
@@ -658,6 +709,12 @@ source scripts/ci/run-gas-tests.sh
     const result = spawnSync(bashExecutable, ['-c', shellSource], {
       cwd: tempRoot,
       encoding: 'utf8',
+      env: {
+        ...process.env,
+        NODE_PATH: [path.join(rootDir, 'node_modules'), process.env.NODE_PATH]
+          .filter(Boolean)
+          .join(path.delimiter),
+      },
       maxBuffer: 16 * 1024 * 1024,
     });
     const logPath = path.join(tempRoot, 'fake-clasp.log');
@@ -806,6 +863,7 @@ checkSelectionPayloadValidation();
 checkExactGitDiffInput();
 checkSourceDefinitionCollection();
 checkTemplateLiteralDefinitionCollection();
+checkRegularExpressionAndDivisionDefinitionCollection();
 checkSourceManifestMismatchFixtures();
 checkGasRunnerContract();
 checkWorkflowAndShellContract();

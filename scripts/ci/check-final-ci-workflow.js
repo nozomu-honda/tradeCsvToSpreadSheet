@@ -102,6 +102,9 @@ function checkWorkflowStructure() {
   assert.ok(gasJob.includes('EXPECTED_BASE_SHA: ${{ inputs.base_sha }}'), 'GAS Tests must re-check the base SHA before secrets are used');
   assert.ok(gasJob.includes('id: gas_manifest_sync'), 'GAS Tests must verify the manifest and test runner before clasp push');
   assert.ok(gasJob.includes('node scripts/ci/check-gas-test-manifest-sync.js'), 'GAS Tests must run the dedicated manifest sync preflight');
+  assert.ok(gasJob.includes('npm ci --ignore-scripts'), 'GAS Tests must install the pinned parser before manifest verification');
+  assert.ok(gasJob.includes('node_modules/.bin:${PATH}'), 'GAS Tests must use the lockfile-pinned local clasp binary');
+  assert.ok(!gasJob.includes('npm install --global @google/clasp'), 'GAS Tests must not install clasp twice');
   assert.ok(gasJob.includes('MANIFEST_SYNC_OUTCOME: ${{ steps.gas_manifest_sync.outcome }}'), 'manifest sync failure must affect the GAS result');
   assert.ok(
     gasJob.includes('GAS test sources, manifest, and test_runner.gs are not synchronized'),
@@ -113,11 +116,11 @@ function checkWorkflowStructure() {
   const claspInstallIndex = gasJob.indexOf('id: install_clasp');
   const claspPushIndex = gasJob.indexOf('id: run_gas_tests');
   assert.ok(
-    gasHeadGuardIndex < gasManifestSyncIndex &&
+    gasHeadGuardIndex < claspInstallIndex &&
+      claspInstallIndex < gasManifestSyncIndex &&
       gasManifestSyncIndex < gasSelectionIndex &&
-      gasManifestSyncIndex < claspInstallIndex &&
       gasManifestSyncIndex < claspPushIndex,
-    'manifest sync must run after the head guard and before selection, clasp installation, and clasp push',
+    'dependencies and manifest sync must run after the head guard and before selection and clasp push',
   );
   assert.ok(gasJob.includes('TARGET_BASE_SHA: ${{ inputs.base_sha }}'), 'GAS check publication must bind the base SHA');
   assert.ok(gasJob.includes('TARGET_HEAD_SHA: ${{ inputs.head_sha }}'), 'GAS check publication must bind the head SHA');
