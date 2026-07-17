@@ -37,7 +37,7 @@ const PATH_RULES = Object.freeze({
   'src/test/test_input_reader.gs': selected('parser-input'),
   'src/test/test_db.gs': selected('database'),
   'src/test/test_staging_sheet.gs': selected('staging-import'),
-  'src/test/test_test_db_validation_bypass.gs': selected('staging-import'),
+  'src/test/test_test_db_validation_bypass.gs': selected('database'),
   'src/test/test_trade_rows.gs': selected('trade-calculation'),
   'src/test/test_trade_rows_distribution_fix.gs': selected('trade-calculation'),
   'src/test/test_trade_rows_foreign_tax_rate_fix.gs': selected('trade-calculation'),

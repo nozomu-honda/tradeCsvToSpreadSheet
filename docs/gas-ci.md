@@ -8,7 +8,7 @@ CI用と本番用のどちらへ、どのコマンドで反映するかを先に
 
 全実行用のCIバッチ関数は `runGasTestBatch01` から `runGasTestBatch09` までです。各バッチは `scripts/ci/gas-test-suite-manifest.js` に登録した116テストを最大13件ずつに分けます。GAS runtimeでは `CORE_TESTS_` と `FULL_ONLY_TESTS_` を結合して実行し、Node回帰テストがmanifestと関数名・順序を完全照合します。`runAllTests()` は既存の手動確認用入口として残しますが、CIのfull modeではApps Scriptの実行時間上限を避けるため、1回の一括実行ではなく全バッチを逐次実行します。
 
-Final CIでは、固定済みのPR `base SHA...head SHA`を再検証した直後に`scripts/ci/check-gas-test-manifest-sync.js`を実行します。preflightは`src/test/**/*.gs`を再帰走査し、`test_runner.gs`を除く実ファイルに宣言された`function test_*`、manifest、runner、selected入口、full 9バッチを完全照合します。未登録、不存在、重複、所属・順序不一致は差分選択、clasp導入、`clasp push`より前にfail-closedで停止します。同期確認後、固定済みSHAから変更ファイルを取得し、`scripts/ci/gas-test-selection.js`の純粋関数で影響範囲を判定します。既知かつ局所的な差分はselected modeで関係するスイートだけを実行し、少しでも不確実な差分はfull modeへ戻します。どちらのmodeでもテスト専用Apps Scriptへの`clasp push --force`は1回だけです。
+Final CIでは、固定済みのPR `base SHA...head SHA`を再検証し、lockfile固定のCI依存を導入した後に`scripts/ci/check-gas-test-manifest-sync.js`を実行します。preflightは`src/test/**/*.gs`を再帰走査し、`test_runner.gs`を除く実ファイルに宣言された`function test_*`、manifest、runner、selected入口、full 9バッチを完全照合します。未登録、不存在、重複、所属・順序不一致は差分選択と`clasp push`より前にfail-closedで停止します。同期確認後、固定済みSHAから変更ファイルを取得し、`scripts/ci/gas-test-selection.js`の純粋関数で影響範囲を判定します。既知かつ局所的な差分はselected modeで関係するスイートだけを実行し、少しでも不確実な差分はfull modeへ戻します。どちらのmodeでもテスト専用Apps Scriptへの`clasp push --force`は1回だけです。
 
 ## 差分とGAS Testsの対応
 
@@ -17,7 +17,7 @@ Final CIでは、固定済みのPR `base SHA...head SHA`を再検証した直後
 | 影響領域 | 主な既知ファイル | 選択スイート |
 | --- | --- | --- |
 | parser-input | `src/app/parser.gs`、`src/test/test_input_reader.gs` | `parser-input-01`、`parser-input-02` |
-| database | `src/app/db.gs`、`src/app/parser.gs`、`src/test/test_db.gs` | `database-01`〜`database-03` |
+| database | `src/app/db.gs`、`src/app/parser.gs`、`src/test/test_db.gs`、`src/test/test_test_db_validation_bypass.gs` | `database-01`〜`database-03` |
 | staging-import | `src/test/test_staging_sheet.gs`など | `staging-import` |
 | trade-calculation | `src/app/builder.gs`、`src/test/test_trade_rows*.gs` | `trade-calculation-01`、`trade-calculation-02` |
 | output | `src/app/writer.gs`、`src/app/reorder_output_sheets.gs`、出力テスト | `output-01`、`output-02` |
@@ -35,6 +35,8 @@ source fileは1領域に限定せず、既存テストが跨ぐ層を棚卸し�
 | `src/app/reorder_output_sheets.gs` | output | 通常・楽天の出力生成経路でシート順を確定する |
 
 `src/app/e2e_helpers.gs`はE2E準備、cleanup、出力Spreadsheet、test DB状態を跨ぐため、局所的なselected対象にせずfull fallbackとします。ほかにも影響領域を安全に判断できないsourceはselectedへ無理に残しません。docsがコード差分と混在してもdocs自体は選択へ影響しません。docs-only判定は従来どおりFinal CIゲートで拒否されるため、GAS Testsは起動しません。
+
+selected対象の`src/test/**/*.gs`では、ファイル内に実テストが1件以上必要です。各`function test_*`のmanifest areaを集計し、その全areaが`PATH_RULES[filePath].areas`に含まれることをNode回帰テストで自動監査します。テストを追加・移動した際にareaの和集合を更新しない場合や、source定義がmanifestへ未登録の場合は失敗します。
 
 次の場合は必ずfull modeです。
 
@@ -55,8 +57,9 @@ Actions Summaryには、変更ファイル、影響領域、selected/full、ス�
 1. `src/test/**/*.gs`（`test_runner.gs`を除く）へ`function test_*`形式で実テストを定義する
 2. `scripts/ci/gas-test-suite-manifest.js`へ同じテスト関数名、領域、`fullOnly`を登録する。suite分割、入口、件数、順序はここから導出する
 3. `src/test/test_runner.gs`の`CORE_TESTS_` / `FULL_ONLY_TESTS_`と領域別配列をmanifest順に同期する。実定義・manifest・runnerの未登録、不存在、重複、順序不一致はFinal CI preflightで失敗する
-4. 実装sourceを追加・変更する場合は、跨層テストを確認して`scripts/ci/gas-test-selection.js`の`PATH_RULES`へ必要領域の和集合を登録する。判断できなければfull fallbackにする
-5. `scripts/ci/check-gas-test-selection.js`のsource棚卸し、全件網羅、suite所属・順序の回帰テストと、このマッピング表を更新する
+4. selected対象のテストファイルを追加・変更する場合は、ファイル内全テストのmanifest areaの和集合を`scripts/ci/gas-test-selection.js`の`PATH_RULES`へ登録する
+5. 実装sourceを追加・変更する場合は、跨層テストを確認して`PATH_RULES`へ必要領域の和集合を登録する。判断できなければfull fallbackにする
+6. `scripts/ci/check-gas-test-selection.js`のsource棚卸し、mapped test file監査、全件網羅、suite所属・順序の回帰テストと、このマッピング表を更新する
 
 未更新の新規実装・テストファイルは自動的にfull modeになり、選択実行で見落としません。
 
@@ -237,18 +240,19 @@ OAuth token、Script ID、deployment ID、Spreadsheet ID、Drive folder ID、本
 GAS実行対象と判定された場合、workflowは次を行います。
 
 1. PRの固定済みbase/head SHAを再検証する。
-2. `test_runner.gs`以外の`src/test/**/*.gs`にある実テスト宣言、manifest、`runAllTests`、`runSmokeTests`、selected入口、full 9バッチを完全照合する。未登録、不存在、重複、所属・順序不一致ならclasp導入前に停止する。
-3. 固定済みのbase/head SHAから変更ファイルを取得し、selected/fullと実行入口をJSONへ固定する。判定失敗時はfullへフォールバックする。
-4. `CLASPRC_JSON` から `~/.clasprc.json` を生成する。
-5. `GAS_TEST_SCRIPT_ID` からrunner一時領域にCI専用project設定JSONを生成する。`CLASP_PROJECT_JSON` がある場合もそのまま書き込まず、`scriptId`、`rootDir`、`srcDir` をCI側で正規化する。
-6. `CLASP_USER` がある場合は `clasp --user "$CLASP_USER" ...` として実行し、すべての `clasp` 呼び出しで `--project <CI専用設定ファイル>` を明示する。
-7. ソース管理された `.gs` / `.js` ファイル内に選択されたCI入口がすべて存在することを確認する。
-8. `.gs` ファイルを Node VM parser で構文チェックする。GAS固有APIの実行はしない。
-9. CI runner上の `appsscript.json` に `executionApi: { access: 'ANYONE' }` を注入する。
-10. テスト専用 Apps Script プロジェクトへ `clasp --project <ci-project> push --force` する。
-11. `GAS_TEST_DEPLOYMENT_ID` が設定されている場合だけ、API executable deployment を更新する。未設定の場合は、新しいversioned deploymentを作成せずスキップする。
-12. 最新のpush済みコードに対して、selected modeでは選択入口、full modeでは`runGasTestBatch01`から`runGasTestBatch09`を順番に実行する。`clasp push`とdeployment更新は1回だけ行う。
-13. GAS側で全件網羅、欠落、重複、入口数、実行件数を検証する。実行権限エラーで使えない場合だけ`clasp run unavailable`として記録し、手動実行へ切り替える。
+2. `npm ci --ignore-scripts`でlockfile固定のparserとローカルclaspを導入する。
+3. `test_runner.gs`以外の`src/test/**/*.gs`にある実テスト宣言、manifest、`runAllTests`、`runSmokeTests`、selected入口、full 9バッチを完全照合する。未登録、不存在、重複、所属・順序不一致なら`clasp push`前に停止する。
+4. 固定済みのbase/head SHAから変更ファイルを取得し、selected/fullと実行入口をJSONへ固定する。判定失敗時はfullへフォールバックする。
+5. `CLASPRC_JSON` から `~/.clasprc.json` を生成する。
+6. `GAS_TEST_SCRIPT_ID` からrunner一時領域にCI専用project設定JSONを生成する。`CLASP_PROJECT_JSON` がある場合もそのまま書き込まず、`scriptId`、`rootDir`、`srcDir` をCI側で正規化する。
+7. `CLASP_USER` がある場合は `clasp --user "$CLASP_USER" ...` として実行し、すべての `clasp` 呼び出しで `--project <CI専用設定ファイル>` を明示する。
+8. ソース管理された `.gs` / `.js` ファイル内に選択されたCI入口がすべて存在することを確認する。
+9. `.gs` ファイルを Node VM parser で構文チェックする。GAS固有APIの実行はしない。
+10. CI runner上の `appsscript.json` に `executionApi: { access: 'ANYONE' }` を注入する。
+11. テスト専用 Apps Script プロジェクトへ `clasp --project <ci-project> push --force` する。
+12. `GAS_TEST_DEPLOYMENT_ID` が設定されている場合だけ、API executable deployment を更新する。未設定の場合は、新しいversioned deploymentを作成せずスキップする。
+13. 最新のpush済みコードに対して、selected modeでは選択入口、full modeでは`runGasTestBatch01`から`runGasTestBatch09`を順番に実行する。`clasp push`とdeployment更新は1回だけ行う。
+14. GAS側で全件網羅、欠落、重複、入口数、実行件数を検証する。実行権限エラーで使えない場合だけ`clasp run unavailable`として記録し、手動実行へ切り替える。
 
 ## ログと失敗判定
 

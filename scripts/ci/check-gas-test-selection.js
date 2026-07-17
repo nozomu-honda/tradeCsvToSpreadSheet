@@ -22,6 +22,7 @@ const {
   assertSourceDefinitionsMatchManifest,
   assertGasRunnerMatchesManifest,
   collectTestFunctionDefinitions,
+  extractTestFunctionDefinitions,
   listGasTestSourceFiles,
   resultTestNames,
   verifyGasTestManifestSync,
@@ -68,6 +69,11 @@ function checkSelectionRules() {
     ['src/app/db.gs'],
     ['database', 'output'],
     ['database-01', 'database-02', 'database-03', 'output-01', 'output-02'],
+  );
+  assertSelected(
+    ['src/test/test_test_db_validation_bypass.gs'],
+    ['database'],
+    ['database-01', 'database-02', 'database-03'],
   );
   assertSelected(
     ['src/app/parser.gs', 'src/app/writer.gs'],
@@ -134,6 +140,123 @@ function checkSelectedSourceAudit() {
       .flatMap((definition) => definition.tests)
       .includes('test_rakutenOutputCellComparison_fromRealLikeInputsThroughDb_20260709_'),
     'the DB-to-output integration test must remain in the output suites selected for db.gs',
+  );
+}
+
+function auditSelectedTestFileMappings({
+  pathRules = PATH_RULES,
+  manifest = GAS_TEST_MANIFEST,
+  readSource = (filePath) => fs.readFileSync(path.join(rootDir, filePath), 'utf8'),
+} = {}) {
+  const manifestByName = new Map(manifest.map((definition) => [definition.name, definition]));
+  return Object.entries(pathRules)
+    .filter(([filePath, rule]) => filePath.startsWith('src/test/') && rule.kind === 'selected')
+    .sort(([leftPath], [rightPath]) => leftPath.localeCompare(rightPath))
+    .map(([filePath, rule]) => {
+      const definitions = extractTestFunctionDefinitions(readSource(filePath), filePath);
+      if (definitions.length === 0) {
+        throw new Error(`selected test file has no test function definitions: ${filePath}`);
+      }
+
+      const unregistered = definitions.filter((definition) => !manifestByName.has(definition.name));
+      if (unregistered.length > 0) {
+        throw new Error(`selected test file contains a source test not registered in manifest: ${unregistered.map(
+          (definition) => `${definition.name} (${filePath}:${definition.line})`,
+        ).join(', ')}`);
+      }
+
+      const actualAreas = [...new Set(
+        definitions.map((definition) => manifestByName.get(definition.name).area),
+      )].sort();
+      const missingAreas = actualAreas.filter((area) => !rule.areas.includes(area));
+      if (missingAreas.length > 0) {
+        throw new Error(
+          `selected test file PATH_RULES is missing manifest areas: ${filePath} ` +
+          `(missing: ${missingAreas.join(', ')}; mapped: ${rule.areas.join(', ')})`,
+        );
+      }
+
+      return {
+        actualAreas,
+        filePath,
+        mappedAreas: [...rule.areas],
+        testNames: definitions.map((definition) => definition.name).sort(),
+      };
+    });
+}
+
+function checkSelectedTestFileMappingAudit() {
+  const summaries = auditSelectedTestFileMappings();
+  assert.strictEqual(summaries.length, 16, 'every selected src/test mapping must be audited');
+  const validationBypass = summaries.find(
+    (summary) => summary.filePath === 'src/test/test_test_db_validation_bypass.gs',
+  );
+  assert.deepStrictEqual(validationBypass.actualAreas, ['database']);
+  assert.deepStrictEqual(validationBypass.mappedAreas, ['database']);
+  assert.deepStrictEqual(validationBypass.testNames, [
+    'test_createSpreadsheetFromSourceSpreadsheetUsingDb_testDb_skipsManualValidation_',
+    'test_shouldSkipRequiredManualValidationForTarget_normalDb_false_',
+    'test_shouldSkipRequiredManualValidationForTarget_testDb_true_',
+  ]);
+
+  const fixturePath = 'src/test/test_mapping_audit_fixture.gs';
+  const databaseTest = 'test_mapping_audit_database_fixture_';
+  const stagingTest = 'test_mapping_audit_staging_fixture_';
+  const fixtureManifest = [
+    { name: databaseTest, area: 'database' },
+    { name: stagingTest, area: 'staging-import' },
+  ];
+  const readFixture = (source) => () => source;
+
+  assert.throws(
+    () => auditSelectedTestFileMappings({
+      pathRules: { [fixturePath]: { kind: 'selected', areas: ['staging-import'] } },
+      manifest: fixtureManifest,
+      readSource: readFixture(`function ${databaseTest}() {}`),
+    }),
+    /missing manifest areas: .*missing: database; mapped: staging-import/,
+    'a database test mapped only to staging-import must fail the audit',
+  );
+
+  const multiAreaSource = [
+    `function ${databaseTest}() {}`,
+    `function ${stagingTest}() {}`,
+  ].join('\n');
+  assert.throws(
+    () => auditSelectedTestFileMappings({
+      pathRules: { [fixturePath]: { kind: 'selected', areas: ['database'] } },
+      manifest: fixtureManifest,
+      readSource: readFixture(multiAreaSource),
+    }),
+    /missing manifest areas: .*missing: staging-import; mapped: database/,
+    'a multi-area test file with a missing mapped area must fail the audit',
+  );
+  assert.deepStrictEqual(
+    auditSelectedTestFileMappings({
+      pathRules: { [fixturePath]: { kind: 'selected', areas: ['database', 'staging-import'] } },
+      manifest: fixtureManifest,
+      readSource: readFixture(multiAreaSource),
+    })[0].actualAreas,
+    ['database', 'staging-import'],
+    'a mapping that covers every manifest area must pass the audit',
+  );
+  assert.throws(
+    () => auditSelectedTestFileMappings({
+      pathRules: { [fixturePath]: { kind: 'selected', areas: ['database'] } },
+      manifest: fixtureManifest,
+      readSource: readFixture('// no test definitions\n'),
+    }),
+    /selected test file has no test function definitions/,
+    'selected test mappings without real tests must fail closed',
+  );
+  assert.throws(
+    () => auditSelectedTestFileMappings({
+      pathRules: { [fixturePath]: { kind: 'selected', areas: ['database'] } },
+      manifest: fixtureManifest,
+      readSource: readFixture('function test_mapping_audit_unregistered_fixture_() {}'),
+    }),
+    /source test not registered in manifest/,
+    'selected test files with unregistered source tests must fail closed',
   );
 }
 
@@ -777,6 +900,45 @@ function checkShellSelectionValidation() {
   assert.match(selectedResult.summary, /Apps Script wait:/);
   assert.match(selectedResult.summary, /Actual GAS tests:/);
 
+  const validationBypassSelection = selectGasTestsByChangedFiles([
+    'src/test/test_test_db_validation_bypass.gs',
+  ]);
+  assert.strictEqual(validationBypassSelection.mode, 'selected');
+  assert.deepStrictEqual(validationBypassSelection.impactAreas, ['database']);
+  assert.deepStrictEqual(
+    validationBypassSelection.suites,
+    ['database-01', 'database-02', 'database-03'],
+  );
+  assert.strictEqual(validationBypassSelection.testCount, 27);
+  assert.ok(!validationBypassSelection.suites.includes('staging-import'));
+  const validationBypassSelectedTests = SELECTED_SUITE_DEFINITIONS
+    .filter((definition) => validationBypassSelection.suites.includes(definition.name))
+    .flatMap((definition) => definition.tests);
+  for (const expectedTest of [
+    'test_shouldSkipRequiredManualValidationForTarget_testDb_true_',
+    'test_shouldSkipRequiredManualValidationForTarget_normalDb_false_',
+    'test_createSpreadsheetFromSourceSpreadsheetUsingDb_testDb_skipsManualValidation_',
+  ]) {
+    assert.ok(
+      validationBypassSelectedTests.includes(expectedTest),
+      `${expectedTest} must run when the validation bypass test file changes`,
+    );
+  }
+  const validationBypassResult = runGasShellSelectionFixture(validationBypassSelection);
+  assertSuccessfulShellFixture(validationBypassResult, 'validation bypass selected');
+  const databaseEntryPoints = SELECTED_SUITE_DEFINITIONS
+    .filter((definition) => definition.area === 'database')
+    .map((definition) => definition.entryPoint);
+  assert.deepStrictEqual(
+    claspRunFunctions(validationBypassResult.calls),
+    databaseEntryPoints,
+    'the validation bypass test file must execute only the three database entry points',
+  );
+  assert.ok(
+    !claspRunFunctions(validationBypassResult.calls).includes('runGasTestSuiteStagingImport'),
+    'the validation bypass test file must not execute the staging-import entry point',
+  );
+
   const full = selectGasTestsByChangedFiles(['scripts/ci/run-gas-tests.sh'], { forceFull: true });
   const fullResult = runGasShellSelectionFixture(full);
   assertSuccessfulShellFixture(fullResult, 'full');
@@ -859,6 +1021,7 @@ function checkFinalCiContracts() {
 
 checkSelectionRules();
 checkSelectedSourceAudit();
+checkSelectedTestFileMappingAudit();
 checkSelectionPayloadValidation();
 checkExactGitDiffInput();
 checkSourceDefinitionCollection();
