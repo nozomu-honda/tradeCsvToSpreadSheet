@@ -1,43 +1,11 @@
 #!/usr/bin/env node
 'use strict';
 
-const ALL_IMPACT_AREAS = Object.freeze([
-  'parser-input',
-  'database',
-  'staging-import',
-  'trade-calculation',
-  'output',
-  'broker-import',
-  'e2e-support',
-]);
-
-const SELECTED_SUITE_DEFINITIONS = Object.freeze([
-  suite('parser-input-01', 'parser-input', 'runGasTestSuiteParserInput01', 13),
-  suite('parser-input-02', 'parser-input', 'runGasTestSuiteParserInput02', 2),
-  suite('database-01', 'database', 'runGasTestSuiteDatabase01', 13),
-  suite('database-02', 'database', 'runGasTestSuiteDatabase02', 13),
-  suite('database-03', 'database', 'runGasTestSuiteDatabase03', 1),
-  suite('staging-import', 'staging-import', 'runGasTestSuiteStagingImport', 7),
-  suite('trade-calculation-01', 'trade-calculation', 'runGasTestSuiteTradeCalculation01', 13),
-  suite('trade-calculation-02', 'trade-calculation', 'runGasTestSuiteTradeCalculation02', 9),
-  suite('output-01', 'output', 'runGasTestSuiteOutput01', 13),
-  suite('output-02', 'output', 'runGasTestSuiteOutput02', 5),
-  suite('broker-import-01', 'broker-import', 'runGasTestSuiteBrokerImport01', 13),
-  suite('broker-import-02', 'broker-import', 'runGasTestSuiteBrokerImport02', 5),
-  suite('e2e-support', 'e2e-support', 'runGasTestSuiteE2eSupport', 9),
-]);
-
-const FULL_SUITE_DEFINITIONS = Object.freeze([
-  suite('full-batch-01', 'full', 'runGasTestBatch01', 13),
-  suite('full-batch-02', 'full', 'runGasTestBatch02', 13),
-  suite('full-batch-03', 'full', 'runGasTestBatch03', 13),
-  suite('full-batch-04', 'full', 'runGasTestBatch04', 13),
-  suite('full-batch-05', 'full', 'runGasTestBatch05', 13),
-  suite('full-batch-06', 'full', 'runGasTestBatch06', 13),
-  suite('full-batch-07', 'full', 'runGasTestBatch07', 13),
-  suite('full-batch-08', 'full', 'runGasTestBatch08', 13),
-  suite('full-batch-09', 'full', 'runGasTestBatch09', 12),
-]);
+const {
+  ALL_IMPACT_AREAS,
+  FULL_SUITE_DEFINITIONS,
+  SELECTED_SUITE_DEFINITIONS,
+} = require('./gas-test-suite-manifest');
 
 const SELECTION_FIELDS = Object.freeze([
   'changedFiles',
@@ -59,12 +27,12 @@ const ALL_SUITE_NAMES = new Set(ALL_SUITE_DEFINITIONS.map((definition) => defini
 const ALL_ENTRY_POINTS = new Set(ALL_SUITE_DEFINITIONS.map((definition) => definition.entryPoint));
 
 const PATH_RULES = Object.freeze({
-  'src/app/parser.gs': selected('parser-input'),
-  'src/app/db.gs': selected('database'),
+  'src/app/parser.gs': selected('parser-input', 'database'),
+  'src/app/db.gs': selected('database', 'output'),
   'src/app/builder.gs': selected('trade-calculation', 'output'),
   'src/app/writer.gs': selected('output'),
   'src/app/reorder_output_sheets.gs': selected('output'),
-  'src/app/e2e_helpers.gs': selected('e2e-support'),
+  'src/app/e2e_helpers.gs': full('E2E helper spans E2E preparation, cleanup, output, and database state'),
 
   'src/test/test_input_reader.gs': selected('parser-input'),
   'src/test/test_db.gs': selected('database'),
@@ -104,10 +72,6 @@ const DOCS_EXACT_PATHS = new Set([
   'src/app/README.md',
   'src/test/README.md',
 ]);
-
-function suite(name, area, entryPoint, testCount) {
-  return Object.freeze({ name, area, entryPoint, testCount });
-}
 
 function selected(...areas) {
   return Object.freeze({ kind: 'selected', areas: Object.freeze(areas) });
@@ -257,7 +221,12 @@ function buildResult({ mode, changedFiles, impactAreas, suites, omittedAreas, fu
     changedFiles: [...changedFiles],
     impactAreas: [...impactAreas],
     suites: suites.map((definition) => definition.name),
-    suiteDetails: suites.map((definition) => ({ ...definition })),
+    suiteDetails: suites.map((definition) => ({
+      name: definition.name,
+      area: definition.area,
+      entryPoint: definition.entryPoint,
+      testCount: definition.testCount,
+    })),
     testCount: suites.reduce((total, definition) => total + definition.testCount, 0),
     omittedAreas: [...omittedAreas],
     fullFallbackReason,

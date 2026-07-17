@@ -10,10 +10,16 @@ const { spawnSync } = require('child_process');
 const {
   ALL_IMPACT_AREAS,
   FULL_SUITE_DEFINITIONS,
+  PATH_RULES,
   SELECTED_SUITE_DEFINITIONS,
   selectGasTestsByChangedFiles,
   validateAndResolveGasTestSelection,
 } = require('./gas-test-selection');
+const {
+  ALL_GAS_TEST_FUNCTIONS,
+  CORE_GAS_TEST_FUNCTIONS,
+  GAS_TEST_MANIFEST,
+} = require('./gas-test-suite-manifest');
 const {
   CHANGE_CLASSIFICATIONS,
   FINAL_CI_CHECK_CONTEXT_MARKER,
@@ -49,18 +55,18 @@ function assertFull(changedFiles, reasonPattern, options) {
 function checkSelectionRules() {
   assertSelected(
     ['src/app/parser.gs'],
-    ['parser-input'],
-    ['parser-input-01', 'parser-input-02'],
+    ['parser-input', 'database'],
+    ['parser-input-01', 'parser-input-02', 'database-01', 'database-02', 'database-03'],
   );
   assertSelected(
     ['src/app/db.gs'],
-    ['database'],
-    ['database-01', 'database-02', 'database-03'],
+    ['database', 'output'],
+    ['database-01', 'database-02', 'database-03', 'output-01', 'output-02'],
   );
   assertSelected(
     ['src/app/parser.gs', 'src/app/writer.gs'],
-    ['parser-input', 'output'],
-    ['parser-input-01', 'parser-input-02', 'output-01', 'output-02'],
+    ['parser-input', 'database', 'output'],
+    ['parser-input-01', 'parser-input-02', 'database-01', 'database-02', 'database-03', 'output-01', 'output-02'],
   );
   assertSelected(
     ['docs/gas-ci.md', 'src/test/test_rakuten_phase1.gs'],
@@ -69,6 +75,7 @@ function checkSelectionRules() {
   );
 
   assertFull(['src/app/utils.gs'], /shared utility changed/);
+  assertFull(['src/app/e2e_helpers.gs'], /E2E helper spans/);
   assertFull(['src/app/new-implementation.gs'], /unknown src\/app file changed/);
   assertFull(['src/test/test_unknown_area.gs'], /unmapped src\/test file changed/);
   assertFull(['src/test/test_runner.gs'], /GAS test runner changed/);
@@ -85,6 +92,42 @@ function checkSelectionRules() {
     [...new Set(SELECTED_SUITE_DEFINITIONS.map((suite) => suite.area))],
     ALL_IMPACT_AREAS,
     'every impact area must have selected suites',
+  );
+  assert.deepStrictEqual(
+    SELECTED_SUITE_DEFINITIONS.flatMap((suite) => suite.tests).sort(),
+    [...ALL_GAS_TEST_FUNCTIONS].sort(),
+    'selected suites must cover the canonical manifest exactly once',
+  );
+  assert.deepStrictEqual(
+    FULL_SUITE_DEFINITIONS.flatMap((suite) => suite.tests),
+    ALL_GAS_TEST_FUNCTIONS,
+    'full suites must preserve the canonical manifest order',
+  );
+}
+
+function checkSelectedSourceAudit() {
+  const expectedSelectedSources = {
+    'src/app/parser.gs': ['parser-input', 'database'],
+    'src/app/db.gs': ['database', 'output'],
+    'src/app/builder.gs': ['trade-calculation', 'output'],
+    'src/app/writer.gs': ['output'],
+    'src/app/reorder_output_sheets.gs': ['output'],
+  };
+  const actualSelectedSources = Object.entries(PATH_RULES)
+    .filter(([filePath, rule]) => filePath.startsWith('src/app/') && rule.kind === 'selected')
+    .map(([filePath]) => filePath)
+    .sort();
+  assert.deepStrictEqual(actualSelectedSources, Object.keys(expectedSelectedSources).sort());
+  for (const [filePath, expectedAreas] of Object.entries(expectedSelectedSources)) {
+    assert.deepStrictEqual(PATH_RULES[filePath].areas, expectedAreas, `${filePath} impact areas must match the audit`);
+  }
+  assert.strictEqual(PATH_RULES['src/app/e2e_helpers.gs'].kind, 'full');
+  assert.ok(
+    SELECTED_SUITE_DEFINITIONS
+      .filter((definition) => definition.area === 'output')
+      .flatMap((definition) => definition.tests)
+      .includes('test_rakutenOutputCellComparison_fromRealLikeInputsThroughDb_20260709_'),
+    'the DB-to-output integration test must remain in the output suites selected for db.gs',
   );
 }
 
@@ -107,17 +150,19 @@ function checkSelectionPayloadValidation() {
   assert.deepStrictEqual(validateAndResolveGasTestSelection(full), full);
 
   const selectedWithFullSuite = cloneSelection(selected);
-  selectedWithFullSuite.suites[0] = FULL_SUITE_DEFINITIONS[0].name;
-  selectedWithFullSuite.suiteDetails[0] = { ...FULL_SUITE_DEFINITIONS[0] };
+  selectedWithFullSuite.suites[0] = full.suites[0];
+  selectedWithFullSuite.suiteDetails[0] = { ...full.suiteDetails[0] };
   assertSelectionRejected(selectedWithFullSuite, /canonical definition/);
 
   const fullWithSelectedSuite = cloneSelection(full);
-  fullWithSelectedSuite.suites[0] = SELECTED_SUITE_DEFINITIONS[0].name;
-  fullWithSelectedSuite.suiteDetails[0] = { ...SELECTED_SUITE_DEFINITIONS[0] };
+  fullWithSelectedSuite.suites[0] = selected.suites[0];
+  fullWithSelectedSuite.suiteDetails[0] = { ...selected.suiteDetails[0] };
   assertSelectionRejected(fullWithSelectedSuite, /canonical definition/);
 
   const alteredEntryPoint = cloneSelection(selected);
-  alteredEntryPoint.suiteDetails[0].entryPoint = SELECTED_SUITE_DEFINITIONS[2].entryPoint;
+  alteredEntryPoint.suiteDetails[0].entryPoint = SELECTED_SUITE_DEFINITIONS.find(
+    (definition) => definition.area === 'output',
+  ).entryPoint;
   assertSelectionRejected(alteredEntryPoint, /suite detail does not match/);
 
   const alteredSuiteCount = cloneSelection(selected);
@@ -190,9 +235,7 @@ function checkExactGitDiffInput() {
   }
 }
 
-function checkGasRunnerContract() {
-  const runnerPath = path.join(rootDir, 'src', 'test', 'test_runner.gs');
-  const runnerSource = fs.readFileSync(runnerPath, 'utf8');
+function createGasRunnerContext(runnerSource) {
   const testFunctionNames = [...new Set(
     [...runnerSource.matchAll(/\b(test_[A-Za-z0-9_]+)\b/g)].map((match) => match[1]),
   )];
@@ -204,12 +247,138 @@ function checkGasRunnerContract() {
   for (const name of testFunctionNames) context[name] = { [name]: function() {} }[name];
   vm.createContext(context);
   vm.runInContext(runnerSource, context, { filename: 'src/test/test_runner.gs' });
+  return context;
+}
+
+function resultTestNames(result) {
+  return [...result.matchAll(/^OK\s+(test_[A-Za-z0-9_]+)/gm)].map((match) => match[1]);
+}
+
+function assertGasRunnerMatchesManifest(runnerSource) {
+  const context = createGasRunnerContext(runnerSource);
 
   assert.strictEqual(typeof context.runSmokeTests, 'function', 'runSmokeTests must remain available');
   assert.strictEqual(typeof context.runAllTests, 'function', 'runAllTests must remain available');
   const allTestsResult = context.runAllTests();
   assert.match(allTestsResult, /GAS_TEST_METRICS testCount=116 durationMs=\d+/);
-  assert.match(context.runSmokeTests(), /GAS_TEST_METRICS testCount=110 durationMs=\d+/);
+  assert.deepStrictEqual(
+    resultTestNames(allTestsResult),
+    ALL_GAS_TEST_FUNCTIONS,
+    'runAllTests order must match the canonical manifest',
+  );
+  const smokeTestsResult = context.runSmokeTests();
+  assert.match(smokeTestsResult, /GAS_TEST_METRICS testCount=110 durationMs=\d+/);
+  assert.deepStrictEqual(
+    resultTestNames(smokeTestsResult),
+    CORE_GAS_TEST_FUNCTIONS,
+    'runSmokeTests order must match the canonical manifest',
+  );
+
+  for (const definition of SELECTED_SUITE_DEFINITIONS) {
+    assert.strictEqual(typeof context[definition.entryPoint], 'function', `${definition.entryPoint} must be public`);
+    const result = context[definition.entryPoint]();
+    assert.match(
+      result,
+      new RegExp(`GAS_TEST_METRICS testCount=${definition.testCount} durationMs=\\d+`),
+      `${definition.name} must report its exact test count`,
+    );
+    assert.deepStrictEqual(
+      resultTestNames(result),
+      definition.tests,
+      `${definition.name} test functions and order must match the canonical manifest`,
+    );
+  }
+  for (const definition of FULL_SUITE_DEFINITIONS) {
+    assert.strictEqual(typeof context[definition.entryPoint], 'function', `${definition.entryPoint} must remain public`);
+    const result = context[definition.entryPoint]();
+    assert.match(
+      result,
+      new RegExp(`GAS_TEST_METRICS testCount=${definition.testCount} durationMs=\\d+`),
+      `${definition.name} must report its exact full-batch test count`,
+    );
+    assert.deepStrictEqual(
+      resultTestNames(result),
+      definition.tests,
+      `${definition.name} test functions and order must match the canonical manifest`,
+    );
+  }
+
+  return { context, allTestsResult };
+}
+
+function mutateRunnerArray(runnerSource, arrayName, mutateBody) {
+  const pattern = new RegExp(`(const ${arrayName} = \\[)([\\s\\S]*?)(\\n\\];)`);
+  const match = runnerSource.match(pattern);
+  assert.ok(match, `${arrayName} must exist in the GAS runner fixture`);
+  const mutatedBody = mutateBody(match[2]);
+  assert.notStrictEqual(mutatedBody, match[2], `${arrayName} fixture mutation must change the array`);
+  return runnerSource.replace(pattern, `$1${mutatedBody}$3`);
+}
+
+function replaceArrayTest(body, before, after) {
+  assert.ok(body.includes(before), `${before} must exist in the GAS runner fixture array`);
+  return body.replace(before, after);
+}
+
+function checkGasRunnerManifestTampering(runnerSource) {
+  const parserTest = 'test_collectInputAlerts_supportedForeignBond_';
+  const secondParserTest = 'test_collectInputAlerts_supportedProductAndCurrency_doNothing_';
+  const databaseTest = 'test_buildRowHash_sameRecord_sameHash_';
+
+  let sameCountSwap = mutateRunnerArray(
+    runnerSource,
+    'PARSER_INPUT_TESTS_',
+    (body) => replaceArrayTest(body, parserTest, databaseTest),
+  );
+  sameCountSwap = mutateRunnerArray(
+    sameCountSwap,
+    'DATABASE_TESTS_',
+    (body) => replaceArrayTest(body, databaseTest, parserTest),
+  );
+  assert.throws(
+    () => assertGasRunnerMatchesManifest(sameCountSwap),
+    /canonical manifest/,
+    'same-count parser/database swaps must fail canonical suite validation',
+  );
+
+  const missingTest = mutateRunnerArray(
+    runnerSource,
+    'PARSER_INPUT_TESTS_',
+    (body) => replaceArrayTest(body, `  ${parserTest},\n`, ''),
+  );
+  assert.throws(
+    () => assertGasRunnerMatchesManifest(missingTest),
+    /GASテストスイート定義が不正|canonical manifest/,
+    'missing suite tests must fail canonical suite validation',
+  );
+
+  const crossSuiteContamination = mutateRunnerArray(
+    runnerSource,
+    'PARSER_INPUT_TESTS_',
+    (body) => replaceArrayTest(body, parserTest, databaseTest),
+  );
+  assert.throws(
+    () => assertGasRunnerMatchesManifest(crossSuiteContamination),
+    /GASテストスイート定義が不正|canonical manifest/,
+    'tests copied from another suite must fail canonical suite validation',
+  );
+
+  const reordered = mutateRunnerArray(runnerSource, 'PARSER_INPUT_TESTS_', (body) => {
+    let result = replaceArrayTest(body, parserTest, '__MANIFEST_ORDER_SWAP__');
+    result = replaceArrayTest(result, secondParserTest, parserTest);
+    return replaceArrayTest(result, '__MANIFEST_ORDER_SWAP__', secondParserTest);
+  });
+  assert.throws(
+    () => assertGasRunnerMatchesManifest(reordered),
+    /canonical manifest/,
+    'suite test order changes must fail canonical suite validation',
+  );
+}
+
+function checkGasRunnerContract() {
+  const runnerPath = path.join(rootDir, 'src', 'test', 'test_runner.gs');
+  const runnerSource = fs.readFileSync(runnerPath, 'utf8');
+  const { context, allTestsResult } = assertGasRunnerMatchesManifest(runnerSource);
 
   const sourceDefinedTests = fs.readdirSync(path.join(rootDir, 'src', 'test'))
     .filter((fileName) => fileName.endsWith('.gs') && fileName !== 'test_runner.gs')
@@ -218,14 +387,18 @@ function checkGasRunnerContract() {
       return [...source.matchAll(/^function\s+(test_[A-Za-z0-9_]+)\s*\(/gm)].map((match) => match[1]);
     })
     .sort();
-  const registeredTests = [...allTestsResult.matchAll(/^OK\s+(test_[A-Za-z0-9_]+)/gm)]
-    .map((match) => match[1])
-    .sort();
+  const registeredTests = resultTestNames(allTestsResult).sort();
   assert.deepStrictEqual(
     registeredTests,
     sourceDefinedTests,
     'every source-controlled GAS test function must be registered in runAllTests exactly once',
   );
+  assert.deepStrictEqual(
+    [...ALL_GAS_TEST_FUNCTIONS].sort(),
+    sourceDefinedTests,
+    'the canonical manifest must include every source-controlled GAS test exactly once',
+  );
+  assert.strictEqual(GAS_TEST_MANIFEST.length, 116, 'the canonical manifest test count must remain explicit');
   assert.throws(
     () => context.runGasTestSuiteByName('unknown-suite'),
     /許可されていないGASテストスイート/,
@@ -237,24 +410,8 @@ function checkGasRunnerContract() {
     'empty GAS suite selections must fail closed',
   );
 
-  for (const definition of SELECTED_SUITE_DEFINITIONS) {
-    assert.strictEqual(typeof context[definition.entryPoint], 'function', `${definition.entryPoint} must be public`);
-    assert.match(
-      context[definition.entryPoint](),
-      new RegExp(`GAS_TEST_METRICS testCount=${definition.testCount} durationMs=\\d+`),
-      `${definition.name} must report its exact test count`,
-    );
-  }
-  for (const definition of FULL_SUITE_DEFINITIONS) {
-    assert.strictEqual(typeof context[definition.entryPoint], 'function', `${definition.entryPoint} must remain public`);
-    assert.match(
-      context[definition.entryPoint](),
-      new RegExp(`GAS_TEST_METRICS testCount=${definition.testCount} durationMs=\\d+`),
-      `${definition.name} must report its exact full-batch test count`,
-    );
-  }
-
   assert.ok(!/\beval\s*\(/.test(runnerSource), 'GAS test selection must not use eval');
+  checkGasRunnerManifestTampering(runnerSource);
 }
 
 function checkWorkflowAndShellContract() {
@@ -299,6 +456,7 @@ function runGasShellSelectionFixture(selection) {
       '.claspignore',
       'appsscript.json',
       'scripts/ci/gas-test-selection.js',
+      'scripts/ci/gas-test-suite-manifest.js',
       'scripts/ci/run-gas-tests.sh',
       'scripts/ci/write-ci-clasp-config.js',
       'src/test/test_runner.gs',
@@ -408,8 +566,11 @@ function checkShellSelectionValidation() {
     'selected execution must run only canonical selected entry points in order',
   );
   assert.match(selectedResult.summary, /Mode: `selected`/);
-  assert.match(selectedResult.summary, /Expected tests: `15`/);
-  assert.match(selectedResult.summary, /All selected GAS test functions passed \(15 tests/);
+  assert.match(selectedResult.summary, new RegExp('Expected tests: `' + selected.testCount + '`'));
+  assert.match(
+    selectedResult.summary,
+    new RegExp(`All selected GAS test functions passed \\(${selected.testCount} tests`),
+  );
   assert.match(selectedResult.summary, /Apps Script wait:/);
   assert.match(selectedResult.summary, /Actual GAS tests:/);
 
@@ -426,7 +587,9 @@ function checkShellSelectionValidation() {
   assert.match(fullResult.summary, /All selected GAS test functions passed \(116 tests/);
 
   const tampered = cloneSelection(selected);
-  tampered.suiteDetails[0].entryPoint = SELECTED_SUITE_DEFINITIONS[2].entryPoint;
+  tampered.suiteDetails[0].entryPoint = SELECTED_SUITE_DEFINITIONS.find(
+    (definition) => definition.area === 'output',
+  ).entryPoint;
   const tamperedResult = runGasShellSelectionFixture(tampered);
   assert.notStrictEqual(tamperedResult.status, 0, 'tampered selection JSON must fail');
   assert.deepStrictEqual(tamperedResult.calls, [], 'tampered selection JSON must fail before clasp push or run');
@@ -459,6 +622,7 @@ function checkFinalCiContracts() {
 }
 
 checkSelectionRules();
+checkSelectedSourceAudit();
 checkSelectionPayloadValidation();
 checkExactGitDiffInput();
 checkGasRunnerContract();

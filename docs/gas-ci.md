@@ -6,7 +6,7 @@ CI用と本番用のどちらへ、どのコマンドで反映するかを先に
 
 > 2026-07-16現在、Issue #98の方針でGitHub Actionsは全面停止中です。以下はIssue #99マージ後に人間が段階的な再開を承認した後の運用であり、停止中はworkflow、rerun、`run-final-ci` ラベル、本番操作を実行しません。
 
-全実行用のCIバッチ関数は `runGasTestBatch01` から `runGasTestBatch09` までです。各バッチは `CORE_TESTS_` と `FULL_ONLY_TESTS_` を結合した `runAllTests()` 相当の116テストから最大13件ずつ生成します。`runAllTests()` は既存の手動確認用入口として残しますが、CIのfull modeではApps Scriptの実行時間上限を避けるため、1回の一括実行ではなく全バッチを逐次実行します。
+全実行用のCIバッチ関数は `runGasTestBatch01` から `runGasTestBatch09` までです。各バッチは `scripts/ci/gas-test-suite-manifest.js` に登録した116テストを最大13件ずつに分けます。GAS runtimeでは `CORE_TESTS_` と `FULL_ONLY_TESTS_` を結合して実行し、Node回帰テストがmanifestと関数名・順序を完全照合します。`runAllTests()` は既存の手動確認用入口として残しますが、CIのfull modeではApps Scriptの実行時間上限を避けるため、1回の一括実行ではなく全バッチを逐次実行します。
 
 Final CIでは、固定済みのPR `base SHA...head SHA`から変更ファイルを取得し、`scripts/ci/gas-test-selection.js`の純粋関数で影響範囲を判定します。既知かつ局所的な差分はselected modeで関係するスイートだけを実行し、少しでも不確実な差分はfull modeへ戻します。どちらのmodeでもテスト専用Apps Scriptへの`clasp push --force`は1回だけです。
 
@@ -17,14 +17,24 @@ Final CIでは、固定済みのPR `base SHA...head SHA`から変更ファイル
 | 影響領域 | 主な既知ファイル | 選択スイート |
 | --- | --- | --- |
 | parser-input | `src/app/parser.gs`、`src/test/test_input_reader.gs` | `parser-input-01`、`parser-input-02` |
-| database | `src/app/db.gs`、`src/test/test_db.gs` | `database-01`〜`database-03` |
+| database | `src/app/db.gs`、`src/app/parser.gs`、`src/test/test_db.gs` | `database-01`〜`database-03` |
 | staging-import | `src/test/test_staging_sheet.gs`など | `staging-import` |
 | trade-calculation | `src/app/builder.gs`、`src/test/test_trade_rows*.gs` | `trade-calculation-01`、`trade-calculation-02` |
 | output | `src/app/writer.gs`、`src/app/reorder_output_sheets.gs`、出力テスト | `output-01`、`output-02` |
 | broker-import | `src/test/test_rakuten_phase1.gs` | `broker-import-01`、`broker-import-02` |
-| e2e-support | `src/app/e2e_helpers.gs`、対応GASテスト | `e2e-support` |
+| e2e-support | 対応GASテスト | `e2e-support` |
 
-`src/app/builder.gs`のように複数の既知領域へ影響するファイルは、安全なスイート和集合を実行します。docsがコード差分と混在してもdocs自体は選択へ影響しません。docs-only判定は従来どおりFinal CIゲートで拒否されるため、GAS Testsは起動しません。
+source fileは1領域に限定せず、既存テストが跨ぐ層を棚卸しして安全なスイート和集合を選びます。現在のselected対象sourceは次のとおりです。
+
+| source | 選択領域 | 棚卸し根拠 |
+| --- | --- | --- |
+| `src/app/parser.gs` | parser-input + database | 入力単体テストに加え、Spreadsheet入力からDB保存・出力まで進むdatabase統合テストがある |
+| `src/app/db.gs` | database + output | DB保存・読込の直接テストに加え、DB経由の楽天出力セル比較テストがoutput suiteにある |
+| `src/app/builder.gs` | trade-calculation + output | 取引計算の直接テストと、DBレコードから各出力行を生成するoutputテストの両方が通る |
+| `src/app/writer.gs` | output | 出力書式の直接テストと出力生成テストが通る |
+| `src/app/reorder_output_sheets.gs` | output | 通常・楽天の出力生成経路でシート順を確定する |
+
+`src/app/e2e_helpers.gs`はE2E準備、cleanup、出力Spreadsheet、test DB状態を跨ぐため、局所的なselected対象にせずfull fallbackとします。ほかにも影響領域を安全に判断できないsourceはselectedへ無理に残しません。docsがコード差分と混在してもdocs自体は選択へ影響しません。docs-only判定は従来どおりFinal CIゲートで拒否されるため、GAS Testsは起動しません。
 
 次の場合は必ずfull modeです。
 
@@ -34,16 +44,18 @@ Final CIでは、固定済みのPR `base SHA...head SHA`から変更ファイル
 - 分類エラー、変更ファイルなし、選択スイート0件
 - 明示的なfull指定、または安全な和集合を作れない差分
 
-GAS側のselected mode入口は`src/test/test_runner.gs`の`runGasTestSuite...`関数です。許可済みスイート名は明示的な関数配列へ対応し、`eval`は使いません。選択JSONは未信頼入力として扱い、`scripts/ci/gas-test-selection.js`のselected/full正規定義とスイート名、順序、入口、件数を完全照合してから、正規定義だけで実行一覧を再構築します。JSON内の`entryPoint`をそのまま`clasp run`へ渡しません。selected/full混在、未知名・未知入口、空選択、定義の欠落・重複・順序変更、`testCount`改ざんはfullへ黙って切り替えず、`clasp push`より前にCIをfail-closedで失敗させます。差分判定側の不確実性だけがfull fallbackの対象です。
+suite名、area、entry point、所属する実テスト関数名と順序の正本は`scripts/ci/gas-test-suite-manifest.js`です。`scripts/ci/gas-test-selection.js`はmanifestからselected/full定義を読み、選択JSONには必要な公開metadataだけを書きます。GAS側のselected mode入口は`src/test/test_runner.gs`の`runGasTestSuite...`関数です。許可済みスイート名は明示的な関数配列へ対応し、`eval`は使いません。Node回帰テストは各entry pointが返す`OK <testFunctionName>`列をmanifestと順序込みで完全照合するため、件数が同じsuite間交換、欠落、別suite混入、順序変更も失敗します。
+
+選択JSONは未信頼入力として扱い、manifest由来のselected/full正規定義とスイート名、順序、入口、件数を完全照合してから、正規定義だけで実行一覧を再構築します。JSON内の`entryPoint`をそのまま`clasp run`へ渡しません。selected/full混在、未知名・未知入口、空選択、定義の欠落・重複・順序変更、`testCount`改ざんはfullへ黙って切り替えず、`clasp push`より前にCIをfail-closedで失敗させます。差分判定側の不確実性だけがfull fallbackの対象です。
 
 Actions Summaryには、変更ファイル、影響領域、selected/full、スイート、期待テスト数、省略領域、fallback理由を表示します。時間はcheckout、setup/selection、clasp push、Apps Script待ち、GAS内の実テスト、job開始からテスト完了までを分けます。GAS関数が返す`GAS_TEST_METRICS`と選択JSONの件数が一致しない場合も失敗します。Script ID、OAuth情報、Web App URLなどの実値は表示しません。
 
 新しい`src/app/**`または`src/test/**`を追加するときは、同じPRで次を更新します。
 
-1. `scripts/ci/gas-test-selection.js`の`PATH_RULES`と、必要なら影響領域・スイートmetadata
-2. `src/test/test_runner.gs`の`CORE_TESTS_` / `FULL_ONLY_TESTS_`とselected suite定義
-3. `scripts/ci/check-gas-test-selection.js`の分類、全件網羅、入口件数の回帰テスト
-4. このマッピング表
+1. `scripts/ci/gas-test-suite-manifest.js`へテスト関数名、領域、`fullOnly`を登録する。suite分割、入口、件数、順序はここから導出する
+2. `src/test/test_runner.gs`の`CORE_TESTS_` / `FULL_ONLY_TESTS_`と領域別配列をmanifest順に同期する。未同期はNode完全一致テストで失敗する
+3. 実装sourceを追加・変更する場合は、跨層テストを確認して`scripts/ci/gas-test-selection.js`の`PATH_RULES`へ必要領域の和集合を登録する。判断できなければfull fallbackにする
+4. `scripts/ci/check-gas-test-selection.js`のsource棚卸し、全件網羅、suite所属・順序の回帰テストと、このマッピング表を更新する
 
 未更新の新規実装・テストファイルは自動的にfull modeになり、選択実行で見落としません。
 

@@ -471,7 +471,9 @@ Apps Script の日次クォータに当たりやすくなります。
 
 CI用fullバッチ関数は `runAllTests()` 相当のテスト一覧から自動生成されます。新しいテストを `CORE_TESTS_` または `FULL_ONLY_TESTS_` へ追加すると、fullバッチ側にも含まれます。9バッチに収まらない数まで増えた場合は、公開バッチ関数とCIの実行リストも増やします。未対応のままだと、バッチ定義検証で失敗します。
 
-差分選択用スイートにも同じテストを重複なく登録してください。`test_runner.gs`の領域別配列と`GAS_TEST_SELECTED_SUITE_DEFINITIONS_`、`scripts/ci/gas-test-selection.js`のsuite metadataと`PATH_RULES`、`scripts/ci/check-gas-test-selection.js`の期待件数を同じPRで更新します。全テスト一覧とselected suiteの欠落・重複・総数不一致は、GAS入口とNode回帰テストの両方で失敗します。未知のスイート名と空選択もfail-closedです。
+suite名、area、entry point、所属する実テスト関数名と順序の正本は`scripts/ci/gas-test-suite-manifest.js`です。新しいテストはmanifestへ関数名、影響領域、`fullOnly`を1回だけ登録し、`test_runner.gs`の`CORE_TESTS_` / `FULL_ONLY_TESTS_`と領域別配列をmanifest順に同期してください。Node回帰テストは`runSmokeTests()`、`runAllTests()`、selected/full各entry pointが返す`OK <testFunctionName>`列をmanifestと順序込みで完全照合します。同数のsuite間交換、欠落、別suite混入、順序変更、未知テスト、重複は失敗します。
+
+実装sourceを追加・変更する場合は、テストが入力、DB、計算、出力など複数層を跨ぐか確認し、`scripts/ci/gas-test-selection.js`の`PATH_RULES`で必要領域の和集合を選んでください。source fileを必ず1領域へ閉じ込める前提にはしません。安全に判断できないsourceはselectedへ登録せずfull fallbackにします。`scripts/ci/check-gas-test-selection.js`のsource棚卸し期待値も同じPRで更新します。
 
 ### 3. テスト名は期待結果まで分かるようにする
 悪い例:
