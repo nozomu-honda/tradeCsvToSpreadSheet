@@ -8,7 +8,7 @@ CI用と本番用のどちらへ、どのコマンドで反映するかを先に
 
 全実行用のCIバッチ関数は `runGasTestBatch01` から `runGasTestBatch09` までです。各バッチは `scripts/ci/gas-test-suite-manifest.js` に登録した116テストを最大13件ずつに分けます。GAS runtimeでは `CORE_TESTS_` と `FULL_ONLY_TESTS_` を結合して実行し、Node回帰テストがmanifestと関数名・順序を完全照合します。`runAllTests()` は既存の手動確認用入口として残しますが、CIのfull modeではApps Scriptの実行時間上限を避けるため、1回の一括実行ではなく全バッチを逐次実行します。
 
-Final CIでは、固定済みのPR `base SHA...head SHA`を再検証した直後に`scripts/ci/check-gas-test-manifest-sync.js`を実行し、manifestと`src/test/test_runner.gs`の関数名・所属・順序を完全照合します。同期不一致は差分選択、clasp導入、`clasp push`より前にfail-closedで停止します。同期確認後、固定済みSHAから変更ファイルを取得し、`scripts/ci/gas-test-selection.js`の純粋関数で影響範囲を判定します。既知かつ局所的な差分はselected modeで関係するスイートだけを実行し、少しでも不確実な差分はfull modeへ戻します。どちらのmodeでもテスト専用Apps Scriptへの`clasp push --force`は1回だけです。
+Final CIでは、固定済みのPR `base SHA...head SHA`を再検証した直後に`scripts/ci/check-gas-test-manifest-sync.js`を実行します。preflightは`src/test/**/*.gs`を再帰走査し、`test_runner.gs`を除く実ファイルに宣言された`function test_*`、manifest、runner、selected入口、full 9バッチを完全照合します。未登録、不存在、重複、所属・順序不一致は差分選択、clasp導入、`clasp push`より前にfail-closedで停止します。同期確認後、固定済みSHAから変更ファイルを取得し、`scripts/ci/gas-test-selection.js`の純粋関数で影響範囲を判定します。既知かつ局所的な差分はselected modeで関係するスイートだけを実行し、少しでも不確実な差分はfull modeへ戻します。どちらのmodeでもテスト専用Apps Scriptへの`clasp push --force`は1回だけです。
 
 ## 差分とGAS Testsの対応
 
@@ -44,7 +44,7 @@ source fileは1領域に限定せず、既存テストが跨ぐ層を棚卸し�
 - 分類エラー、変更ファイルなし、選択スイート0件
 - 明示的なfull指定、または安全な和集合を作れない差分
 
-suite名、area、entry point、所属する実テスト関数名と順序の正本は`scripts/ci/gas-test-suite-manifest.js`です。`scripts/ci/gas-test-selection.js`はmanifestからselected/full定義を読み、選択JSONには必要な公開metadataだけを書きます。GAS側のselected mode入口は`src/test/test_runner.gs`の`runGasTestSuite...`関数です。許可済みスイート名は明示的な関数配列へ対応し、`eval`は使いません。Final CI本体の同期preflightとNode回帰テストは、`runAllTests`、`runSmokeTests`、selected入口、full 9バッチの各戻り値に含まれる`OK <testFunctionName>`列をmanifestと順序込みで完全照合します。件数が同じsuite間交換、欠落、別suite混入、順序変更も失敗し、同期preflightの失敗はGAS Testsの失敗理由としてSummaryへ記録されます。
+suite名、area、entry point、所属する実テスト関数名と順序の正本は`scripts/ci/gas-test-suite-manifest.js`です。`scripts/ci/gas-test-selection.js`はmanifestからselected/full定義を読み、選択JSONには必要な公開metadataだけを書きます。GAS側のselected mode入口は`src/test/test_runner.gs`の`runGasTestSuite...`関数です。許可済みスイート名は明示的な関数配列へ対応し、`eval`は使いません。Final CI本体の同期preflightは、コメント、文字列、template literal、単なる関数参照を除外して実際の`function test_*`宣言だけを収集し、ファイルパスと行番号を保持します。実定義とmanifestを双方向照合した後、`runAllTests`、`runSmokeTests`、selected入口、full 9バッチの各戻り値に含まれる`OK <testFunctionName>`列をmanifestと順序込みで完全照合します。実定義の未登録・重複、manifest側だけの不存在テスト、件数が同じsuite間交換、欠落、別suite混入、順序変更も失敗し、同期preflightの失敗はGAS Testsの失敗理由としてSummaryへ記録されます。
 
 選択JSONは未信頼入力として扱い、manifest由来のselected/full正規定義とスイート名、順序、入口、件数を完全照合してから、正規定義だけで実行一覧を再構築します。JSON内の`entryPoint`をそのまま`clasp run`へ渡しません。selected/full混在、未知名・未知入口、空選択、定義の欠落・重複・順序変更、`testCount`改ざんはfullへ黙って切り替えず、`clasp push`より前にCIをfail-closedで失敗させます。差分判定側の不確実性だけがfull fallbackの対象です。
 
@@ -52,10 +52,11 @@ Actions Summaryには、変更ファイル、影響領域、selected/full、ス�
 
 新しい`src/app/**`または`src/test/**`を追加するときは、同じPRで次を更新します。
 
-1. `scripts/ci/gas-test-suite-manifest.js`へテスト関数名、領域、`fullOnly`を登録する。suite分割、入口、件数、順序はここから導出する
-2. `src/test/test_runner.gs`の`CORE_TESTS_` / `FULL_ONLY_TESTS_`と領域別配列をmanifest順に同期する。未同期はNode完全一致テストで失敗する
-3. 実装sourceを追加・変更する場合は、跨層テストを確認して`scripts/ci/gas-test-selection.js`の`PATH_RULES`へ必要領域の和集合を登録する。判断できなければfull fallbackにする
-4. `scripts/ci/check-gas-test-selection.js`のsource棚卸し、全件網羅、suite所属・順序の回帰テストと、このマッピング表を更新する
+1. `src/test/**/*.gs`（`test_runner.gs`を除く）へ`function test_*`形式で実テストを定義する
+2. `scripts/ci/gas-test-suite-manifest.js`へ同じテスト関数名、領域、`fullOnly`を登録する。suite分割、入口、件数、順序はここから導出する
+3. `src/test/test_runner.gs`の`CORE_TESTS_` / `FULL_ONLY_TESTS_`と領域別配列をmanifest順に同期する。実定義・manifest・runnerの未登録、不存在、重複、順序不一致はFinal CI preflightで失敗する
+4. 実装sourceを追加・変更する場合は、跨層テストを確認して`scripts/ci/gas-test-selection.js`の`PATH_RULES`へ必要領域の和集合を登録する。判断できなければfull fallbackにする
+5. `scripts/ci/check-gas-test-selection.js`のsource棚卸し、全件網羅、suite所属・順序の回帰テストと、このマッピング表を更新する
 
 未更新の新規実装・テストファイルは自動的にfull modeになり、選択実行で見落としません。
 
@@ -236,7 +237,7 @@ OAuth token、Script ID、deployment ID、Spreadsheet ID、Drive folder ID、本
 GAS実行対象と判定された場合、workflowは次を行います。
 
 1. PRの固定済みbase/head SHAを再検証する。
-2. manifestと`test_runner.gs`の`runAllTests`、`runSmokeTests`、selected入口、full 9バッチを完全照合する。不一致ならclasp導入前に停止する。
+2. `test_runner.gs`以外の`src/test/**/*.gs`にある実テスト宣言、manifest、`runAllTests`、`runSmokeTests`、selected入口、full 9バッチを完全照合する。未登録、不存在、重複、所属・順序不一致ならclasp導入前に停止する。
 3. 固定済みのbase/head SHAから変更ファイルを取得し、selected/fullと実行入口をJSONへ固定する。判定失敗時はfullへフォールバックする。
 4. `CLASPRC_JSON` から `~/.clasprc.json` を生成する。
 5. `GAS_TEST_SCRIPT_ID` からrunner一時領域にCI専用project設定JSONを生成する。`CLASP_PROJECT_JSON` がある場合もそのまま書き込まず、`scriptId`、`rootDir`、`srcDir` をCI側で正規化する。

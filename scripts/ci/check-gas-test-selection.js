@@ -19,8 +19,12 @@ const {
   GAS_TEST_MANIFEST,
 } = require('./gas-test-suite-manifest');
 const {
+  assertSourceDefinitionsMatchManifest,
   assertGasRunnerMatchesManifest,
+  collectTestFunctionDefinitions,
+  listGasTestSourceFiles,
   resultTestNames,
+  verifyGasTestManifestSync,
 } = require('./check-gas-test-manifest-sync');
 const {
   CHANGE_CLASSIFICATIONS,
@@ -306,18 +310,124 @@ function checkGasRunnerManifestTampering(runnerSource) {
   );
 }
 
+function withTestSourceFixture(files, callback) {
+  const repositoryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'gas-test-source-fixture-'));
+  try {
+    for (const [relativePath, source] of Object.entries(files)) {
+      const filePath = path.join(repositoryRoot, relativePath);
+      fs.mkdirSync(path.dirname(filePath), { recursive: true });
+      fs.writeFileSync(filePath, source);
+    }
+    return callback({
+      repositoryRoot,
+      runnerPath: path.join(repositoryRoot, 'src', 'test', 'test_runner.gs'),
+      testRoot: path.join(repositoryRoot, 'src', 'test'),
+    });
+  } finally {
+    fs.rmSync(repositoryRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  }
+}
+
+function checkSourceDefinitionCollection() {
+  withTestSourceFixture({
+    'src/test/nested/test_real.gs': [
+      '// function test_line_comment_fake_() {}',
+      '/*',
+      'function test_block_comment_fake_() {}',
+      '*/',
+      'const doubleQuoted = "function test_double_quote_fake_() {}";',
+      "const singleQuoted = 'function test_single_quote_fake_() {}';",
+      'const templated = `function test_template_fake_() {}`;',
+      'const regexWithQuote = /"/;',
+      'const regexWithFunctionText = /function test_regex_fake_\\(\\) \\{\\}/;',
+      'const referenced = test_reference_fake_;',
+      'function test_real_nested_fixture_() {}',
+      '',
+    ].join('\n'),
+    'src/test/test_real_root.gs': 'function test_real_root_fixture_() {}\n',
+    'src/test/test_runner.gs': 'function test_runner_must_be_excluded_() {}\n',
+  }, ({ repositoryRoot, runnerPath, testRoot }) => {
+    const definitions = collectTestFunctionDefinitions({ repositoryRoot, runnerPath, testRoot });
+    assert.deepStrictEqual(
+      definitions.map(({ name, filePath }) => ({ name, filePath })),
+      [
+        { name: 'test_real_nested_fixture_', filePath: 'src/test/nested/test_real.gs' },
+        { name: 'test_real_root_fixture_', filePath: 'src/test/test_real_root.gs' },
+      ],
+      'only real test function declarations must be collected recursively in stable order',
+    );
+    assertSourceDefinitionsMatchManifest(definitions, [
+      'test_real_root_fixture_',
+      'test_real_nested_fixture_',
+    ]);
+  });
+}
+
+function checkSourceManifestMismatchFixtures() {
+  withTestSourceFixture({
+    'src/test/test_unregistered.gs': 'function test_unregistered_manifest_fixture_() {}\n',
+    'src/test/test_runner.gs': '',
+  }, ({ repositoryRoot, runnerPath, testRoot }) => {
+    const definitions = collectTestFunctionDefinitions({ repositoryRoot, runnerPath, testRoot });
+    assert.throws(
+      () => assertSourceDefinitionsMatchManifest(definitions, []),
+      /source test function is not registered in manifest: test_unregistered_manifest_fixture_ \(src\/test\/test_unregistered\.gs:1\)/,
+    );
+  });
+
+  withTestSourceFixture({
+    'src/test/test_existing.gs': 'function test_existing_manifest_fixture_() {}\n',
+    'src/test/test_runner.gs': '',
+  }, ({ repositoryRoot, runnerPath, testRoot }) => {
+    const definitions = collectTestFunctionDefinitions({ repositoryRoot, runnerPath, testRoot });
+    assert.throws(
+      () => assertSourceDefinitionsMatchManifest(definitions, [
+        'test_existing_manifest_fixture_',
+        'test_manifest_only_fixture_',
+      ]),
+      /manifest test function has no source definition: test_manifest_only_fixture_/,
+    );
+    assert.throws(
+      () => assertSourceDefinitionsMatchManifest(definitions, [
+        'test_existing_manifest_fixture_',
+        'test_existing_manifest_fixture_',
+      ]),
+      /duplicate manifest test function: test_existing_manifest_fixture_/,
+    );
+  });
+
+  withTestSourceFixture({
+    'src/test/test_duplicate_a.gs': 'function test_duplicate_source_fixture_() {}\n',
+    'src/test/test_duplicate_b.gs': 'function test_duplicate_source_fixture_() {}\n',
+    'src/test/test_runner.gs': '',
+  }, ({ repositoryRoot, runnerPath, testRoot }) => {
+    assert.throws(
+      () => collectTestFunctionDefinitions({ repositoryRoot, runnerPath, testRoot }),
+      /duplicate source test function definition: test_duplicate_source_fixture_ .*test_duplicate_a\.gs:1.*test_duplicate_b\.gs:1/,
+    );
+  });
+
+  withTestSourceFixture({
+    'src/test/test_duplicate_same_file.gs': [
+      'function test_duplicate_same_file_fixture_() {}',
+      'function test_duplicate_same_file_fixture_() {}',
+      '',
+    ].join('\n'),
+    'src/test/test_runner.gs': '',
+  }, ({ repositoryRoot, runnerPath, testRoot }) => {
+    assert.throws(
+      () => collectTestFunctionDefinitions({ repositoryRoot, runnerPath, testRoot }),
+      /duplicate source test function definition: test_duplicate_same_file_fixture_ .*:1.*:2/,
+    );
+  });
+}
+
 function checkGasRunnerContract() {
   const runnerPath = path.join(rootDir, 'src', 'test', 'test_runner.gs');
   const runnerSource = fs.readFileSync(runnerPath, 'utf8');
-  const { context, allTestsResult } = assertGasRunnerMatchesManifest(runnerSource);
+  const { context, allTestsResult, sourceDefinitions, sourceTestCount } = verifyGasTestManifestSync();
 
-  const sourceDefinedTests = fs.readdirSync(path.join(rootDir, 'src', 'test'))
-    .filter((fileName) => fileName.endsWith('.gs') && fileName !== 'test_runner.gs')
-    .flatMap((fileName) => {
-      const source = fs.readFileSync(path.join(rootDir, 'src', 'test', fileName), 'utf8');
-      return [...source.matchAll(/^function\s+(test_[A-Za-z0-9_]+)\s*\(/gm)].map((match) => match[1]);
-    })
-    .sort();
+  const sourceDefinedTests = sourceDefinitions.map((definition) => definition.name).sort();
   const registeredTests = resultTestNames(allTestsResult).sort();
   assert.deepStrictEqual(
     registeredTests,
@@ -329,6 +439,7 @@ function checkGasRunnerContract() {
     sourceDefinedTests,
     'the canonical manifest must include every source-controlled GAS test exactly once',
   );
+  assert.strictEqual(sourceTestCount, 116, 'the repository must define exactly 116 canonical GAS tests');
   assert.strictEqual(GAS_TEST_MANIFEST.length, 116, 'the canonical manifest test count must remain explicit');
   assert.throws(
     () => context.runGasTestSuiteByName('unknown-suite'),
@@ -351,9 +462,10 @@ function checkWorkflowAndShellContract() {
   const gasJob = workflow.slice(workflow.indexOf('  gas-tests:'), workflow.indexOf('  gas-web-e2e:'));
 
   for (const expected of [
-    'Verify GAS test manifest and runner sync',
+    'Verify GAS test source, manifest, and runner sync',
     'node scripts/ci/check-gas-test-manifest-sync.js',
     'MANIFEST_SYNC_OUTCOME: ${{ steps.gas_manifest_sync.outcome }}',
+    'GAS test sources, manifest, and test_runner.gs are not synchronized',
     'Select GAS Tests from exact PR diff',
     'node scripts/ci/select-gas-tests.js',
     'GAS_TEST_BASE_SHA: ${{ inputs.base_sha }}',
@@ -402,6 +514,10 @@ function checkWorkflowAndShellContract() {
 function runGasShellSelectionFixture(selection, options = {}) {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'gas-test-selection-shell-'));
   try {
+    const sourceTestFiles = listGasTestSourceFiles({
+      testRoot: path.join(rootDir, 'src', 'test'),
+      runnerPath: path.join(rootDir, 'src', 'test', 'test_runner.gs'),
+    }).map((filePath) => path.relative(rootDir, filePath));
     for (const relativePath of [
       '.claspignore',
       'appsscript.json',
@@ -411,6 +527,7 @@ function runGasShellSelectionFixture(selection, options = {}) {
       'scripts/ci/run-gas-tests.sh',
       'scripts/ci/write-ci-clasp-config.js',
       'src/test/test_runner.gs',
+      ...sourceTestFiles,
     ]) {
       const targetPath = path.join(tempRoot, relativePath);
       fs.mkdirSync(path.dirname(targetPath), { recursive: true });
@@ -420,6 +537,12 @@ function runGasShellSelectionFixture(selection, options = {}) {
       const runnerPath = path.join(tempRoot, 'src', 'test', 'test_runner.gs');
       const runnerSource = fs.readFileSync(runnerPath, 'utf8');
       fs.writeFileSync(runnerPath, options.mutateRunnerSource(runnerSource));
+    }
+    for (const [relativePath, source] of Object.entries(options.extraTestFiles || {})) {
+      assert.match(relativePath, /^src[\\/]test[\\/].+\.gs$/, 'extra fixture files must stay under src/test');
+      const targetPath = path.join(tempRoot, relativePath);
+      fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+      fs.writeFileSync(targetPath, source);
     }
     fs.writeFileSync(path.join(tempRoot, 'selection.json'), `${JSON.stringify(selection, null, 2)}\n`);
     const fakeBinDir = path.join(tempRoot, 'fake-bin');
@@ -574,6 +697,16 @@ function checkShellSelectionValidation() {
   assert.match(manifestMismatchResult.output, /GAS test manifest sync failed/);
   assert.match(manifestMismatchResult.output, /canonical manifest/);
 
+  const unregisteredSourceResult = runGasShellSelectionFixture(selected, {
+    extraTestFiles: {
+      'src/test/test_unregistered_manifest_fixture.gs': 'function test_unregistered_manifest_fixture_() {}\n',
+    },
+  });
+  assert.notStrictEqual(unregisteredSourceResult.status, 0, 'an unregistered source test must fail the Final CI preflight');
+  assert.deepStrictEqual(unregisteredSourceResult.calls, [], 'an unregistered source test must cause zero clasp push and run calls');
+  assert.match(unregisteredSourceResult.output, /source test function is not registered in manifest/);
+  assert.match(unregisteredSourceResult.output, /test_unregistered_manifest_fixture_/);
+
   const tampered = cloneSelection(selected);
   tampered.suiteDetails[0].entryPoint = SELECTED_SUITE_DEFINITIONS.find(
     (definition) => definition.area === 'output',
@@ -613,6 +746,8 @@ checkSelectionRules();
 checkSelectedSourceAudit();
 checkSelectionPayloadValidation();
 checkExactGitDiffInput();
+checkSourceDefinitionCollection();
+checkSourceManifestMismatchFixtures();
 checkGasRunnerContract();
 checkWorkflowAndShellContract();
 checkShellSelectionValidation();

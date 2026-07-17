@@ -168,8 +168,9 @@ function suite(name, area, entryPoint, tests) {
 
 function validateManifest() {
   const names = GAS_TEST_MANIFEST.map((definition) => definition.name);
-  if (new Set(names).size !== names.length) {
-    throw new Error('GAS test manifest contains duplicate test functions');
+  const duplicateTestNames = [...new Set(names.filter((name, index) => names.indexOf(name) !== index))].sort();
+  if (duplicateTestNames.length > 0) {
+    throw new Error(`GAS test manifest contains duplicate test functions: ${duplicateTestNames.join(', ')}`);
   }
   if (GAS_TEST_MANIFEST.some((definition) => !ALL_IMPACT_AREAS.includes(definition.area))) {
     throw new Error('GAS test manifest contains an unknown impact area');

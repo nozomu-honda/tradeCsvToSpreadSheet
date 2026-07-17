@@ -103,6 +103,10 @@ function checkWorkflowStructure() {
   assert.ok(gasJob.includes('id: gas_manifest_sync'), 'GAS Tests must verify the manifest and test runner before clasp push');
   assert.ok(gasJob.includes('node scripts/ci/check-gas-test-manifest-sync.js'), 'GAS Tests must run the dedicated manifest sync preflight');
   assert.ok(gasJob.includes('MANIFEST_SYNC_OUTCOME: ${{ steps.gas_manifest_sync.outcome }}'), 'manifest sync failure must affect the GAS result');
+  assert.ok(
+    gasJob.includes('GAS test sources, manifest, and test_runner.gs are not synchronized'),
+    'the GAS result must identify source, manifest, and runner synchronization failures',
+  );
   const gasHeadGuardIndex = gasJob.indexOf('id: gas_head_guard');
   const gasManifestSyncIndex = gasJob.indexOf('id: gas_manifest_sync');
   const gasSelectionIndex = gasJob.indexOf('id: select_gas_tests');

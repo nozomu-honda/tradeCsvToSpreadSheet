@@ -84,7 +84,7 @@ jobs:
           PR_NUMBER: ${{ inputs.pr_number }}
         run: node scripts/ci/final-ci.js assert-head
 
-      - name: Verify GAS test manifest and runner sync
+      - name: Verify GAS test source, manifest, and runner sync
         id: gas_manifest_sync
         run: node scripts/ci/check-gas-test-manifest-sync.js
 
@@ -144,7 +144,7 @@ jobs:
             reason="PR head or base changed before GAS Tests started"
           elif [[ "${MANIFEST_SYNC_OUTCOME}" != "success" ]]; then
             status="failed"
-            reason="GAS test manifest and test_runner.gs are not synchronized"
+            reason="GAS test sources, manifest, and test_runner.gs are not synchronized"
           elif [[ "${SELECTION_OUTCOME}" != "success" ]]; then
             status="failed"
             reason="GAS Tests impact selection failed"
