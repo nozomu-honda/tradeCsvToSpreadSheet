@@ -23,6 +23,7 @@ const {
   assertGasRunnerMatchesManifest,
   collectTestFunctionDefinitions,
   listGasTestSourceFiles,
+  maskNonCodeText,
   resultTestNames,
   verifyGasTestManifestSync,
 } = require('./check-gas-test-manifest-sync');
@@ -349,10 +350,10 @@ function checkSourceDefinitionCollection() {
   }, ({ repositoryRoot, runnerPath, testRoot }) => {
     const definitions = collectTestFunctionDefinitions({ repositoryRoot, runnerPath, testRoot });
     assert.deepStrictEqual(
-      definitions.map(({ name, filePath }) => ({ name, filePath })),
+      definitions.map(({ name, filePath, line }) => ({ name, filePath, line })),
       [
-        { name: 'test_real_nested_fixture_', filePath: 'src/test/nested/test_real.gs' },
-        { name: 'test_real_root_fixture_', filePath: 'src/test/test_real_root.gs' },
+        { name: 'test_real_nested_fixture_', filePath: 'src/test/nested/test_real.gs', line: 11 },
+        { name: 'test_real_root_fixture_', filePath: 'src/test/test_real_root.gs', line: 1 },
       ],
       'only real test function declarations must be collected recursively in stable order',
     );
@@ -361,6 +362,63 @@ function checkSourceDefinitionCollection() {
       'test_real_nested_fixture_',
     ]);
   });
+}
+
+function checkTemplateLiteralDefinitionCollection() {
+  const fixtureLines = [
+    "const nestedBody = `outer ${`",
+    'function test_nested_template_body_fake_() {}',
+    "`}`;",
+    "const templateExpression = `${",
+    'function test_template_expression_fixture_() {}',
+    "}`;",
+    "const nestedExpression = `outer ${",
+    "  `inner function test_nested_inner_body_fake_() {} ${",
+    'function test_nested_template_expression_fixture_() {}',
+    "  }`",
+    "}`;",
+    "const braceDepth = `${",
+    '(() => {',
+    '  const nested = { value: { enabled: true } };',
+    '  const templated = `function test_nested_code_template_fake_() {}`;',
+    '  const quoted = "function test_nested_code_string_fake_() {}";',
+    '  const regex = /function test_nested_code_regex_fake_\\(\\) \\{\\}/;',
+    '  return function test_template_brace_depth_fixture_() {};',
+    '})()',
+    "}`;",
+    "const escapedBacktick = `body \\` function test_escaped_backtick_fake_() {}`;",
+    "const escapedInterpolation = `body \\${function test_escaped_interpolation_fake_() {}}`;",
+    "const escapedBackslash = `body \\\\${function test_escaped_backslash_expression_fixture_() {}}`;",
+    'function test_real_after_templates_fixture_() {}',
+    '',
+  ];
+  const fixtureSource = fixtureLines.join('\n');
+
+  withTestSourceFixture({
+    'src/test/test_template_lexer.gs': fixtureSource,
+    'src/test/test_runner.gs': '',
+  }, ({ repositoryRoot, runnerPath, testRoot }) => {
+    const definitions = collectTestFunctionDefinitions({ repositoryRoot, runnerPath, testRoot });
+    assert.deepStrictEqual(
+      definitions.map(({ name, line }) => ({ name, line })),
+      [
+        { name: 'test_escaped_backslash_expression_fixture_', line: 23 },
+        { name: 'test_nested_template_expression_fixture_', line: 9 },
+        { name: 'test_real_after_templates_fixture_', line: 24 },
+        { name: 'test_template_brace_depth_fixture_', line: 18 },
+        { name: 'test_template_expression_fixture_', line: 5 },
+      ],
+      'template bodies must stay masked while real definitions in nested interpolation expressions remain visible',
+    );
+  });
+
+  const maskedSource = maskNonCodeText(fixtureSource);
+  assert.strictEqual(maskedSource.length, fixtureSource.length, 'masking must preserve source offsets');
+  assert.deepStrictEqual(
+    [...maskedSource.matchAll(/\r\n|\r|\n/g)].map((match) => match.index),
+    [...fixtureSource.matchAll(/\r\n|\r|\n/g)].map((match) => match.index),
+    'masking must preserve newline offsets for diagnostic line numbers',
+  );
 }
 
 function checkSourceManifestMismatchFixtures() {
@@ -747,6 +805,7 @@ checkSelectedSourceAudit();
 checkSelectionPayloadValidation();
 checkExactGitDiffInput();
 checkSourceDefinitionCollection();
+checkTemplateLiteralDefinitionCollection();
 checkSourceManifestMismatchFixtures();
 checkGasRunnerContract();
 checkWorkflowAndShellContract();

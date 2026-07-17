@@ -34,7 +34,7 @@ function toRepositoryPath(repositoryRoot, filePath) {
 
 function maskNonCodeText(source) {
   const masked = source.split('');
-  let state = 'code';
+  const contexts = [{ type: 'code', templateExpression: false, braceDepth: 0 }];
 
   function canStartRegularExpression(index) {
     let previousIndex = index - 1;
@@ -52,63 +52,92 @@ function maskNonCodeText(source) {
   for (let index = 0; index < source.length; index += 1) {
     const current = source[index];
     const next = source[index + 1];
+    const context = contexts[contexts.length - 1];
 
-    if (state === 'code') {
+    if (context.type === 'code') {
+      if (context.templateExpression && current === '}') {
+        if (context.braceDepth === 0) {
+          mask(index);
+          contexts.pop();
+        } else {
+          context.braceDepth -= 1;
+        }
+        continue;
+      }
       if (current === '/' && next === '/') {
         mask(index);
         mask(index + 1);
-        state = 'line-comment';
+        contexts.push({ type: 'line-comment' });
         index += 1;
       } else if (current === '/' && next === '*') {
         mask(index);
         mask(index + 1);
-        state = 'block-comment';
+        contexts.push({ type: 'block-comment' });
         index += 1;
       } else if (current === "'") {
         mask(index);
-        state = 'single-quote';
+        contexts.push({ type: 'quote', delimiter: "'" });
       } else if (current === '"') {
         mask(index);
-        state = 'double-quote';
+        contexts.push({ type: 'quote', delimiter: '"' });
       } else if (current === '`') {
         mask(index);
-        state = 'template-literal';
+        contexts.push({ type: 'template' });
       } else if (current === '/' && canStartRegularExpression(index)) {
         mask(index);
-        state = 'regular-expression';
+        contexts.push({ type: 'regular-expression', inCharacterClass: false });
+      } else if (context.templateExpression && current === '{') {
+        context.braceDepth += 1;
       }
       continue;
     }
 
-    if (state === 'line-comment') {
+    if (context.type === 'line-comment') {
       mask(index);
-      if (current === '\n' || current === '\r') state = 'code';
+      if (current === '\n' || current === '\r') contexts.pop();
       continue;
     }
 
-    if (state === 'block-comment') {
+    if (context.type === 'block-comment') {
       mask(index);
       if (current === '*' && next === '/') {
         mask(index + 1);
-        state = 'code';
+        contexts.pop();
         index += 1;
       }
       continue;
     }
 
-    if (state === 'regular-expression' || state === 'regular-expression-character-class') {
+    if (context.type === 'regular-expression') {
       mask(index);
       if (current === '\\') {
         if (next !== undefined) {
           mask(index + 1);
           index += 1;
         }
-      } else if (state === 'regular-expression' && current === '[') {
-        state = 'regular-expression-character-class';
-      } else if (state === 'regular-expression-character-class' && current === ']') {
-        state = 'regular-expression';
-      } else if (state === 'regular-expression' && current === '/') {
-        state = 'code';
+      } else if (!context.inCharacterClass && current === '[') {
+        context.inCharacterClass = true;
+      } else if (context.inCharacterClass && current === ']') {
+        context.inCharacterClass = false;
+      } else if (!context.inCharacterClass && current === '/') {
+        contexts.pop();
+      }
+      continue;
+    }
+
+    if (context.type === 'template') {
+      mask(index);
+      if (current === '\\') {
+        if (next !== undefined) {
+          mask(index + 1);
+          index += 1;
+        }
+      } else if (current === '`') {
+        contexts.pop();
+      } else if (current === '$' && next === '{') {
+        mask(index + 1);
+        contexts.push({ type: 'code', templateExpression: true, braceDepth: 0 });
+        index += 1;
       }
       continue;
     }
@@ -119,14 +148,8 @@ function maskNonCodeText(source) {
         mask(index + 1);
         index += 1;
       }
-      continue;
-    }
-    if (
-      (state === 'single-quote' && current === "'") ||
-      (state === 'double-quote' && current === '"') ||
-      (state === 'template-literal' && current === '`')
-    ) {
-      state = 'code';
+    } else if (context.type === 'quote' && current === context.delimiter) {
+      contexts.pop();
     }
   }
 
@@ -135,7 +158,7 @@ function maskNonCodeText(source) {
 
 function extractTestFunctionDefinitions(source, filePath) {
   const maskedSource = maskNonCodeText(source);
-  const definitionPattern = /^(?:\uFEFF)?[\t ]*function[\t \r\n]+(test_[A-Za-z0-9_]+)[\t \r\n]*\(/gm;
+  const definitionPattern = /\bfunction[\t \r\n]+(test_[A-Za-z0-9_]+)[\t \r\n]*\(/g;
   return [...maskedSource.matchAll(definitionPattern)].map((match) => ({
     filePath,
     line: source.slice(0, match.index).split(/\r\n|\r|\n/).length,
