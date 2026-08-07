@@ -59,58 +59,6 @@ function test_sortTradeRows_usesPriority_() {
   assertArrayEquals_(expected, actual, '取引区分優先順位ソート');
 }
 
-function test_stockConversionBuy_updatesHoldingAndAvg_() {
-  const alerts = [];
-  const rows = buildTradeRows_([
-    makeTradeRecord_({
-      銘柄名: 'SCB',
-      商品: '株式',
-      取引区分: '現物買付',
-      数量: 2,
-      受渡金額_決済損益: 200,
-      手数料税込: 0,
-      約定日: '2026/04/01',
-      受渡日: '2026/04/01',
-      決済通貨: 'JPY'
-    }),
-    makeTradeRecord_({
-      銘柄名: 'SCB',
-      商品: '株式',
-      取引区分: '株転換取得（買）',
-      数量: 1,
-      受渡金額_決済損益: 150,
-      手数料税込: 0,
-      約定日: '2026/04/02',
-      受渡日: '2026/04/02',
-      決済通貨: 'JPY'
-    }),
-    makeTradeRecord_({
-      銘柄名: 'SCB',
-      商品: '株式',
-      取引区分: '現物売却',
-      数量: 1,
-      単価: 130,
-      受渡金額_決済損益: 130,
-      手数料税込: 0,
-      約定日: '2026/04/03',
-      受渡日: '2026/04/03',
-      決済通貨: 'JPY'
-    })
-  ], alerts);
-
-  const conversionRow = rows[1];
-  const sellRow = rows[2];
-
-  assertEquals_(3, getTradeRowValue_(conversionRow, '保有数'), '株転換取得（買）で保有数が増える');
-  assertEquals_(150, getTradeRowValue_(conversionRow, '簿価'), '株転換取得（買）の簿価');
-  assertEquals_(200, getTradeRowValue_(conversionRow, '銘柄ごとの残高'), '株転換取得（買）は銘柄ごとの残高を動かさない');
-  assertEquals_('', getTradeRowValue_(conversionRow, '平均取得単価'), '株転換取得（買）は平均取得単価の更新対象ではない');
-
-  assertApproxEquals_(100, getTradeRowValue_(sellRow, '取得価格'), 1e-9, '直前の平均取得単価は維持される');
-  assertApproxEquals_(-100, getTradeRowValue_(sellRow, '簿価'), 1e-9, '売却簿価は維持された平均取得単価ベース');
-  assertEquals_(0, alerts.length, '不要なアラートは出ないこと');
-}
-
 function test_forcedRedemptionSell_updatesHoldingAndBookValue_() {
   const alerts = [];
   const rows = buildTradeRows_([
@@ -342,4 +290,3 @@ function test_buildTradeRows_principalReturn_distributionDoesNotChangeBalance_20
   assertEquals_('', getTradeRowValue_(row, '簿価'), '元本払戻金=true なら簿価は空欄');
   assertApproxEquals_(10000, getTradeRowValue_(row, '銘柄ごとの残高'), 1e-9, '元本払戻金=true の分配金は残高を増やさない');
 }
-

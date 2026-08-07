@@ -41,6 +41,17 @@ const { readChangedFiles } = require('./select-gas-tests');
 const rootDir = path.resolve(__dirname, '..', '..');
 const HEAD_SHA = '1'.repeat(40);
 const BASE_SHA = '2'.repeat(40);
+const REMOVED_LEGACY_TESTS = Object.freeze([
+  'test_stockConversionBuy_updatesHoldingAndAvg_',
+  'test_buildTradeRows_bookValue_foreignBuy_multipliesFeeTaxByRate_20260515_',
+  'test_applyStagingManualHighlights_fundCashInAndReinvest_20260526_',
+]);
+const CURRENT_SUCCESSOR_TESTS = Object.freeze([
+  'test_buildTradeRows_avgUnitPrice_updatesOnStockConversionBuy_20260526_',
+  'test_buildTradeRows_bookValue_foreignBuy_minusFeeTaxOnly_20260529_',
+  'test_applyStagingManualHighlights_fundBuyAndReinvest_20260529_',
+  'test_applyStagingManualHighlights_fundSellBuyBuybackAndReinvest_20260529_',
+]);
 
 function assertSelected(changedFiles, expectedAreas, expectedSuites) {
   const selection = selectGasTestsByChangedFiles(changedFiles);
@@ -56,7 +67,7 @@ function assertFull(changedFiles, reasonPattern, options) {
   assert.strictEqual(selection.mode, 'full');
   assert.deepStrictEqual(selection.suites, FULL_SUITE_DEFINITIONS.map((definition) => definition.name));
   assert.match(selection.fullFallbackReason, reasonPattern);
-  assert.strictEqual(selection.testCount, 116);
+  assert.strictEqual(selection.testCount, 113);
   return selection;
 }
 
@@ -100,7 +111,7 @@ function checkSelectionRules() {
   assertFull([null], /classification failed/);
 
   const selectedTestCount = SELECTED_SUITE_DEFINITIONS.reduce((total, suite) => total + suite.testCount, 0);
-  assert.strictEqual(selectedTestCount, 116, 'selected suites must cover every full GAS test exactly once');
+  assert.strictEqual(selectedTestCount, 113, 'selected suites must cover every full GAS test exactly once');
   assert.deepStrictEqual(
     [...new Set(SELECTED_SUITE_DEFINITIONS.map((suite) => suite.area))],
     ALL_IMPACT_AREAS,
@@ -717,6 +728,65 @@ function checkSourceManifestMismatchFixtures() {
   });
 }
 
+function checkRemovedLegacyTestsStayRemoved(runnerSource, sourceDefinitions) {
+  const sourceNames = sourceDefinitions.map((definition) => definition.name);
+  for (const successorTest of CURRENT_SUCCESSOR_TESTS) {
+    assert.ok(sourceNames.includes(successorTest), `${successorTest} must remain defined in source`);
+    assert.ok(ALL_GAS_TEST_FUNCTIONS.includes(successorTest), `${successorTest} must remain registered in manifest`);
+    assert.ok(runnerSource.includes(successorTest), `${successorTest} must remain registered in test_runner.gs`);
+  }
+
+  for (const legacyTest of REMOVED_LEGACY_TESTS) {
+    assert.ok(!sourceNames.includes(legacyTest), `${legacyTest} must not remain defined in source`);
+    assert.ok(!ALL_GAS_TEST_FUNCTIONS.includes(legacyTest), `${legacyTest} must not remain registered in manifest`);
+    assert.ok(!runnerSource.includes(legacyTest), `${legacyTest} must not remain registered in test_runner.gs`);
+
+    withTestSourceFixture({
+      'src/test/test_removed_legacy_fixture.gs': `function ${legacyTest}() {}\n`,
+      'src/test/test_runner.gs': '',
+    }, ({ repositoryRoot, runnerPath, testRoot }) => {
+      const definitions = collectTestFunctionDefinitions({ repositoryRoot, runnerPath, testRoot });
+      assert.throws(
+        () => assertSourceDefinitionsMatchManifest(definitions, []),
+        new RegExp(`source test function is not registered in manifest: ${legacyTest}`),
+        `${legacyTest} reintroduced only in source must fail manifest sync`,
+      );
+    });
+
+    assert.throws(
+      () => assertSourceDefinitionsMatchManifest(sourceDefinitions, [
+        ...ALL_GAS_TEST_FUNCTIONS,
+        legacyTest,
+      ]),
+      new RegExp(`manifest test function has no source definition: ${legacyTest}`),
+      `${legacyTest} reintroduced only in manifest must fail source sync`,
+    );
+
+    const runnerOnly = mutateRunnerArray(
+      runnerSource,
+      'CORE_TESTS_',
+      (body) => `${body}  ${legacyTest},\n`,
+    );
+    assert.throws(
+      () => assertGasRunnerMatchesManifest(runnerOnly),
+      /GAS_TEST_METRICS testCount=113|runAllTests order must match the canonical manifest/,
+      `${legacyTest} reintroduced only in the runner must fail manifest sync`,
+    );
+
+    const batchDeclaration = 'const GAS_TEST_BATCHES_ = buildGasTestBatches_(ALL_GAS_TESTS_, GAS_TEST_BATCH_SIZE_);';
+    assert.ok(runnerSource.includes(batchDeclaration), 'full batch declaration must exist in test_runner.gs');
+    const fullBatchOnly = runnerSource.replace(
+      batchDeclaration,
+      `${batchDeclaration}\nGAS_TEST_BATCHES_[GAS_TEST_BATCHES_.length - 1].tests.push(${legacyTest});`,
+    );
+    assert.throws(
+      () => assertGasRunnerMatchesManifest(fullBatchOnly),
+      /GASテストバッチ定義が不正/,
+      `${legacyTest} reintroduced only in a full batch must fail batch validation`,
+    );
+  }
+}
+
 function checkGasRunnerContract() {
   const runnerPath = path.join(rootDir, 'src', 'test', 'test_runner.gs');
   const runnerSource = fs.readFileSync(runnerPath, 'utf8');
@@ -734,8 +804,13 @@ function checkGasRunnerContract() {
     sourceDefinedTests,
     'the canonical manifest must include every source-controlled GAS test exactly once',
   );
-  assert.strictEqual(sourceTestCount, 116, 'the repository must define exactly 116 canonical GAS tests');
-  assert.strictEqual(GAS_TEST_MANIFEST.length, 116, 'the canonical manifest test count must remain explicit');
+  assert.strictEqual(sourceTestCount, 113, 'the repository must define exactly 113 canonical GAS tests');
+  assert.strictEqual(GAS_TEST_MANIFEST.length, 113, 'the canonical manifest test count must remain explicit');
+  assert.deepStrictEqual(
+    FULL_SUITE_DEFINITIONS.map((definition) => definition.testCount),
+    [13, 13, 13, 13, 13, 13, 13, 13, 9],
+    'the 113 canonical tests must remain split into nine non-empty full batches without reordering',
+  );
   assert.throws(
     () => context.runGasTestSuiteByName('unknown-suite'),
     /許可されていないGASテストスイート/,
@@ -748,6 +823,7 @@ function checkGasRunnerContract() {
   );
 
   assert.ok(!/\beval\s*\(/.test(runnerSource), 'GAS test selection must not use eval');
+  checkRemovedLegacyTestsStayRemoved(runnerSource, sourceDefinitions);
   checkGasRunnerManifestTampering(runnerSource);
 }
 
@@ -966,7 +1042,7 @@ function checkShellSelectionValidation() {
     selected.suites,
     ['parser-input-01', 'parser-input-02', 'database-01', 'database-02', 'database-03', 'staging-import'],
   );
-  assert.strictEqual(selected.testCount, 49, 'parser.gs must select 15 parser, 27 database, and 7 staging tests');
+  assert.strictEqual(selected.testCount, 48, 'parser.gs must select 15 parser, 27 database, and 6 staging tests');
   assert.ok(!selected.impactAreas.includes('output'));
   assert.ok(!selected.impactAreas.includes('broker-import'));
   assert.ok(!selected.impactAreas.includes('e2e-support'));
@@ -1064,9 +1140,9 @@ function checkShellSelectionValidation() {
 
   const multiAreaMismatchResult = runGasShellSelectionFixture(validationBypassSelection, {
     mutateSelectionSource(source) {
-      const expected = "'src/test/test_20260526_changes.gs': selected('trade-calculation', 'staging-import')";
+      const expected = "'src/test/test_20260529_changes.gs': selected('trade-calculation', 'staging-import')";
       assert.ok(source.includes(expected), 'multi-area mapping fixture must exist');
-      return source.replace(expected, "'src/test/test_20260526_changes.gs': selected('trade-calculation')");
+      return source.replace(expected, "'src/test/test_20260529_changes.gs': selected('trade-calculation')");
     },
   });
   assert.notStrictEqual(multiAreaMismatchResult.status, 0, 'a partial multi-area mapping must fail the preflight');
@@ -1095,9 +1171,26 @@ function checkShellSelectionValidation() {
     'full execution must run only canonical full batch entry points in order',
   );
   assert.match(fullResult.summary, /Mode: `full`/);
-  assert.match(fullResult.summary, /Expected tests: `116`/);
-  assert.match(fullResult.summary, /All selected GAS test functions passed \(116 tests/);
+  assert.match(fullResult.summary, /Expected tests: `113`/);
+  assert.match(fullResult.summary, /All selected GAS test functions passed \(113 tests/);
   assert.strictEqual(FULL_SUITE_DEFINITIONS.length, 9, 'full mode must retain nine batches');
+
+  const legacySourceResult = runGasShellSelectionFixture(selected, {
+    extraTestFiles: {
+      'src/test/test_removed_legacy_shell_fixture.gs': REMOVED_LEGACY_TESTS
+        .map((name) => `function ${name}() {}`)
+        .join('\n'),
+    },
+  });
+  assert.notStrictEqual(legacySourceResult.status, 0, 'reintroduced legacy source tests must fail preflight');
+  assert.deepStrictEqual(
+    legacySourceResult.calls,
+    [],
+    'reintroduced legacy source tests must cause zero clasp push and run calls',
+  );
+  for (const legacyTest of REMOVED_LEGACY_TESTS) {
+    assert.match(legacySourceResult.output, new RegExp(legacyTest));
+  }
 
   const parserTest = 'test_collectInputAlerts_supportedForeignBond_';
   const databaseTest = 'test_buildRowHash_sameRecord_sameHash_';

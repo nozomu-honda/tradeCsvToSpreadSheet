@@ -107,13 +107,10 @@ const CORE_TESTS_ = [
   test_detectInputSourceTypeFromRows_rakutenCash_20260616_,
   test_normalizeRakutenCashRowsToRecords_depositAndWithdrawal_20260616_,
   test_rakutenDbHeaders_includeDividendManualColumns_20260617_,
-  test_applyStagingManualHighlights_fundCashInAndReinvest_20260526_,
   test_applyStagingManualHighlights_fundSellBuyBuybackAndReinvest_20260529_,
   test_parseDate_stringYmd_keepsSameCalendarDate_20260603_,
   test_normalizeRecordForDb_dateString_keepsSameCalendarDate_20260603_,
-  test_stockConversionBuy_updatesHoldingAndAvg_,
   test_buildTradeRows_bookValue_foreignBuy_minusFeeTaxOnly_20260511_,
-  test_buildTradeRows_bookValue_foreignBuy_multipliesFeeTaxByRate_20260515_,
 ];
 
 const FULL_ONLY_TESTS_ = [
@@ -178,7 +175,6 @@ const STAGING_IMPORT_TESTS_ = [
   test_validateRequiredManualInputsOnSheet_allowsWhenForeignStockManualInputsFilled_,
   test_createStagingSpreadsheetFromSourceSpreadsheet_createsSingleSheet_,
   test_applyStagingManualHighlights_fundBuyAndReinvest_20260529_,
-  test_applyStagingManualHighlights_fundCashInAndReinvest_20260526_,
   test_applyStagingManualHighlights_fundSellBuyBuybackAndReinvest_20260529_,
 ];
 const TRADE_CALCULATION_TESTS_ = [
@@ -201,9 +197,7 @@ const TRADE_CALCULATION_TESTS_ = [
   test_buildTradeRows_avgUnitPrice_updatesOnFundOffering_20260526_,
   test_buildTradeRows_principalReturn_distributionDoesNotChangeBalance_20260511_,
   test_buildTradeRows_distributionDoesNotChangeBalance_20260515_,
-  test_stockConversionBuy_updatesHoldingAndAvg_,
   test_buildTradeRows_bookValue_foreignBuy_minusFeeTaxOnly_20260511_,
-  test_buildTradeRows_bookValue_foreignBuy_multipliesFeeTaxByRate_20260515_,
 ];
 const OUTPUT_TESTS_ = [
   test_buildOutputSheetsFromDbRecords_splitsIntoSixSheets_,

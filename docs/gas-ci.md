@@ -6,9 +6,11 @@ CI用と本番用のどちらへ、どのコマンドで反映するかを先に
 
 > 2026-07-16現在、Issue #98の方針でGitHub Actionsは全面停止中です。以下はIssue #99マージ後に人間が段階的な再開を承認した後の運用であり、停止中はworkflow、rerun、`run-final-ci` ラベル、本番操作を実行しません。
 
-全実行用のCIバッチ関数は `runGasTestBatch01` から `runGasTestBatch09` までです。各バッチは `scripts/ci/gas-test-suite-manifest.js` に登録した116テストを最大13件ずつに分けます。GAS runtimeでは `CORE_TESTS_` と `FULL_ONLY_TESTS_` を結合して実行し、Node回帰テストがmanifestと関数名・順序を完全照合します。`runAllTests()` は既存の手動確認用入口として残しますが、CIのfull modeではApps Scriptの実行時間上限を避けるため、1回の一括実行ではなく全バッチを逐次実行します。
+全実行用のCIバッチ関数は `runGasTestBatch01` から `runGasTestBatch09` までです。各バッチは `scripts/ci/gas-test-suite-manifest.js` に登録した113テストを最大13件ずつに分けます。GAS runtimeでは `CORE_TESTS_` と `FULL_ONLY_TESTS_` を結合して実行し、Node回帰テストがmanifestと関数名・順序を完全照合します。`runAllTests()` は既存の手動確認用入口として残しますが、CIのfull modeではApps Scriptの実行時間上限を避けるため、1回の一括実行ではなく全バッチを逐次実行します。
 
 Final CIでは、固定済みのPR `base SHA...head SHA`を再検証し、lockfile固定のCI依存を導入した後に`scripts/ci/check-gas-test-manifest-sync.js`を実行します。preflightは`test_runner.gs`を除く`src/test/**/*.gs`を再帰走査し、各ファイルの`Program.body`直下にあるトップレベルかつ同期形式の`function test_*(){}`宣言、manifest、runner、selected入口、full 9バッチを完全照合します。トップレベル`test_*`がasyncまたはgeneratorの場合は、ファイルパス・行番号・関数名を示して明示的に拒否します。未登録、不存在、重複、所属・順序不一致は差分選択と`clasp push`より前にfail-closedで停止します。同期確認後、固定済みSHAから変更ファイルを取得し、`scripts/ci/gas-test-selection.js`の純粋関数で影響範囲を判定します。既知かつ局所的な差分はselected modeで関係するスイートだけを実行し、少しでも不確実な差分はfull modeへ戻します。どちらのmodeでもテスト専用Apps Scriptへの`clasp push --force`は1回だけです。
+
+既存テストを後継テストへ置き換えた場合は、旧トップレベル`test_*`定義をsourceへ残さず、manifestとrunnerからも同時に削除します。旧定義を残すとsource完全照合によって正規テストとして再登録されるため、特定名の除外例外は設けません。
 
 ## 差分とGAS Testsの対応
 
@@ -28,7 +30,7 @@ source fileは1領域に限定せず、既存テストが跨ぐ層を棚卸し�
 
 | source | 選択領域 | 棚卸し根拠 |
 | --- | --- | --- |
-| `src/app/parser.gs` | parser-input + database + staging-import | 入力単体15件、DB統合27件、一次受け取込7件の合計49件。parser出力を入力に使う一次受け取込経路まで確認する |
+| `src/app/parser.gs` | parser-input + database + staging-import | 入力単体15件、DB統合27件、一次受け取込6件の合計48件。parser出力を入力に使う一次受け取込経路まで確認する |
 | `src/app/db.gs` | database + output | DB保存・読込の直接テストに加え、DB経由の楽天出力セル比較テストがoutput suiteにある |
 | `src/app/builder.gs` | trade-calculation + output | 取引計算の直接テストと、DBレコードから各出力行を生成するoutputテストの両方が通る |
 | `src/app/writer.gs` | output | 出力書式の直接テストと出力生成テストが通る |
