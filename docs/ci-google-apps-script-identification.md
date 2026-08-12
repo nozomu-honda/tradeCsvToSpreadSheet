@@ -11,14 +11,16 @@
 - Script ID、Deployment ID、OAuth token、`.clasprc.json`、GitHub Secrets実値、Googleアカウントのメールアドレスは、公開リポジトリ、Issue、PR、コメント、Actionsログへ記載しない。
 - Google Cloud / OAuth設定を変更する前に、対象がCI用Apps Scriptに紐づくプロジェクトであることをApps Script側から確認する。名前が似ている別プロジェクトを推測で変更しない。
 
-## 2026-08-11時点で確認できているCI側のApps Script候補
+## 2026-08-12時点で確認できているCI側のApps Script候補
 
 CI専用GoogleアカウントのApps Scriptダッシュボードでは、少なくとも次の2件が確認できています。
 
 - `tradeCsvToSpreadSheet GAS CI Test`
   - 独立したApps Scriptプロジェクトとして表示される。
   - `GAS_TEST_SCRIPT_ID` が指すテスト専用Apps Scriptの最有力候補。
-  - ただし、プロジェクト名だけを根拠に確定しない。後述の確認手順で、CIテスト入口とGitHub側設定の整合を確認してから正本とする。
+  - Apps Scriptの「プロジェクトの設定」で、**標準GCPプロジェクト**に紐づいていることを確認済み。
+  - プロジェクト番号の実値は公開ドキュメントへ記載しない。
+  - ただし、プロジェクト名とGCP種別だけを根拠に `GAS_TEST_SCRIPT_ID` との一致までは断定しない。後述の確認手順でCIテスト入口とGitHub側設定の整合を確認して正本とする。
 - `株管理ツールGASCI用`
   - Spreadsheetに紐づくApps Scriptとして表示される。
   - 役割は未確定。テスト用Spreadsheet側の補助スクリプトである可能性があるため、CI本体と決めつけない。
@@ -35,9 +37,23 @@ Apps Scriptプロジェクト名は人が識別するための補助情報です
    - `runGasTestBatch09`
 5. 必要に応じて `runAllTests()` とCI用テストファイルが存在することも確認する。
 6. Apps Scriptの「プロジェクトの設定」で、Google Cloud Platform（GCP）プロジェクトの状態を確認する。
-7. OAuth / GCP設定を変更する場合は、このApps Scriptから確認したGCPプロジェクトだけを対象にする。
+7. 2026-08-12時点では `tradeCsvToSpreadSheet GAS CI Test` が標準GCPプロジェクトを使用していることを確認済み。
+8. OAuth / GCP設定を変更する場合は、このApps Scriptから確認したGCPプロジェクトだけを対象にする。
 
-2026-08-11時点の正規GASテスト数は113件で、Final CIはfull fallback時に9入口から全113件を実行する設計です。
+2026-08-12時点の正規GASテスト数は113件で、Final CIはfull fallback時に9入口から全113件を実行する設計です。
+
+## `clasp run` / Apps Script APIとの関係
+
+Apps Script APIの `scripts.run` を使うには、Apps Scriptと呼び出し側OAuthクライアントが同じ**標準GCPプロジェクト**を共有する必要があります。
+
+`tradeCsvToSpreadSheet GAS CI Test` が標準GCPプロジェクトへ紐づいていることは確認できたため、標準GCPという前提条件は満たしています。ただし、次は別途確認が必要です。
+
+- OAuthクライアントが同じ標準GCPプロジェクト内にあること
+- Google Apps Script APIがそのGCPプロジェクトで有効であること
+- API executable deploymentが現在も有効であること
+- `CLASPRC_JSON` がそのCI用OAuth構成に対応していること
+
+これらを確認する前に、新しいGCPプロジェクトやOAuthクライアントを推測で作成しません。
 
 ## 本番Apps Scriptとの見分け方
 
@@ -105,9 +121,10 @@ CIで使う主な設定は次のとおりです。
 
 `tradeCsvToSpreadSheet GAS CI Test` の設定確認後、必要に応じてこの文書へ次を追記します。
 
-- CI本体であることの確認結果
-- GCPプロジェクトがデフォルトか標準か
-- `clasp run` / Apps Script API executableの現在の認証構成
+- `GAS_TEST_SCRIPT_ID` との一致確認結果
+- OAuthクライアントが同じ標準GCPプロジェクトにあるか
+- Google Apps Script APIの有効状態
+- API executable deploymentの状態
 - 認証再発行の正式手順
 
 実IDや認証情報は、確認後も記載しません。
