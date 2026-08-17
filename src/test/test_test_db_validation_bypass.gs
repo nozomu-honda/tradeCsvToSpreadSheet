@@ -4,6 +4,8 @@
  * test_staging_sheet.gs などに追記してください。
  */
 
+// selected GAS Tests の実動作確認用no-op変更
+
 function test_shouldSkipRequiredManualValidationForTarget_testDb_true_() {
   assertTrue_(
     shouldSkipRequiredManualValidationForTarget_('nomura_test'),
