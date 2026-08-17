@@ -126,7 +126,11 @@ OAuth Client ID、Client Secret、GCPプロジェクト番号などの実値は�
 - ユーザーの種類: External
 - 公開ステータス: In production
 
-このPRでGoogle Cloud / OAuth設定を変更したのではなく、人間が画面上で実施済みの変更結果を記録しています。Script ID同一性未確認gateはこの変更後も維持し、候補Apps Scriptを現在のCI本体とは断定しません。
+このPRでGoogle Cloud / OAuth設定を変更したのではなく、人間が画面上で実施済みの変更結果を記録しています。
+
+Audience変更が行われた事実は確認済みです。一方、変更時点で候補Script IDと現在のCI接続先を直接照合していたか、または確認済み候補へ`GAS_TEST_SCRIPT_ID`を明示的にrebindしていたかを示す証跡は、Issue #118とPR #119の本文・レビュー・コメントから確認できませんでした。そのため、変更時点でScript ID同一性gateを満たしていたかは現時点では確認不能です。満たしていたとも、満たしていなかったとも推測で断定しません。
+
+このAudience変更履歴を、正式手順の成功例や、人間ならScript ID同一性gateを省略できる前例として扱ってはいけません。現在の正式手順では、候補Script IDとCI接続先の直接照合または確認済み候補への明示的rebindが完了するまで、追加のGCP / OAuth設定変更を禁止します。候補Apps Scriptも、現在のCI本体とは引き続き断定しません。
 
 ## 本番Apps Scriptとの見分け方
 
