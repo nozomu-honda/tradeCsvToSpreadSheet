@@ -100,6 +100,40 @@ function checkWorkflowStructure() {
   assert.ok(gasJob.includes(`name: ${GAS_TESTS_CHECK_NAME}`), 'required GAS check name must stay fixed');
   assert.ok(gasJob.includes("if: ${{ inputs.gas_action == 'execute' }}"), 'GAS runner starts only for an execute decision');
   assert.ok(gasJob.includes('EXPECTED_BASE_SHA: ${{ inputs.base_sha }}'), 'GAS Tests must re-check the base SHA before secrets are used');
+  assert.ok(gasJob.includes('id: gas_manifest_sync'), 'GAS Tests must verify the manifest and test runner before clasp push');
+  assert.ok(gasJob.includes('node scripts/ci/check-gas-test-manifest-sync.js'), 'GAS Tests must run the dedicated manifest sync preflight');
+  assert.ok(gasJob.includes('id: gas_test_file_mappings'), 'GAS Tests must audit mapped test file areas before clasp push');
+  assert.ok(gasJob.includes('node scripts/ci/check-gas-test-file-mappings.js'), 'GAS Tests must run the reusable mapping preflight');
+  assert.ok(gasJob.includes('npm ci --ignore-scripts'), 'GAS Tests must install the pinned parser before manifest verification');
+  assert.ok(gasJob.includes('node_modules/.bin:${PATH}'), 'GAS Tests must use the lockfile-pinned local clasp binary');
+  assert.ok(!gasJob.includes('npm install --global @google/clasp'), 'GAS Tests must not install clasp twice');
+  assert.ok(gasJob.includes('MANIFEST_SYNC_OUTCOME: ${{ steps.gas_manifest_sync.outcome }}'), 'manifest sync failure must affect the GAS result');
+  assert.ok(
+    gasJob.includes('TEST_FILE_MAPPINGS_OUTCOME: ${{ steps.gas_test_file_mappings.outcome }}'),
+    'mapped test file audit failure must affect the GAS result',
+  );
+  assert.ok(
+    gasJob.includes('GAS test file mappings do not cover their manifest areas'),
+    'the GAS result must identify mapped test file area failures',
+  );
+  assert.ok(
+    gasJob.includes('GAS test sources, manifest, and test_runner.gs are not synchronized'),
+    'the GAS result must identify source, manifest, and runner synchronization failures',
+  );
+  const gasHeadGuardIndex = gasJob.indexOf('id: gas_head_guard');
+  const gasManifestSyncIndex = gasJob.indexOf('id: gas_manifest_sync');
+  const gasTestFileMappingsIndex = gasJob.indexOf('id: gas_test_file_mappings');
+  const gasSelectionIndex = gasJob.indexOf('id: select_gas_tests');
+  const claspInstallIndex = gasJob.indexOf('id: install_clasp');
+  const claspPushIndex = gasJob.indexOf('id: run_gas_tests');
+  assert.ok(
+    gasHeadGuardIndex < claspInstallIndex &&
+      claspInstallIndex < gasManifestSyncIndex &&
+      gasManifestSyncIndex < gasTestFileMappingsIndex &&
+      gasTestFileMappingsIndex < gasSelectionIndex &&
+      gasTestFileMappingsIndex < claspPushIndex,
+    'mapped test file audit must run after the head guard, dependencies, and manifest sync but before selection and clasp push',
+  );
   assert.ok(gasJob.includes('TARGET_BASE_SHA: ${{ inputs.base_sha }}'), 'GAS check publication must bind the base SHA');
   assert.ok(gasJob.includes('TARGET_HEAD_SHA: ${{ inputs.head_sha }}'), 'GAS check publication must bind the head SHA');
   assert.ok(gasJob.includes('Summarize Final CI when Web E2E will not run'), 'GAS-only final status must be summarized in the GAS runner');

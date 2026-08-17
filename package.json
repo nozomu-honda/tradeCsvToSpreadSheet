@@ -2,7 +2,7 @@
   "name": "trade-csv-to-spreadsheet",
   "private": true,
   "scripts": {
-    "test": "npm run test:ci-clasp-project && npm run test:final-ci-workflow && npm run test:web-e2e-output-reset && npm run test:web-e2e-source-transform && npm run test:gas-production-wrapper && npm run test:production-e2e-boundary && npm run test:production-deploy-workflow && npm run test:production-status-renderer && npm run test:production-deploy-state && npm run test:production-deploy-orchestrator && npm run test:production-status-parser && npm run test:production-runtime-verification && npm run test:production-web-app-deployment && npm run test:production-smoke-test && npm run test:production-deploy-control && npm run test:production-status-sync && npm run test:production-required-checks && npm run test:production-state-concurrency && npm run test:production-status-bootstrap",
+    "test": "npm run test:ci-clasp-project && npm run test:final-ci-workflow && npm run test:gas-test-selection && npm run test:web-e2e-output-reset && npm run test:web-e2e-source-transform && npm run test:gas-production-wrapper && npm run test:production-e2e-boundary && npm run test:production-deploy-workflow && npm run test:production-status-renderer && npm run test:production-deploy-state && npm run test:production-deploy-orchestrator && npm run test:production-status-parser && npm run test:production-runtime-verification && npm run test:production-web-app-deployment && npm run test:production-smoke-test && npm run test:production-deploy-control && npm run test:production-status-sync && npm run test:production-required-checks && npm run test:production-state-concurrency && npm run test:production-status-bootstrap",
     "e2e:list": "playwright test --list",
     "e2e": "playwright test",
     "gas:production:open": "node scripts/gas-production.js open",
@@ -24,6 +24,7 @@
     "test:production-state-concurrency": "node scripts/ci/check-production-state-concurrency.js",
     "test:production-status-bootstrap": "node scripts/ci/check-production-status-bootstrap.js",
     "test:final-ci-workflow": "node scripts/ci/check-final-ci-workflow.js",
+    "test:gas-test-selection": "node scripts/ci/check-gas-test-selection.js",
     "test:ci-clasp-project": "node scripts/ci/check-ci-clasp-project.js",
     "test:web-e2e-output-reset": "node scripts/ci/check-web-e2e-output-reset.js",
     "test:web-e2e-source-transform": "node scripts/ci/check-web-e2e-source-transform.js"
@@ -31,6 +32,7 @@
   "devDependencies": {
     "@google/clasp": "3.3.0",
     "@playwright/test": "^1.61.1",
+    "acorn": "8.17.0",
     "googleapis": "148.0.0"
   }
 }

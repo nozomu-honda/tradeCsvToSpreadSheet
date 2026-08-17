@@ -50,10 +50,25 @@ jobs:
       gas_status: ${{ steps.gas_result.outputs.status }}
       gas_reason: ${{ steps.gas_result.outputs.reason }}
     steps:
+      - name: Start GAS Tests timing
+        id: gas_job_timing
+        shell: bash
+        run: echo "started_at=$(date +%s)" >> "${GITHUB_OUTPUT}"
+
       - name: Checkout PR merge commit
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
+
+      - name: Record checkout timing
+        id: gas_checkout_timing
+        shell: bash
+        env:
+          JOB_STARTED_AT: ${{ steps.gas_job_timing.outputs.started_at }}
+        run: |
+          now="$(date +%s)"
+          echo "seconds=$((now - JOB_STARTED_AT))" >> "${GITHUB_OUTPUT}"
+          echo "setup_started_at=${now}" >> "${GITHUB_OUTPUT}"
 
       - name: Set up Node.js
         uses: actions/setup-node@v5
@@ -69,9 +84,35 @@ jobs:
           PR_NUMBER: ${{ inputs.pr_number }}
         run: node scripts/ci/final-ci.js assert-head
 
-      - name: Install clasp
+      - name: Install GAS CI dependencies
         id: install_clasp
-        run: npm install --global @google/clasp
+        run: npm ci --ignore-scripts
+
+      - name: Verify GAS test source, manifest, and runner sync
+        id: gas_manifest_sync
+        run: node scripts/ci/check-gas-test-manifest-sync.js
+
+      - name: Verify mapped GAS test file areas
+        id: gas_test_file_mappings
+        run: node scripts/ci/check-gas-test-file-mappings.js
+
+      - name: Select GAS Tests from exact PR diff
+        id: select_gas_tests
+        env:
+          GAS_TEST_BASE_SHA: ${{ inputs.base_sha }}
+          GAS_TEST_HEAD_SHA: ${{ inputs.head_sha }}
+        run: >-
+          node scripts/ci/select-gas-tests.js
+          --base-sha "${GAS_TEST_BASE_SHA}"
+          --head-sha "${GAS_TEST_HEAD_SHA}"
+          --output "${RUNNER_TEMP}/gas-test-selection.json"
+
+      - name: Record setup timing
+        id: gas_setup_timing
+        shell: bash
+        env:
+          SETUP_STARTED_AT: ${{ steps.gas_checkout_timing.outputs.setup_started_at }}
+        run: echo "seconds=$(($(date +%s) - SETUP_STARTED_AT))" >> "${GITHUB_OUTPUT}"
 
       - name: Push to test Apps Script and run GAS tests
         id: run_gas_tests
@@ -82,7 +123,13 @@ jobs:
           GAS_TEST_DEPLOYMENT_ID: ${{ secrets.GAS_TEST_DEPLOYMENT_ID }}
           CLASP_PROJECT_JSON: ${{ secrets.CLASP_PROJECT_JSON }}
           CLASP_USER: ${{ secrets.CLASP_USER }}
-        run: bash scripts/ci/run-gas-tests.sh
+          GAS_CI_CHECKOUT_SECONDS: ${{ steps.gas_checkout_timing.outputs.seconds }}
+          GAS_CI_JOB_STARTED_AT_EPOCH_SECONDS: ${{ steps.gas_job_timing.outputs.started_at }}
+          GAS_CI_SETUP_SECONDS: ${{ steps.gas_setup_timing.outputs.seconds }}
+          GAS_TEST_SELECTION_PATH: ${{ runner.temp }}/gas-test-selection.json
+        run: |
+          export PATH="${GITHUB_WORKSPACE}/node_modules/.bin:${PATH}"
+          bash scripts/ci/run-gas-tests.sh
 
       - name: Record GAS Tests status
         id: gas_result
@@ -91,7 +138,10 @@ jobs:
         env:
           HEAD_GUARD_OUTCOME: ${{ steps.gas_head_guard.outcome }}
           INSTALL_OUTCOME: ${{ steps.install_clasp.outcome }}
+          MANIFEST_SYNC_OUTCOME: ${{ steps.gas_manifest_sync.outcome }}
+          TEST_FILE_MAPPINGS_OUTCOME: ${{ steps.gas_test_file_mappings.outcome }}
           RUN_OUTCOME: ${{ steps.run_gas_tests.outcome }}
+          SELECTION_OUTCOME: ${{ steps.select_gas_tests.outcome }}
         run: |
           set -euo pipefail
           status="executed"
@@ -102,6 +152,15 @@ jobs:
           elif [[ "${INSTALL_OUTCOME}" != "success" ]]; then
             status="failed"
             reason="clasp installation failed"
+          elif [[ "${MANIFEST_SYNC_OUTCOME}" != "success" ]]; then
+            status="failed"
+            reason="GAS test sources, manifest, and test_runner.gs are not synchronized"
+          elif [[ "${TEST_FILE_MAPPINGS_OUTCOME}" != "success" ]]; then
+            status="failed"
+            reason="GAS test file mappings do not cover their manifest areas"
+          elif [[ "${SELECTION_OUTCOME}" != "success" ]]; then
+            status="failed"
+            reason="GAS Tests impact selection failed"
           elif [[ "${RUN_OUTCOME}" != "success" ]]; then
             status="failed"
             reason="GAS Tests failed"
