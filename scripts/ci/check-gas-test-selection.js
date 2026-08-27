@@ -938,9 +938,8 @@ function runGasShellSelectionFixture(selection, options = {}) {
       fs.writeFileSync(targetPath, source);
     }
     fs.writeFileSync(path.join(tempRoot, 'selection.json'), `${JSON.stringify(selection, null, 2)}\n`);
-    const fakeBinDir = path.join(tempRoot, 'fake-bin');
-    fs.mkdirSync(fakeBinDir, { recursive: true });
-    const fakeClaspPath = path.join(fakeBinDir, 'clasp');
+    const fakeClaspPath = path.join(tempRoot, 'node_modules', '.bin', 'clasp');
+    fs.mkdirSync(path.dirname(fakeClaspPath), { recursive: true });
     const fakeRunCases = [...SELECTED_SUITE_DEFINITIONS, ...FULL_SUITE_DEFINITIONS]
       .map((definition) => `    ${definition.entryPoint}) count=${definition.testCount} ;;`);
     fs.writeFileSync(fakeClaspPath, [

@@ -35,6 +35,7 @@ function main() {
   writeJsonFile(projectPath, normalizeCiClaspProject(projectJson, {
     scriptId,
     repoRoot,
+    projectPath,
   }));
 }
 
@@ -44,7 +45,7 @@ function resolveRepositoryRoot(env, cwd) {
 }
 
 function normalizeCiClaspProject(rawProjectJson, options) {
-  const { scriptId, repoRoot } = options;
+  const { scriptId, repoRoot, projectPath } = options;
   const project = rawProjectJson.trim()
     ? parseJson(rawProjectJson, 'CLASP_PROJECT_JSON')
     : { ...DEFAULT_PROJECT };
@@ -53,11 +54,17 @@ function normalizeCiClaspProject(rawProjectJson, options) {
     fail('Invalid CLASP_PROJECT_JSON', 'Project config must be a JSON object.');
   }
 
+  const normalizedRepoRoot = path.resolve(repoRoot);
+  const projectDir = path.dirname(path.resolve(projectPath || path.join(repoRoot, '.clasp.ci.json')));
+  if (projectDir !== normalizedRepoRoot) {
+    fail('Invalid CI project path', 'CI clasp project config must be located at the repository root.');
+  }
+
   const normalized = {
     ...DEFAULT_PROJECT,
     ...project,
     scriptId,
-    rootDir: path.resolve(repoRoot),
+    rootDir: '.',
   };
 
   delete normalized.srcDir;

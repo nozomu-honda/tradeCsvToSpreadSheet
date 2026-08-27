@@ -11,11 +11,15 @@ const {
 
 const rootDir = path.resolve(__dirname, '..', '..');
 const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ci-clasp-project-'));
-const projectPath = path.join(tempRoot, 'outside-repo', 'gas-ci-clasp-project.json');
+const projectPath = path.join(rootDir, '.clasp.ci.json');
 const tempHome = path.join(tempRoot, 'home');
 const tempCwd = path.join(tempRoot, 'cwd');
 const rootClaspPath = path.join(rootDir, '.clasp.json');
 const rootClaspExistedBefore = fs.existsSync(rootClaspPath);
+const ciProjectExistedBefore = fs.existsSync(projectPath);
+const ciProjectContentsBefore = ciProjectExistedBefore
+  ? fs.readFileSync(projectPath)
+  : null;
 const placeholderScriptId = 'TEST_CI_SCRIPT_ID_PLACEHOLDER';
 
 try {
@@ -64,15 +68,15 @@ try {
   if (!fs.existsSync(projectPath)) {
     fail('CI clasp project file was not created');
   }
-  if (path.relative(rootDir, projectPath).split(path.sep)[0] !== '..') {
-    fail('test setup error: project file is not outside the repository');
+  if (path.relative(rootDir, projectPath).split(path.sep)[0] === '..') {
+    fail('test setup error: project file is outside the repository');
   }
 
   const project = JSON.parse(fs.readFileSync(projectPath, 'utf8'));
   assertEqual(project.scriptId, placeholderScriptId, 'scriptId must come from GAS_TEST_SCRIPT_ID');
-  assertEqual(project.rootDir, rootDir, 'rootDir must be repository absolute path');
-  if (!path.isAbsolute(project.rootDir)) {
-    fail('rootDir is not absolute');
+  assertEqual(project.rootDir, '.', 'rootDir must be repository-relative');
+  if (path.isAbsolute(project.rootDir)) {
+    fail('rootDir must not be absolute');
   }
   if (Object.prototype.hasOwnProperty.call(project, 'srcDir')) {
     fail('relative srcDir must be removed from CI project config');
@@ -82,6 +86,32 @@ try {
   assertEqual(sourceRoot, rootDir, 'resolved clasp source root');
   if (sourceRoot.startsWith(tempRoot)) {
     fail('resolved source root points to the temporary project directory');
+  }
+
+  const unsafeResult = spawnSync(
+    process.execPath,
+    [path.join(rootDir, 'scripts', 'ci', 'write-ci-clasp-config.js')],
+    {
+      cwd: tempCwd,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        HOME: tempHome,
+        USERPROFILE: tempHome,
+        GITHUB_WORKSPACE: rootDir,
+        CLASP_PROJECT_PATH: path.join(tempRoot, 'outside-repo', 'gas-ci-clasp-project.json'),
+        GAS_TEST_SCRIPT_ID: placeholderScriptId,
+        CLASPRC_JSON: JSON.stringify({ placeholder: true }),
+        CLASP_PROJECT_JSON: '{}',
+      },
+    }
+  );
+  if (unsafeResult.status === 0) {
+    fail('CI clasp project config outside the repository was accepted');
+  }
+  const unsafeOutput = `${unsafeResult.stdout || ''}\n${unsafeResult.stderr || ''}`;
+  if (unsafeOutput.includes(placeholderScriptId)) {
+    fail('script ID placeholder leaked from rejected project config');
   }
 
   const representativeFiles = listRepresentativePushFiles(project, projectPath)
@@ -108,6 +138,18 @@ try {
     }
     if (!source.includes('--ignore "${CLASP_IGNORE_PATH}"')) {
       fail(`${scriptPath} does not pass --ignore to clasp`);
+    }
+    if (!source.includes('CLASP_PROJECT_PATH="${CI_REPO_ROOT}/.clasp.ci.json"')) {
+      fail(`${scriptPath} must place the CI project config in the repository workspace`);
+    }
+    if (source.includes('CLASP_PROJECT_PATH="${RUNNER_TEMP')) {
+      fail(`${scriptPath} must not place the CI project config outside the repository`);
+    }
+    if (!source.includes('CLASP_BIN="${CI_REPO_ROOT}/node_modules/.bin/clasp"')) {
+      fail(`${scriptPath} must use the lockfile-pinned clasp binary`);
+    }
+    if (source.includes('clasp_command=(clasp ')) {
+      fail(`${scriptPath} must not use a PATH-dependent clasp binary`);
     }
     if (/rootDir:\s*['"]\.['"]/.test(source)) {
       fail(`${scriptPath} still generates rootDir "." inline`);
@@ -228,6 +270,11 @@ try {
 
   console.log('ci clasp project config ok');
 } finally {
+  if (ciProjectExistedBefore) {
+    fs.writeFileSync(projectPath, ciProjectContentsBefore);
+  } else {
+    fs.rmSync(projectPath, { force: true });
+  }
   fs.rmSync(tempRoot, { recursive: true, force: true });
 }
 

@@ -1,6 +1,7 @@
 # Local clasp project bindings and OAuth tokens must stay out of git.
 .clasp.json
 .clasp.production.json
+.clasp.ci.json
 .clasprc.json
 .clasprc*.json
 node_modules/
