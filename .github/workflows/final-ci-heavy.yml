@@ -287,7 +287,6 @@ jobs:
         id: install_web_e2e_dependencies
         run: |
           npm ci
-          npm install --global @google/clasp
           npx playwright install --with-deps chromium
 
       - name: Push source and prepare test Web app deployment
