@@ -1,222 +1,232 @@
-# CI用Googleアカウント / Apps Script 識別ガイド
+# CI用Googleアカウント / Apps Script 識別・認証復旧Runbook
 
-このドキュメントは、`tradeCsvToSpreadSheet` のCI用Googleアカウント、テスト専用Apps Script、本番Apps Scriptを取り違えないための識別手順と、認証障害時の安全な対応方針をまとめます。
+この文書は、`tradeCsvToSpreadSheet` のCI用Googleアカウント、テスト専用Apps Script、本番Apps Scriptを取り違えずに識別し、CI認証障害から安全に復旧するための手順です。
 
-## 最重要ルール
+## 1. 最重要安全ルール
 
-- CI用Googleアカウントと本番用Googleアカウントは分離して扱う。
+- CI用Googleアカウントと本番用Googleアカウントを分離して扱う。
 - CI用Apps Scriptへの反映はGitHub Actionsだけが行う。
-- CI調査や認証復旧のために、ローカルPCでCI用の`clasp login` / `clasp push` / `clasp logout`を行わない。
-- ローカルPC上の本番用named user `production` の認証には触れない。
-- Script ID、Deployment ID、OAuth token、`.clasprc.json`、GitHub Secrets実値、Googleアカウントのメールアドレスは、公開リポジトリ、Issue、PR、コメント、Actionsログへ記載しない。
-- Google Cloud / OAuth設定を変更する前に、候補Apps ScriptのScript IDと現在のCI接続先の同一性を確定する。名前、コード、GCP種別が一致しても、同一性未確認の候補を推測で変更しない。
+- ローカルPCでCI用の`clasp login` / `clasp logout` / `clasp push`を行わない。
+- ローカルPCの本番用named user `production` の認証には触れない。
+- 本番Apps Script、本番deployment、本番DB、本番DriveをCI確認に使用しない。
+- Script ID、Deployment ID、OAuth Client ID、Client Secret、access token、refresh token、認証JSON、Googleアカウントのメールアドレスを公開リポジトリ、Issue、PR、コメント、Actionsログ、artifactへ記載しない。
+- Google Cloud / OAuth設定を変更する前に、候補Apps Scriptと現在のCI接続先の同一性を確定する。
+- 名前、コード、GCPの種別、テスト入口の存在だけでCI接続先を断定しない。
 
-## 2026-08-12時点で確認できているCI側のApps Script候補
+## 2. CI / 本番の識別
 
-CI専用GoogleアカウントのApps Scriptダッシュボードでは、少なくとも次の2件が確認できています。
+### CI用
+
+- CI専用Googleアカウントで管理する。
+- GitHub Secret `GAS_TEST_SCRIPT_ID` と`CLASPRC_JSON`をGitHub Actionsだけが利用する。
+- `src/test/**`を含むCI用bundleをテスト専用Apps Scriptへ反映する。
+- CI用の反映・GAS Tests・必要なWeb E2EはGitHub Actionsから実行する。
+
+### 本番用
+
+- 本番用Googleアカウントと本番用認証で管理する。
+- 本番反映は本番用GitHub Actions経路を原則とする。
+- ローカルfallbackを使う場合も、named user `production` と本番専用project設定を使う。
+- `src/test/**`やE2E専用helperを本番へ送らない。
+
+GitHub構成上も認証経路を分ける。
+
+- CI: `CLASPRC_JSON` / `GAS_TEST_SCRIPT_ID`
+- 本番: `CLASP_PRODUCTION_CREDENTIALS` / `PRODUCTION_SCRIPT_ID`
+
+本番用SecretsはCI認証復旧の対象にしない。
+
+## 3. Script ID同一性gate
+
+CI Apps Scriptの識別は、次の順序で行う。
+
+1. CI専用GoogleアカウントのApps Script一覧から候補を探す。
+2. 候補のプロジェクト名、standalone / Spreadsheet-boundなどの種別を確認する。
+3. コードを変更せず、`runGasTestBatch01`、`runGasTestBatch09`、`runAllTests()`、CI用テストファイルの存在を補助情報として確認する。
+4. Apps Scriptのプロジェクト設定で候補のScript IDを確認する。
+5. 認可済み管理者が保持する元データと、現在のCI接続先を安全な隔離環境で直接照合する。
+6. 一致した場合だけ候補をCI接続先として確定する。
+
+プロジェクト名、コード、GCP種別、テスト入口は候補探索の補助情報であり、Script ID同一性の証明ではない。GitHub Secretは登録後にUIから値を読み返せないため、Secret値をUIから取得して比較する手順は採用しない。
+
+候補のScript IDと現在のCI接続先を安全に照合できない場合は、接続先不明のまま停止する。別の認証復旧作業でCI本体として確認済みの候補へ`GAS_TEST_SCRIPT_ID`を明示的にrebindし、rebind完了後に接続先を確定する。確認またはrebindが完了するまで、候補に紐づくGCP / OAuth設定を変更しない。
+
+## 4. 2026-08-12時点で確認したCI側候補
+
+CI専用GoogleアカウントのApps Script一覧では、少なくとも次の候補を確認した。
 
 - `tradeCsvToSpreadSheet GAS CI Test`
-  - 独立したApps Scriptプロジェクトとして表示される。
-  - `GAS_TEST_SCRIPT_ID` が指すテスト専用Apps Scriptの最有力候補。
-  - Apps Scriptの「プロジェクトの設定」で、**標準GCPプロジェクト**に紐づいていることを確認済み。
-  - プロジェクト番号の実値は公開ドキュメントへ記載しない。
-  - ただし、プロジェクト名、GCP種別、CIテスト入口の存在だけでは、現在の `GAS_TEST_SCRIPT_ID` との同一性は未確認である。後述のScript ID確認または明示的rebindが完了するまで「CI本体」と断定しない。
+  - standalone Apps Script。
+  - CI用Apps Scriptとして人間が確認した最有力候補。
+  - 標準GCPプロジェクトに紐づくことを確認済み。
 - `株管理ツールGASCI用`
-  - Spreadsheetに紐づくApps Scriptとして表示される。
-  - 役割は未確定。テスト用Spreadsheet側の補助スクリプトである可能性があるため、CI本体と決めつけない。
+  - Spreadsheet-bound Apps Script。
+  - 補助スクリプトの可能性があり、CI本体とは断定しない。
 
-Apps Scriptプロジェクト名は人が識別するための補助情報です。CIの接続先の機械的な正本はGitHub Secret `GAS_TEST_SCRIPT_ID`です。実値はドキュメントへ記載しません。
+候補の実Script IDは記載しない。候補名やコード一致だけで、現在の`GAS_TEST_SCRIPT_ID`との同一性を断定しない。
 
-## 識別情報の強さ
+## 5. OAuth / GCP確認
 
-### 1. 候補を探すための情報
-
-次の情報は候補を絞り込むために使います。
-
-- CI専用Googleアカウント内に存在すること
-- Apps Scriptのプロジェクト名
-- standalone / Spreadsheet-boundなどのプロジェクト種別
-
-これらは同名・類似名の古いプロジェクトにも当てはまり得るため、CI接続先の確定条件にはしません。
-
-### 2. 補助的なコード一致
-
-候補を開き、次の入口やCIテストコードが存在するかを読み取り専用で確認します。
-
-- `runGasTestBatch01`
-- `runGasTestBatch09`
-- `runAllTests()`
-- CI用テストファイル
-
-コード一致は、その候補が「CI用途らしい」ことを確認する補助情報です。同じCIコードを過去にpushした古いApps Scriptにも残り得るため、現在の `GAS_TEST_SCRIPT_ID` と同一である証明にはなりません。`runGasTestBatch01`などが存在するだけでCI本体と確定してはいけません。
-
-### 3. CI接続先の確定
-
-候補Apps ScriptのScript IDと、現在のCI接続先として管理しているScript IDが同一であることを安全に確認できた場合だけ、その候補をCI本体として確定します。同一性確認または後述の明示的rebindが完了するまでは、接続先不明として扱います。
-
-## CI用テストApps Scriptの同一性確認手順
-
-1. 本番用Googleアカウントではなく、CI専用Googleアカウントへ切り替える。
-2. `https://script.google.com/` の「マイ プロジェクト」を開く。
-3. `tradeCsvToSpreadSheet GAS CI Test` を候補として開く。
-4. コードを編集せず、候補探索の補助として次の公開テスト入口が存在するか確認する。
-   - `runGasTestBatch01`
-   - `runGasTestBatch09`
-5. 必要に応じて `runAllTests()` とCI用テストファイルが存在することも確認する。ただし、この時点ではCI本体と確定しない。
-6. Apps Scriptの「プロジェクトの設定」で候補のScript IDを確認する。実値をPR、Issue、コメント、Actionsログ、artifactへ貼らない。
-7. GitHub Secret設定時の元データを保持している認可済み管理者が、ローカルPCとは分離された安全な環境で、候補のScript IDと元データを直接照合する。
-8. 一致した場合だけ、その候補を現在のCI接続先として確定する。
-9. 元のSecret値を安全に確認できない場合は、候補名やコード一致から「現在のSecretがこの候補を指している」と推測で断定しない。接続先不明のまま停止する。
-10. 接続先不明の場合は、このPRとは別の認証復旧作業で、CI本体として確認済みの候補へ `GAS_TEST_SCRIPT_ID` を明示的に再bindする。rebindが完了した時点で、以後のCI接続先をその候補として確定する。
-11. 一致確認または明示的rebindが完了するまでは、候補に紐づくGCP / OAuth設定を変更しない。
-12. 確定後、必要な認証復旧を別作業で行い、Actionsの利用が承認・再開された後に固定済みhead/baseのFinal CIを実行する。実際に確定済み接続先で`clasp push`とGAS Testsが動くことを最終確認する。
-
-GitHub Secretは登録後に値をGitHub UIから読み返せません。そのため「GitHub Secretと見比べる」だけでは実行可能な手順になりません。元データを保持する認可済み管理者による直接照合ができない場合は、Secret値をログへ表示して回収せず、確認済み候補への明示的rebindを選びます。このPRではSecret変更、認証再発行、rebind、Final CI実行を行いません。
-
-### fingerprint方式について
-
-SHA-256 fingerprintなどで比較する場合も、候補と現在のCI接続先の両方の実値を安全に扱える隔離された経路がすでに用意されている場合だけ正式手順にできます。現在、その診断経路は実装していません。raw Script IDを`workflow_dispatch`の通常input、Actionsログ、PR、Issue、コメント、artifactへ渡してはいけません。未実装のfingerprint方式を、今すぐ使える復旧手順として扱いません。
-
-## GCP / OAuth確認のgate
-
-Apps Scriptの「プロジェクトの設定」で、候補に紐づくGCPプロジェクトIDや標準 / デフォルトの種別を閲覧し、状態を確認することはできます。2026-08-12時点では、最有力候補 `tradeCsvToSpreadSheet GAS CI Test` が標準GCPプロジェクトを使用していることを読み取り専用で確認済みです。
-
-ただし、「GCPプロジェクトを確認する」ことと「設定を変更してよい」ことは別です。候補Script IDとCI接続先の同一性が確認できるまで、そのApps Scriptに紐づくGCPプロジェクトやOAuth設定を変更してはいけません。同一性確定後も、変更は別の認証復旧作業として明示的に承認された範囲だけで行います。
-
-2026-08-12時点の正規GASテスト数は113件で、Final CIはfull fallback時に9入口から全113件を実行する設計です。
-
-## `clasp run` / Apps Script APIとの関係
-
-Apps Script APIの `scripts.run` を使うには、Apps Scriptと呼び出し側OAuthクライアントが同じ**標準GCPプロジェクト**を共有する必要があります。
-
-最有力候補の `tradeCsvToSpreadSheet GAS CI Test` が標準GCPプロジェクトへ紐づいていることは確認済みです。また、人間がCI用として確認した同じ標準GCPでは、2026-08-12時点で次のOAuth 2.0 clientが存在します。
+人間がCI用として確認した標準GCPのGoogle Auth Platformには、次の既存Desktop OAuth clientがある。
 
 - `clasp CI login 2026-07`
-  - Desktop OAuth client
-  - 作成日: 2026-07-10
 - `clasp CI login`
-  - Desktop OAuth client
-  - 作成日: 2026-06-19
-- Apps Script由来のWeb application OAuth client
 
-OAuth Client ID、Client Secret、GCPプロジェクト番号などの実値は記載しません。OAuth clientの存在と種類は確認済みですが、現在の `CLASPRC_JSON` がどのDesktop OAuth clientから発行された認証かは未確認です。また、Script ID同一性が未確認であるため、この確認結果だけで `tradeCsvToSpreadSheet GAS CI Test` が現在の `GAS_TEST_SCRIPT_ID` の接続先だとは確定しません。
+新しいOAuth clientは作成していない。OAuth Client ID、Client Secret、GCPプロジェクト番号・IDは記録しない。
 
-次は引き続き別途確認が必要です。
+Google Apps Script APIやAPI executable deploymentについては、設定画面の確認だけで判断せず、確定済みCI接続先で実際に`clasp push`、deployment利用、GAS Testsが成功したことを運用上の確認結果とする。
 
-- Google Apps Script APIがそのGCPプロジェクトで有効であること
-- API executable deploymentが現在も有効であること
-- `CLASPRC_JSON` が確認済みのCI用OAuth構成に対応していること
+## 6. OAuth Audienceの扱い
 
-確認済みのOAuth clientがあるため、新しいGCPプロジェクトやOAuth clientを推測で作成しません。
+2026-08-12の確認時点では、CI用Googleアカウントをtest userとして登録した状態で、Audienceは次の状態だった。
 
-## OAuth Audienceの確認・変更履歴
+- 変更前: External / Testing
+- 変更後: External / In production
 
-人間がCI用として確認した標準GCPのGoogle Auth Platformで、2026-08-12に次の状態を確認しました。
+External / Testingはrefresh token失効と整合する有力な原因候補だが、`invalid_grant`の単一原因とは断定しない。In productionへの変更だけでは、すでに失効したrefresh tokenは復活しない。
 
-変更前:
+Audience変更は人間が画面上で実施した。このPR／CodexはGoogle CloudやOAuth設定を変更していない。
 
-- ユーザーの種類: External
-- 公開ステータス: Testing
-- CI用Googleアカウント: test userとして登録済み
+## 7. 認証再発行の方針
 
-その後、人間が公開ステータスを変更しました。
+CI認証を再発行する場合は、ローカルPCから隔離した環境を使う。今回の復旧ではGoogle Cloud Shellの隔離HOMEを使用し、新しい`.clasprc.json`を生成した。
 
-変更後:
+確認するのはトークンの存在だけとし、値を表示・保存・共有しない。
 
-- ユーザーの種類: External
-- 公開ステータス: In production
+- `refresh_token`が存在することを確認する。
+- `access_token`が存在することを確認する。
+- 検証用コピーから`access_token`を削除した状態で、refresh tokenによるアクセストークン再取得が成功することを確認する。
+- CI専用Googleアカウントで対象CI Apps Scriptを確認する。
 
-このPRでGoogle Cloud / OAuth設定を変更したのではなく、人間が画面上で実施済みの変更結果を記録しています。
+今回の認証再発行では、既存の`clasp CI login 2026-07`を使用した。ローカルPCではCI用clasp loginを行っていない。Cloud Shellでも手動`clasp push`は行わず、ソース反映は最終的にGitHub Actionsだけで行った。
 
-Audience変更が行われた事実は確認済みです。一方、変更時点で候補Script IDと現在のCI接続先を直接照合していたか、または確認済み候補へ`GAS_TEST_SCRIPT_ID`を明示的にrebindしていたかを示す証跡は、Issue #118とPR #119の本文・レビュー・コメントから確認できませんでした。そのため、変更時点でScript ID同一性gateを満たしていたかは現時点では確認不能です。満たしていたとも、満たしていなかったとも推測で断定しません。
+## 8. `CLASPRC_JSON`更新
 
-このAudience変更履歴を、正式手順の成功例や、人間ならScript ID同一性gateを省略できる前例として扱ってはいけません。現在の正式手順では、候補Script IDとCI接続先の直接照合または確認済み候補への明示的rebindが完了するまで、追加のGCP / OAuth設定変更を禁止します。候補Apps Scriptも、現在のCI本体とは引き続き断定しません。
+新しく発行したCI用認証JSONで、GitHub Repository Secret `CLASPRC_JSON`を人間が更新した。Secretの実値は記録しない。
 
-## 本番Apps Scriptとの見分け方
+`GAS_TEST_SCRIPT_ID`は今回変更していない。GitHub Secretは登録後にUIから値を読み返せないため、Secret値をUIから取得して候補Script IDと比較する手順は、禁止かつ実行不能な手順として扱う。
 
-本番側のApps ScriptとCI側のApps Scriptは、名前やコードが似ていても同じものとして扱いません。
+現在の運用上の確認は、次の事実を組み合わせて行う。
 
-- 本番Apps Script
-  - 本番用Googleアカウント / 本番用認証で管理する。
-  - 本番反映はGitHub ActionsのProduction deploy経路を原則とする。
-  - ローカルfallbackではnamed user `production` と本番専用project設定を使う。
-  - `src/test/**` やE2E専用helperを本番へ送らない。
-- CI用Apps Script
-  - CI専用Googleアカウントで管理する。
-  - GitHub Secret `GAS_TEST_SCRIPT_ID` / `CLASPRC_JSON` からGitHub Actionsだけが利用する。
-  - `src/test/**` を含むCI用bundleをテスト専用Apps Scriptへpushする。
-  - 人やCodexがローカルPCからpushしない。
+- CI用Googleアカウントで対象CI Apps Scriptを確認した。
+- CI用と本番用のScript IDが異なることを人間がApps Scriptのプロジェクト設定で確認した。
+- `GAS_TEST_SCRIPT_ID`を変更せず、確定済みのCI経路でFinal CIの反映とテストが成功した。
+- full GAS Tests 113件とselected GAS Tests 27件が成功した。
 
-## CI認証障害時の対応
+これはSecret値を直接readback比較したことを意味しない。
 
-### 典型例: `invalid_grant`
+## 9. `invalid_grant`発生時の判断
 
-2026-08-11時点で確認した、2026-08-07のPR #114 Final CI Run `31159793942`では、次の状態を確認しました。
+まず認証失敗とテスト失敗を分離する。`clasp push`前後で`invalid_grant`が発生した場合、実GAS Testsが不合格だったとは扱わない。
 
-- Final CI review gate: 成功
-- head / base固定確認: 成功
-- GAS test source / manifest / runner同期: 113件で成功
-- mapped test file area監査: 成功
-- GAS Tests選択: full / 113件
-- `clasp push`: `invalid_grant` で失敗
-- 実GAS Tests: 未実行
-- Web E2E: 未実行
+確認順序:
 
-この場合、テストコードの失敗と認証失敗を混同しません。`clasp push`前後の認証で止まっているため、PRの実GASテスト不合格とは扱いません。
+1. 対象PRのhead/base SHAとreview gateの結果を固定する。
+2. source、manifest、runner、mapped test fileの監査結果を確認する。
+3. `clasp push`の開始前後で認証エラーが発生していないか確認する。
+4. CI用Googleアカウント、候補Apps Script、Script ID同一性gateを確認する。
+5. 必要な場合だけ、隔離環境でCI用認証を再発行する。
+6. GitHub Secret `CLASPRC_JSON`だけを更新する。本番用Secretsは変更しない。
+7. Actions利用が承認・再開された後、固定済みhead/baseでFinal CIを1回実行する。
+8. `clasp push`、GAS Tests、必要なWeb E2E、cleanupの結果を確認する。
 
-OAuth AudienceがExternal / Testingだったことは、refresh tokenの失効による`invalid_grant`と整合し、有力な原因候補です。ただし、Run `31159793942`の原因をこれだけで確定したとは扱いません。公開ステータスをIn productionへ変更しても、すでに失効したrefresh tokenは復活しないため、CI用認証の再発行は別の認証復旧作業として必要です。
+## 10. 2026年の障害・復旧事例
 
-### 復旧時の禁止事項
+### 認証障害
 
-- ローカルPCでCI用`clasp login`を行わない。
-- ローカルの本番用`production`認証を上書き・削除しない。
-- 本番Apps ScriptへCI用コードをpushしない。
-- CI Apps Scriptを確認する前に、新しいGCPプロジェクトやOAuthクライアントを推測で作らない。
-- 別プロジェクトのGoogle Auth Platform設定を変更しない。
+PR #114のFinal CI Run `31159793942`では、次の工程まで成功した。
 
-### 復旧方針
+- review gate
+- head/base固定
+- source / manifest / runnerの113件同期
+- mapped test file監査
+- full / 113 tests選択
 
-1. CI専用Googleアカウント上でテスト専用Apps Scriptの候補を探す。
-2. 前述の手順で、候補Script IDと現在のCI接続先の同一性を確認する。確認できない場合は接続先不明のまま停止し、別作業で確認済み候補へ`GAS_TEST_SCRIPT_ID`を明示的にrebindする。
-3. Apps Script側の「プロジェクトの設定」でGCPプロジェクトの状態を読み取り専用で確認できるが、必要な設定変更の判断と実変更は同一性確定後に限る。
-4. 認証再発行では、既存のDesktop OAuth client `clasp CI login 2026-07` を第一候補として利用する。新しいOAuth clientを不用意に作成しない。
-5. 旧Desktop OAuth client `clasp CI login` は、利用状況と移行完了を別途確認するまで削除・編集しない。
-6. ローカルPCではCI用の`clasp login` / `clasp logout` / `clasp push`を行わず、認証再発行にはローカルPCから隔離した環境を使う。
-7. 認証再発行で更新するGitHub SecretはCI用の`CLASPRC_JSON`に限定し、本番認証と混在させない。`GAS_TEST_SCRIPT_ID`同一性確認または明示的rebindは、認証再発行とは別のgateとして扱う。
-8. Secret更新後、PRのhead/baseを再確認し、Actions利用の承認・再開後にFinal CIを実行する。
-9. `clasp push`、実GAS Tests、必要なWeb E2Eが確定済み接続先で成功したことを確認してからマージ判断する。
+その後、`clasp push`が`invalid_grant`で失敗し、実GAS TestsとWeb E2Eは未実行だった。当時の結果を、テストコードの失敗や全113件の不合格とは扱わない。
 
-具体的な認証再発行コマンドは、GCP / OAuth構成を確認してから決めます。未確認の構成を前提に固定手順を書かないでください。
+### 認証復旧後のfull Final CI
 
-## 誤認防止チェック
+認証更新後、PR #114に対してFinal CI Run `31676808963`を実行した。
 
-この文書を使うときは、次をすべて「不可」と判断します。
+- head: `a628f820c862d288ed01f92902cff0f910febdf7`
+- base: `c22b77df5c74b3cd17fe4cdeb1aff8267e16c365`
+- review gate成功
+- source / manifest / runnerの113件同期成功
+- mapped test file監査成功
+- workflow / CI script変更によりfull mode、113 tests選択
+- `clasp push`成功
+- API executable deployment成功
+- GAS Tests 9 batches成功
+- バッチ件数: 13 / 13 / 13 / 13 / 13 / 13 / 13 / 13 / 9
+- 合計113件すべて成功
+- Web App E2E、Playwright E2E、dynamic deployment cleanup成功
+- Final CI全体成功
 
-- Apps Script名だけでCI本体を確定する。
-- `runGasTestBatch01`などの入口が存在するだけでCI本体を確定する。
-- GitHub UIから登録済みSecretの値を読み返す。
-- Script ID同一性が未確認の候補について、GCP / OAuth設定を変更する。
-- SecretやScript IDの実値をActionsログへ出して比較する。
+PR #114はその後`develop`へマージされ、merge commitは`f014a0a2711e9cd52f9621613b95c3799d40eea0`となった。
 
-## GitHub側の正本
+### selected modeの実動作確認
 
-CIで使う主な設定は次のとおりです。
+Issue #111の完了確認として、検証専用PR #120を使用したFinal CI Run `33029507390`でselected modeを確認した。
+
+- classification: `gas-tests-only`
+- mode: `selected`
+- suites: 3
+- tests: 27
+- `database-01`: 13件
+- `database-02`: 13件
+- `database-03`: 1件
+- 合計27件すべて成功
+- full 113 testsは実行されなかった
+- `clasp push`成功
+- Web E2E: `not-required`
+- Final CI全体成功
+
+検証PR #120はマージせずClose済み、Issue #111もCompletedでClose済みである。更新済み`CLASPRC_JSON`がfull modeだけでなくselected modeでも継続して動作したことを示す。
+
+## 11. 現在の確認状況
+
+### 確認済み
+
+- CI用Googleアカウント上の対象Apps Script候補を確認した。
+- CI用と本番用のScript IDが異なることを人間が確認した。
+- 既存OAuth client `clasp CI login 2026-07`を使用して隔離環境で認証を再発行した。
+- `CLASPRC_JSON`を人間が更新した。
+- 現行CI経路でfull 113 testsのFinal CI成功を確認した。
+- 現行CI経路でselected 27 testsのFinal CI成功を確認した。
+- `clasp push`、API executable deployment、GAS Tests、Web E2E、cleanupが運用上成功した。
+
+### 確認不能として残す事項
+
+- 2026-08-12のAudience変更前に、候補Script IDとCI接続先の同一性gateを満たしていたかどうか。
+
+この歴史的事実は証跡がないため、満たしていたとも満たしていなかったとも推測で断定しない。現在の正式手順では、Script IDの直接照合または確認済み候補への明示的rebindを先に行う。
+
+## 12. GitHub側の正本
 
 - `GAS_TEST_SCRIPT_ID`: テスト専用Apps ScriptのScript ID
 - `CLASPRC_JSON`: CI用clasp認証
 - `GAS_TEST_DEPLOYMENT_ID`: 既存API executable deploymentを使う場合のDeployment ID
 - `CLASP_USER`: named userを使う場合だけ設定
 
-実値はGitHub Secretsだけに保持し、ドキュメントへコピーしません。
+実値はGitHub Secretsだけに保持し、ドキュメント、Issue、PR、Actionsログ、artifactへコピーしない。
 
-## 確認が済んだら更新する項目
+## 13. 復旧時の禁止事項
 
-`tradeCsvToSpreadSheet GAS CI Test` の同一性と設定確認後、必要に応じてこの文書へ次を追記します。
+- ローカルPCでCI用`clasp login` / `clasp logout` / `clasp push`を行わない。
+- ローカルの本番用`production`認証を上書き・削除しない。
+- 本番Apps ScriptへCI用コードをpushしない。
+- GitHub Secret値をログやIssueへ表示しない。
+- Secret値をGitHub UIから読み返して比較しようとしない。
+- Script ID同一性未確認の候補へ推測でGCP / OAuth設定変更を行わない。
+- 新しいGCPプロジェクトやOAuth clientを推測で作成しない。
+- 本番用Secrets、Variables、EnvironmentsをCI認証復旧のために変更しない。
+- Actionsの成功を作るためだけに空runや不要なrerunを行わない。
 
-- `GAS_TEST_SCRIPT_ID` との一致確認結果
-- Google Apps Script APIの有効状態
-- API executable deploymentの状態
-- `CLASPRC_JSON` がどの確認済みDesktop OAuth clientに対応するか
-- 認証再発行の正式手順
+## 14. 今後の確認記録
 
-実IDや認証情報は、確認後も記載しません。
+新しい事実を追記する場合も、次の原則を守る。
+
+- 実ID、URL、token、Secret、メールアドレスを記録しない。
+- 候補の補助情報と、Script ID同一性の確定結果を混同しない。
+- Actionsのhead/base SHA、run結果、selected / fullの件数は、秘密情報を含まない範囲で記録する。
+- 認証再発行、Secret更新、Final CI実行、本番操作は別々の作業として記録する。
