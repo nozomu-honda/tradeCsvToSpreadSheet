@@ -94,6 +94,15 @@ function test_normalizeRakutenFundRowsToRecords_buyAndSell_20260616_() {
   assertEquals_('投信', records[1]['商品'], '解約の商品');
   assertEquals_('現物買取', records[1]['取引区分'], '解約の取引区分');
   assertEquals_(3000000, records[1]['受渡金額/決済損益'], '解約の受渡金額');
+
+  const normalized = normalizeRowsForImport_(rows);
+  const staged = normalizeRowsForImport_(
+    buildRowsWithAdditionalManualHeaders_(normalized.normalizedRows),
+    createStagingSourceMetadata_(normalized)
+  );
+  assertEquals_('rakuten', staged.broker, '楽天投信の一次受け枠broker');
+  assertEquals_('rakuten_fund', staged.sourceType, '楽天投信の一次受け枠sourceType');
+  assertEquals_('rakuten_corp_a', routeTargetDbKeyBySource_('nomura_corp_a', staged.sourceType), '楽天投信の一次受け枠routing');
 }
 
 function test_detectInputSourceTypeFromRows_rakutenDividend_20260616_() {
@@ -122,6 +131,15 @@ function test_normalizeRakutenDividendRowsToRecords_usStockDividend_20260616_() 
   assertEquals_(150, record['レート'], '手入力レート');
   assertEquals_(123, record['現地源泉税（円）'], '手入力現地源泉税');
   assertEquals_(45, record['国内源泉所得税（円）'], '手入力国内源泉税');
+
+  const normalized = normalizeRowsForImport_(rows);
+  const staged = normalizeRowsForImport_(
+    buildRowsWithAdditionalManualHeaders_(normalized.normalizedRows),
+    createStagingSourceMetadata_(normalized)
+  );
+  assertEquals_('rakuten', staged.broker, '楽天配当金の一次受け枠broker');
+  assertEquals_('rakuten_dividend', staged.sourceType, '楽天配当金の一次受け枠sourceType');
+  assertEquals_('rakuten_corp_a', routeTargetDbKeyBySource_('nomura_corp_a', staged.sourceType), '楽天配当金の一次受け枠routing');
 }
 
 function test_normalizeRowsForImport_rakutenDividend_preservesSourceColumns_20260709_() {

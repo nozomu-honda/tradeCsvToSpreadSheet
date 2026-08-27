@@ -13,6 +13,140 @@ function isRakutenSourceType_(sourceType) {
   return text_(sourceType).indexOf('rakuten_') === 0;
 }
 
+function isSupportedRakutenSourceType_(sourceType) {
+  return [
+    'rakuten_jp_stock',
+    'rakuten_us_stock',
+    'rakuten_fund',
+    'rakuten_dividend',
+    'rakuten_cash'
+  ].indexOf(text_(sourceType)) >= 0;
+}
+
+const STAGING_SOURCE_METADATA_SHEET_NAME_ = '__TRADE_SOURCE_METADATA__';
+const STAGING_SOURCE_METADATA_VERSION_ = '1';
+
+function createStagingSourceMetadata_(normalizedInput) {
+  const sourceType = text_(normalizedInput && normalizedInput.sourceType);
+  const broker = sourceType === 'nomura_common'
+    ? 'nomura'
+    : (isRakutenSourceType_(sourceType) ? 'rakuten' : '');
+  if (!broker) {
+    throw new Error('一次受け枠の証券会社を判定できません。');
+  }
+
+  let sourceFields = [];
+  if (normalizedInput.sourceRecords) {
+    sourceFields = normalizedInput.sourceRecords.map(function(record) {
+      return record && record.__rakutenSource ? record.__rakutenSource : null;
+    });
+  } else if (normalizedInput.stagingSourceFields) {
+    sourceFields = normalizedInput.stagingSourceFields;
+  }
+
+  return {
+    version: STAGING_SOURCE_METADATA_VERSION_,
+    format: 'base_records',
+    broker: broker,
+    sourceType: sourceType,
+    sourceFields: sourceFields,
+  };
+}
+
+function writeStagingSourceMetadata_(ss, metadata) {
+  const sheet = ss.getSheetByName(STAGING_SOURCE_METADATA_SHEET_NAME_)
+    || ss.insertSheet(STAGING_SOURCE_METADATA_SHEET_NAME_);
+  sheet.clear();
+  const rows = [
+    ['key', 'value'],
+    ['version', metadata.version],
+    ['format', metadata.format],
+    ['broker', metadata.broker],
+    ['sourceType', metadata.sourceType],
+    ['sourceRecordCount', String(metadata.sourceFields.length)],
+  ];
+  metadata.sourceFields.forEach(function(fields) {
+    rows.push(['sourceField', JSON.stringify(fields)]);
+  });
+  sheet.getRange(1, 1, rows.length, 2).setValues(rows);
+  sheet.hideSheet();
+}
+
+function readStagingSourceMetadata_(ss) {
+  const sheet = ss.getSheetByName(STAGING_SOURCE_METADATA_SHEET_NAME_);
+  if (!sheet) return null;
+
+  const values = sheet.getDataRange().getValues();
+  const metadata = {};
+  for (var i = 1; i < values.length; i++) {
+    const key = text_(values[i][0]);
+    if (key) metadata[key] = values[i][1];
+  }
+
+  const sourceFields = [];
+  for (var j = 1; j < values.length; j++) {
+    if (text_(values[j][0]) !== 'sourceField') continue;
+    try {
+      sourceFields.push(JSON.parse(String(values[j][1])));
+    } catch (e) {
+      throw new Error('一次受け枠の証券会社メタデータが壊れています。');
+    }
+  }
+
+  const normalized = validateStagingSourceMetadata_({
+    version: metadata.version,
+    format: metadata.format,
+    broker: metadata.broker,
+    sourceType: metadata.sourceType,
+    sourceFields: sourceFields,
+  });
+  const count = toNumber_(metadata.sourceRecordCount);
+  if (count !== sourceFields.length) {
+    throw new Error('一次受け枠の証券会社メタデータと明細数が一致しません。');
+  }
+  return normalized;
+}
+
+function validateStagingSourceMetadata_(metadata) {
+  const version = text_(metadata && metadata.version);
+  const format = text_(metadata && metadata.format);
+  const broker = text_(metadata && metadata.broker);
+  const sourceType = text_(metadata && metadata.sourceType);
+  if (version !== STAGING_SOURCE_METADATA_VERSION_ || format !== 'base_records') {
+    throw new Error('未対応の一次受け枠メタデータです。');
+  }
+  if (broker !== 'nomura' && broker !== 'rakuten') {
+    throw new Error('一次受け枠の証券会社を判定できません。');
+  }
+  if (broker === 'nomura' && sourceType !== 'nomura_common') {
+    throw new Error('一次受け枠の野村メタデータが不正です。');
+  }
+  if (broker === 'rakuten' && !isSupportedRakutenSourceType_(sourceType)) {
+    throw new Error('一次受け枠の楽天メタデータが不正です。');
+  }
+  return {
+    version: version,
+    format: format,
+    broker: broker,
+    sourceType: sourceType,
+    sourceFields: Array.isArray(metadata.sourceFields) ? metadata.sourceFields : [],
+  };
+}
+
+function restoreStagingSourceFields_(records, sourceFields) {
+  if (!sourceFields || sourceFields.length === 0) return records;
+  if (records.length !== sourceFields.length) {
+    throw new Error('一次受け枠の証券会社メタデータと明細数が一致しません。');
+  }
+  records.forEach(function(record, index) {
+    const fields = sourceFields[index];
+    if (fields && typeof fields === 'object' && !Array.isArray(fields)) {
+      setRakutenSourceFields_(record, fields);
+    }
+  });
+  return records;
+}
+
 function routeTargetDbKeyBySource_(selectedTargetDbKey, sourceType) {
   const key = text_(selectedTargetDbKey) || getDefaultDbTargetKey_();
   if (!isRakutenSourceType_(sourceType)) {
@@ -32,9 +166,29 @@ function routeTargetDbKeyBySource_(selectedTargetDbKey, sourceType) {
   return key;
 }
 
-function normalizeRowsForImport_(rows) {
+function normalizeRowsForImport_(rows, stagingMetadata) {
   const paddedRows = padRows_(rows || []);
   const detected = detectInputSourceTypeFromRows_(paddedRows);
+
+  if (stagingMetadata) {
+    const declared = validateStagingSourceMetadata_(stagingMetadata);
+    if (declared.format === 'base_records') {
+      const headerRowIndex = findHeaderRowIndex_(paddedRows);
+      if (headerRowIndex < 0) {
+        throw new Error('一次受け枠のヘッダー行が見つかりません。');
+      }
+      validateHeaderNames_(paddedRows[headerRowIndex] || []);
+      return {
+        sourceType: declared.sourceType,
+        broker: declared.broker,
+        headerRowIndex: headerRowIndex,
+        normalizedRows: paddedRows,
+        stagingSourceFields: declared.sourceFields,
+        hasManualColumns: hasAllAdditionalManualHeadersInHeader_(paddedRows[headerRowIndex] || []),
+        alerts: []
+      };
+    }
+  }
 
   if (!detected || !detected.sourceType) {
     throw new Error('入力フォーマットを判定できませんでした。野村共通形式または楽天日本株/楽天米国株のヘッダーを確認してください。');
@@ -43,6 +197,7 @@ function normalizeRowsForImport_(rows) {
   if (detected.sourceType === 'nomura_common') {
     return {
       sourceType: detected.sourceType,
+      broker: 'nomura',
       headerRowIndex: detected.headerRowIndex,
       normalizedRows: paddedRows,
       hasManualColumns: hasAllAdditionalManualHeadersInHeader_(paddedRows[detected.headerRowIndex] || []),
@@ -67,6 +222,7 @@ function normalizeRowsForImport_(rows) {
 
   return {
     sourceType: detected.sourceType,
+    broker: 'rakuten',
     headerRowIndex: detected.headerRowIndex,
     normalizedRows: buildRowsFromRecords_(records),
     sourceRecords: records,
@@ -79,6 +235,9 @@ function normalizeRowsForImport_(rows) {
 
 function findSupportedImportSheet_(ss) {
   const analyses = ss.getSheets().map(function(sheet) {
+    if (sheet.getName() === STAGING_SOURCE_METADATA_SHEET_NAME_) {
+      return { ok: false, sheet: sheet, sheetName: sheet.getName(), reason: '内部メタデータ' };
+    }
     const values = sheet.getDataRange().getValues();
     if (!values || values.length === 0) {
       return { ok: false, sheet: sheet, sheetName: sheet.getName(), reason: '空シート' };

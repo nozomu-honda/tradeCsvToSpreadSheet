@@ -65,6 +65,8 @@ function createStagingSpreadsheetFromCsvText_(csvText, sourceName, normalizedUrl
   const sheet = ss.getSheets()[0];
   sheet.setName('取引履歴_一次受け枠');
   sheet.getRange(1, 1, outputRows.length, outputRows[0].length).setValues(outputRows);
+  const stagingMetadata = createStagingSourceMetadata_(normalizedInput);
+  writeStagingSourceMetadata_(ss, stagingMetadata);
 
   applyStagingManualHighlights_(sheet);
 
@@ -77,7 +79,8 @@ function createStagingSpreadsheetFromCsvText_(csvText, sourceName, normalizedUrl
     inputType: normalizedUrl ? 'url' : 'upload',
     normalizedUrl: normalizedUrl || '',
     sourceName: sourceName || '',
-    detectedSourceType: normalizedInput.sourceType
+    detectedSourceType: normalizedInput.sourceType,
+    detectedBroker: normalizedInput.broker
   };
 }
 
@@ -94,13 +97,15 @@ function createStagingSpreadsheetFromSourceSpreadsheet_(spreadsheetUrlOrId) {
     throw new Error('入力元シートが空です。');
   }
 
-  const normalizedInput = normalizeRowsForImport_(sourceValues);
+  const normalizedInput = normalizeRowsForImport_(sourceValues, readStagingSourceMetadata_(sourceSs));
   const outputRows = buildRowsWithAdditionalManualHeaders_(normalizedInput.normalizedRows);
 
   const ss = SpreadsheetApp.create(buildSpreadsheetName_(sourceSs.getName() + '_一次受け'));
   const sheet = ss.getSheets()[0];
   sheet.setName('取引履歴_一次受け枠');
   sheet.getRange(1, 1, outputRows.length, outputRows[0].length).setValues(outputRows);
+  const stagingMetadata = createStagingSourceMetadata_(normalizedInput);
+  writeStagingSourceMetadata_(ss, stagingMetadata);
 
   applyStagingManualHighlights_(sheet);
 
@@ -115,7 +120,8 @@ function createStagingSpreadsheetFromSourceSpreadsheet_(spreadsheetUrlOrId) {
     sourceName: sourceSs.getName(),
     sourceSheetName: sourceSheet.getName(),
     sourceSpreadsheetName: sourceSs.getName(),
-    detectedSourceType: normalizedInput.sourceType
+    detectedSourceType: normalizedInput.sourceType,
+    detectedBroker: normalizedInput.broker
   };
 }
 
@@ -531,7 +537,7 @@ function createSpreadsheetFromSourceSpreadsheetUsingDb_(spreadsheetUrlOrId, opti
     throw new Error('入力元シートが空です。');
   }
 
-  const normalizedInput = normalizeRowsForImport_(sourceValues);
+  const normalizedInput = normalizeRowsForImport_(sourceValues, readStagingSourceMetadata_(sourceSs));
   const selectedTargetDbKey = options && options.targetDbKey ? options.targetDbKey : getDefaultDbTargetKey_();
   const targetDbKey = routeTargetDbKeyBySource_(selectedTargetDbKey, normalizedInput.sourceType);
   const e2eUseRootStorage = !!(options && options.e2eUseRootStorage);
@@ -557,7 +563,9 @@ function createSpreadsheetFromSourceSpreadsheetUsingDb_(spreadsheetUrlOrId, opti
   }
 
   const records = readInputRecords_(outputSourceSheet);
-  const recordsForDb = normalizedInput.sourceRecords || records;
+  const recordsForDb = normalizedInput.stagingSourceFields
+    ? restoreStagingSourceFields_(records, normalizedInput.stagingSourceFields)
+    : (normalizedInput.sourceRecords || records);
 
   const inputAlerts = (normalizedInput.alerts || []).slice();
   collectInputAlerts_(recordsForDb, inputAlerts);
