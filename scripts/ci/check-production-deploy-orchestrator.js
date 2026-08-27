@@ -7,6 +7,10 @@ const os = require('os');
 const path = require('path');
 
 const { runProductionDeploy } = require('./production-deploy-orchestrator');
+const {
+  PRODUCTION_WEB_APP_REASONS: WEB_APP_REASONS,
+  createProductionWebAppVerificationError,
+} = require('./production-web-app-deployment');
 
 const targetSha = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 const prHeadSha = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
@@ -215,17 +219,22 @@ function createAdapters(options = {}) {
     async getProductionDeploymentSnapshot() {
       calls.push('deployment-target-verification');
       if (options.failDeploymentTargetVerification) {
-        throw new Error(options.deploymentTargetError || 'deployment target verification failed');
+        throw options.deploymentTargetError instanceof Error
+          ? options.deploymentTargetError
+          : new Error(options.deploymentTargetError || 'deployment target verification failed');
       }
       return {
         deploymentCount: 2,
-        deploymentId: fakeDeploymentId,
+        deploymentIdFingerprint: 'd'.repeat(64),
         versionNumber: 8,
         webAppEntryPointCount: 1,
         entryPointTypes: ['WEB_APP'],
         webAppUrlFingerprint: 'a'.repeat(64),
+        webAppUrlPresent: true,
         webAppAccess: 'ANYONE',
         webAppExecuteAs: 'USER_ACCESSING',
+        webAppObjectPresent: true,
+        entryPointConfigPresent: true,
       };
     },
     runProductionSourcePush() {
@@ -255,7 +264,9 @@ function createAdapters(options = {}) {
       assert.strictEqual(update.versionNumber, 9);
       assert.strictEqual(expectedManifest, fakeBundleManifest);
       if (options.failDeploymentVerification) {
-        throw new Error(options.deploymentVerificationError || 'deployment verification failed');
+        throw options.deploymentVerificationError instanceof Error
+          ? options.deploymentVerificationError
+          : new Error(options.deploymentVerificationError || 'deployment verification failed');
       }
     },
     async runSmokeTest() {
@@ -484,6 +495,27 @@ async function assertRejectsWith(fn, pattern) {
   }
 
   {
+    const error = createProductionWebAppVerificationError(WEB_APP_REASONS.WEB_APP_ENTRY_POINT_MISSING);
+    const adapters = createAdapters({
+      failDeploymentTargetVerification: true,
+      deploymentTargetError: error,
+    });
+    await assertRejectsWith(() => runProductionDeploy({
+      env: authenticatedDryRunEnv(),
+      adapters,
+    }), /Production Web App verification failed: WEB_APP entry point missing\./);
+    assert.ok(!adapters.calls.includes('source-push'));
+    assert.ok(!adapters.calls.includes('deployment-update'));
+    assert.ok(!adapters.calls.includes('smoke-test'));
+    assert.ok(!adapters.calls.includes('status-issue-update'));
+    assert.strictEqual(adapters.state.issuePatchBodies.length, 0, 'authenticated dry-run must not patch Production Status');
+    const summary = adapters.state.stepSummaries.at(-1);
+    assert.ok(summary.includes('- 最終失敗ステージ: `deployment-target-verification`'));
+    assert.ok(summary.includes('- 失敗内容: `Production Web App verification failed: WEB_APP entry point missing.`'));
+    assert.ok(!summary.includes(fakeDeploymentId));
+  }
+
+  {
     const adapters = createAdapters();
     await assertRejectsWith(() => runProductionDeploy({
       env: authenticatedDryRunEnv({ PRODUCTION_SMOKE_MODE: 'private' }),
@@ -636,17 +668,22 @@ async function assertRejectsWith(fn, pattern) {
   }
 
   {
+    const error = createProductionWebAppVerificationError(WEB_APP_REASONS.WEB_APP_ENTRY_POINT_MISSING);
     const adapters = createAdapters({
       failDeploymentTargetVerification: true,
-      deploymentTargetError: 'Production deployment is not a Web App.',
+      deploymentTargetError: error,
     });
     await assertRejectsWith(() => runProductionDeploy({
       env: mutationEnv(),
       adapters,
-    }), /Production deployment is not a Web App/);
+    }), /Production Web App verification failed: WEB_APP entry point missing\./);
     assert.ok(!adapters.calls.includes('source-push'));
     assert.ok(!adapters.calls.includes('deployment-update'));
     assert.ok(!adapters.calls.includes('smoke-test'));
+    const finalBody = adapters.state.issuePatchBodies.at(-1);
+    assert.ok(finalBody.includes('- 最終失敗ステージ: `deployment-target-verification`'));
+    assert.ok(finalBody.includes('- 失敗内容: `Production Web App verification failed: WEB_APP entry point missing.`'));
+    assert.ok(!finalBody.includes(fakeDeploymentId));
   }
 
   {
@@ -724,28 +761,73 @@ async function assertRejectsWith(fn, pattern) {
   }
 
   {
+    const error = createProductionWebAppVerificationError(
+      WEB_APP_REASONS.WEB_APP_ENTRY_POINT_DISAPPEARED,
+      'update',
+    );
     const adapters = createAdapters({
       failDeploymentVerification: true,
-      deploymentVerificationError: 'Production Web App deployment update verification failed.',
+      deploymentVerificationError: error,
     });
     await assertRejectsWith(() => runProductionDeploy({
       env: mutationEnv(),
       adapters,
-    }), /Production Web App deployment update verification failed/);
+    }), /Production Web App update verification failed: WEB_APP entry point disappeared\./);
     assert.ok(adapters.calls.includes('deployment-update'));
     assert.ok(adapters.calls.includes('deployment-verification'));
     assert.ok(!adapters.calls.includes('smoke-test'));
     const finalBody = adapters.state.issuePatchBodies.at(-1);
+    assert.ok(finalBody.includes('- 最終本番反映 source push: `success`'));
+    assert.ok(finalBody.includes('- 最終本番反映 remote source verification: `success`'));
     assert.ok(finalBody.includes('- 最終本番反映 deployment update: `success`'));
     assert.ok(finalBody.includes('- 最終本番反映 deployment verification: `failed`'));
     assert.ok(finalBody.includes('- 最終本番反映 web access gate verification: `not-started`'));
+    assert.ok(finalBody.includes('- 最終本番反映 smoke test: `not-started`'));
     assert.ok(finalBody.includes('- 本番commit: `unknown`'));
     assert.ok(!finalBody.includes(`- 本番commit: \`${targetSha}\``));
     assert.ok(!finalBody.includes(`- 本番commit: \`${previousSha}\``));
     assert.ok(finalBody.includes(`- 最終成功本番反映commit: \`${previousSha}\``));
     assert.ok(finalBody.includes('- 最終成功deployment日時: `2026-07-13T00:00:00.000Z`'));
+    assert.ok(finalBody.includes('- 最終失敗ステージ: `deployment-verification`'));
+    assert.ok(finalBody.includes('- 失敗内容: `Production Web App update verification failed: WEB_APP entry point disappeared.`'));
+    assert.ok(!finalBody.includes(fakeDeploymentId));
     assert.ok(finalBody.includes('- 状態: `failed`'));
     assert.ok(!finalBody.includes('- 状態: `deployed`'));
+  }
+
+  for (const reason of [
+    WEB_APP_REASONS.WEB_APP_URL_CHANGED,
+    WEB_APP_REASONS.ACCESS_CHANGED,
+    WEB_APP_REASONS.EXECUTE_AS_CHANGED,
+  ]) {
+    const error = createProductionWebAppVerificationError(reason, 'update');
+    const adapters = createAdapters({
+      failDeploymentVerification: true,
+      deploymentVerificationError: error,
+    });
+    await assert.rejects(
+      () => runProductionDeploy({ env: mutationEnv(), adapters }),
+      (caught) => {
+        assert.strictEqual(caught.reason, reason);
+        assert.strictEqual(caught.message, error.message);
+        return true;
+      },
+    );
+    assert.ok(adapters.calls.includes('source-push'));
+    assert.ok(adapters.calls.includes('remote-source-verification:head'));
+    assert.ok(adapters.calls.includes('deployment-update'));
+    assert.ok(adapters.calls.includes('deployment-verification'));
+    assert.ok(!adapters.calls.includes('smoke-test'));
+    const finalBody = adapters.state.issuePatchBodies.at(-1);
+    assert.ok(finalBody.includes('- 最終本番反映 deployment verification: `failed`'));
+    assert.ok(finalBody.includes('- 最終本番反映 web access gate verification: `not-started`'));
+    assert.ok(finalBody.includes('- 最終本番反映 smoke test: `not-started`'));
+    assert.ok(finalBody.includes('- 本番commit: `unknown`'));
+    assert.ok(finalBody.includes(`- 最終成功本番反映commit: \`${previousSha}\``));
+    assert.ok(finalBody.includes('- 最終成功deployment日時: `2026-07-13T00:00:00.000Z`'));
+    assert.ok(finalBody.includes('- 最終失敗ステージ: `deployment-verification`'));
+    assert.ok(finalBody.includes(`- 失敗内容: \`${error.message}\``));
+    assert.ok(!finalBody.includes(fakeDeploymentId));
   }
 
   {
