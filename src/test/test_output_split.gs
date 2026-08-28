@@ -597,7 +597,8 @@ function test_buildRakutenOutputSheetsFromRecordsForTarget_reflectsUsStockTaxSou
       ['2026/06/01', '2026/06/03', 'AAPL', 'Apple Inc.', '特定', '買付', 'USドル', 1, 200, 200, 150, 1.5, 0.2, 201.697333333333, 30255],
       ['2026/06/02', '2026/06/04', 'AAPL', 'Apple Inc.', '特定', '買付', 'USドル', 1, 100, 100, 150, 1.5, '', 101.5, 15225],
       ['2026/06/03', '2026/06/05', 'AAPL', 'Apple Inc.', '特定', '売付', 'USドル', 2, 100, 200, 150, 1.5, 0, 198.5, 29775],
-      ['2026/06/02', '2026/06/04', 'MSFT', 'Microsoft Corp.', '特定', '買付', 'USドル', 1, 100, 100, 150, 1.5, 0, 101.5, 15225],
+      ['2026/06/02', '2026/06/04', 'MSFT', 'Microsoft Corp.', '特定', '買付', 'USドル', 1, 100, 100, '', 1.5, 0, 101.5, 15225],
+      ['2026/06/02', '2026/06/04', 'META', 'Meta Platforms Inc.', '特定', '買付', 'USドル', 1, 100, 100, '', 1.5, 0.2, 101.7, 30255],
       ['2026/06/02', '2026/06/04', 'AMZN', 'Amazon.com Inc.', '特定', '買付', 'USドル', 1, 100, 100, 150, 1.5, 0, 101.5, ''],
       ['2026/06/03', '2026/06/05', 'TSLA', 'Tesla Inc.', '特定', '買付', 'USドル', 1, 100, 100, 150, 1.5, '', 101.5, 15225],
       ['2026/06/04', '2026/06/06', 'TSLA', 'Tesla Inc.', '特定', '買付', 'USドル', 1, 120, 120, 150, 1.5, 0, 121.5, 18225],
@@ -622,8 +623,11 @@ function test_buildRakutenOutputSheetsFromRecordsForTarget_reflectsUsStockTaxSou
       return alert.indexOf('手数料の消費税額が取得できません') >= 0;
     }), '税額取得不能時はalertを出す');
     assertTrue_(result.alerts.some(function(alert) {
-      return alert.indexOf('円換算レートが取得できません') >= 0;
-    }), 'USDレート欠落時はalertを出す');
+      return alert.indexOf('META') >= 0 && alert.indexOf('円換算レートが取得できません') >= 0;
+    }), '非ゼロUSD税額の円換算レート欠落時はalertを出す');
+    assertFalse_(result.alerts.some(function(alert) {
+      return alert.indexOf('NFLX') >= 0 && alert.indexOf('円換算レートが取得できません') >= 0;
+    }), '税額0では不要な円換算レートalertを出さない');
 
     assertEquals_(200, getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, 2, '約定代金［USドル］'), '米国株CSVの約定代金を反映');
     assertEquals_(0.2, getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, 2, '税金［USドル］'), '米国株CSVの税金を反映');
@@ -643,6 +647,25 @@ function test_buildRakutenOutputSheetsFromRecordsForTarget_reflectsUsStockTaxSou
     const zeroTaxRow = findSheetRowByHeaderValues_(usSheet, RAKUTEN_US_STOCK_HEADERS, { 'ティッカー': 'MSFT', '売買区分': '買付' });
     assertEquals_(0, getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, zeroTaxRow, '手数料の消費税額（円）'), '税額0は0円として扱う');
     assertEquals_(15225, getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, zeroTaxRow, '簿価'), '税額0の簿価');
+    assertEquals_(15225, getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, zeroTaxRow, '平均取得単価'), '税額0はレート欠落でも平均取得単価を計算');
+
+    const taxConversionMissingRow = findSheetRowByHeaderValues_(usSheet, RAKUTEN_US_STOCK_HEADERS, { 'ティッカー': 'META', '売買区分': '買付' });
+    assertEquals_('', getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, taxConversionMissingRow, '簿価'), '非ゼロUSD税額の円換算不能時は簿価を空欄');
+    assertEquals_('', getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, taxConversionMissingRow, '平均取得単価'), '非ゼロUSD税額の円換算不能時は平均取得単価を空欄');
+
+    const explicitTaxBase = rakutenDbRecordToBaseRecord_(dbRecords[0]);
+    explicitTaxBase['レート'] = '';
+    explicitTaxBase['国内消費税等（円）'] = 10;
+    const explicitTaxAlerts = [];
+    const explicitTaxRows = buildTradeRows_(
+      prepareRakutenUsStockRecordsForTradeCalculation_([explicitTaxBase]),
+      explicitTaxAlerts
+    );
+    assertEquals_(30245, explicitTaxRows[0][TRADE_HEADERS.indexOf('簿価')], '明示円税額があればレートなしでも簿価を計算');
+    assertEquals_(30245, explicitTaxRows[0][TRADE_HEADERS.indexOf('平均取得単価')], '明示円税額があればレートなしでも平均取得単価を計算');
+    assertFalse_(explicitTaxAlerts.some(function(alert) {
+      return alert.indexOf('円換算レートが取得できません') >= 0;
+    }), '明示円税額では不要な円換算レートalertを出さない');
 
     const jpyAmountMissingRow = findSheetRowByHeaderValues_(usSheet, RAKUTEN_US_STOCK_HEADERS, { 'ティッカー': 'AMZN', '売買区分': '買付' });
     assertEquals_('', getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, jpyAmountMissingRow, '簿価'), '元CSVの受渡円額欠落時はUSD換算せず簿価を空欄');

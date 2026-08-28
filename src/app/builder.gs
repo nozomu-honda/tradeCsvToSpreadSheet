@@ -62,13 +62,14 @@ function buildTradeRows_(records, alerts) {
     }
     const rakutenUsFeeTaxUnavailable = r.__rakutenUsStockFeeTaxUnavailable === true;
     const rakutenUsBookValueUnavailable = r.__rakutenUsStockBookValueUnavailable === true;
+    const rakutenUsTaxConversionUnavailable = r.__rakutenUsStockTaxConversionUnavailable === true;
     const rakutenUsSettlementAmountJpyUnavailable = r.__rakutenUsStockSettlementAmountJpyUnavailable === true;
     const currentAcquisitionCostUnknown = isRakutenUsStockRecord &&
       tx === '現物買付' && rakutenUsBookValueUnavailable;
     const acquisitionCostUnknownForRow = priorAcquisitionCostUnknown || currentAcquisitionCostUnknown;
     if (rakutenUsFeeTaxUnavailable && tx === '現物買付') {
       alerts.push(`簿価: 楽天米国株の手数料の消費税額が取得できません: ${symbol || '(空欄)'} / 受渡日: ${formatDateForAlert_(r['受渡日'])}`);
-    } else if (settlementCurrency === 'USD' && (rate === '' || rate === 0) && tx === '現物買付') {
+    } else if (rakutenUsTaxConversionUnavailable && tx === '現物買付') {
       alerts.push(`簿価: 楽天米国株の円換算レートが取得できません: ${symbol || '(空欄)'} / 受渡日: ${formatDateForAlert_(r['受渡日'])}`);
     } else if (rakutenUsSettlementAmountJpyUnavailable && tx === '現物買付') {
       alerts.push(`簿価: 楽天米国株の受渡金額［円］が取得できません: ${symbol || '(空欄)'} / 受渡日: ${formatDateForAlert_(r['受渡日'])}`);
@@ -455,10 +456,14 @@ function prepareRakutenUsStockRecordsForTradeCalculation_(records) {
     prepared.__rakutenUsStockSettlementAmountJpyUnavailable = settlementAmountJpy === '';
     prepared.__rakutenUsStockFeeTaxRequired = true;
     prepared.__rakutenUsStockFeeTaxUnavailable = explicitTaxJpy === '' && sourceTaxUsd === '';
+    prepared.__rakutenUsStockTaxConversionUnavailable =
+      explicitTaxJpy === '' &&
+      sourceTaxUsd !== '' &&
+      sourceTaxUsd !== 0 &&
+      (rate === '' || rate === 0);
     prepared.__rakutenUsStockBookValueUnavailable =
       resolvedTaxJpy === '' ||
-      settlementAmountJpy === '' ||
-      (settlementCurrency === 'USD' && (rate === '' || rate === 0));
+      settlementAmountJpy === '';
     return prepared;
   });
 }
