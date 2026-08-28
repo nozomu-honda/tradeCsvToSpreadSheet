@@ -14,7 +14,8 @@ function buildTradeRows_(records, alerts) {
     const st = stateBySymbol[symbol] || {
       holding: 0,
       balance: 0,
-      avgUnitPrice: ''
+      avgUnitPrice: '',
+      acquisitionCostUnknown: false
     };
 
     const qty = r['数量'];
@@ -26,6 +27,8 @@ function buildTradeRows_(records, alerts) {
     const product = r['商品'];
     const settlementCurrency = normalizeCurrency_(r['決済通貨']);
     const isPrincipalReturn = r['元本払戻金'] === true;
+    const isRakutenUsStockRecord = r.__rakutenUsStockFeeTaxRequired === true;
+    const priorAcquisitionCostUnknown = isRakutenUsStockRecord && st.acquisitionCostUnknown === true;
 
     const prevHolding = st.holding;
     const prevBalance = st.balance;
@@ -56,7 +59,19 @@ function buildTradeRows_(records, alerts) {
     } else if (tx === '現物再投') {
       feeTax = 0;
     }
-    const rakutenUsFeeTaxUnavailable = rakutenUsFeeTaxRequired && tx === '現物買付' && feeTax === '';
+    const rakutenUsFeeTaxUnavailable = r.__rakutenUsStockFeeTaxUnavailable === true;
+    const rakutenUsBookValueUnavailable = r.__rakutenUsStockBookValueUnavailable === true;
+    const currentAcquisitionCostUnknown = isRakutenUsStockRecord &&
+      tx === '現物買付' && rakutenUsBookValueUnavailable;
+    const acquisitionCostUnknownForRow = priorAcquisitionCostUnknown || currentAcquisitionCostUnknown;
+    if (rakutenUsFeeTaxUnavailable && tx === '現物買付') {
+      alerts.push(`簿価: 楽天米国株の手数料の消費税額が取得できません: ${symbol || '(空欄)'} / 受渡日: ${formatDateForAlert_(r['受渡日'])}`);
+    } else if (rakutenUsBookValueUnavailable && tx === '現物買付') {
+      alerts.push(`簿価: 楽天米国株の円換算レートが取得できません: ${symbol || '(空欄)'} / 受渡日: ${formatDateForAlert_(r['受渡日'])}`);
+    }
+    if (priorAcquisitionCostUnknown && ['現物買付', '現物売却'].includes(tx)) {
+      alerts.push(`取得原価: 楽天米国株の取得原価が不明なため計算できません: ${symbol || '(空欄)'} / 受渡日: ${formatDateForAlert_(r['受渡日'])}`);
+    }
 
     let avgUnitPrice = '';
     let sellNet = '';
@@ -85,7 +100,9 @@ function buildTradeRows_(records, alerts) {
       sellNet = amount;
     }
 
-    if (['現物売却', '現物買取', '強制償還（売）'].includes(tx)) {
+    if (acquisitionCostUnknownForRow && ['現物売却', '現物買取', '強制償還（売）'].includes(tx)) {
+      acquisitionPrice = '';
+    } else if (['現物売却', '現物買取', '強制償還（売）'].includes(tx)) {
       if (prevAvgUnitPrice !== '') {
         acquisitionPrice = product === '投信'
           ? prevAvgUnitPrice * qty / 10000
@@ -107,23 +124,20 @@ function buildTradeRows_(records, alerts) {
 
     if (isPrincipalReturn) {
       bookValue = '';
+    } else if (acquisitionCostUnknownForRow && ['現物買付', '現物再投', '現物募集', '現物売却', '現物買取', '強制償還（売）'].includes(tx)) {
+      bookValue = '';
     } else if (['現物買付', '現物再投', '現物募集'].includes(tx)) {
-      if (rakutenUsFeeTaxUnavailable) {
-        bookValue = '';
-        alerts.push(`簿価: 楽天米国株の手数料の消費税額が取得できません: ${symbol || '(空欄)'} / 受渡日: ${formatDateForAlert_(r['受渡日'])}`);
-      } else {
-        const tax = feeTax === '' ? 0 : feeTax;
+      const tax = feeTax === '' ? 0 : feeTax;
 
-        if (settlementCurrency && settlementCurrency !== 'JPY') {
-          if (rate && rate !== 0) {
-            bookValue = amount * rate - tax;
-          } else {
-            alerts.push(`簿価: レート未入力: ${symbol || '(空欄)'} / 受渡日: ${formatDateForAlert_(r['受渡日'])} / 決済通貨: ${settlementCurrency}`);
-            bookValue = amount - tax;
-          }
+      if (settlementCurrency && settlementCurrency !== 'JPY') {
+        if (rate && rate !== 0) {
+          bookValue = amount * rate - tax;
         } else {
+          alerts.push(`簿価: レート未入力: ${symbol || '(空欄)'} / 受渡日: ${formatDateForAlert_(r['受渡日'])} / 決済通貨: ${settlementCurrency}`);
           bookValue = amount - tax;
         }
+      } else {
+        bookValue = amount - tax;
       }
 
     } else if (tx === '株転換取得（買）') {
@@ -169,7 +183,9 @@ function buildTradeRows_(records, alerts) {
     bookValue = normalizeZero_(bookValue);
 
     let symbolBalance = prevBalance;
-    if (['現物買付', '現物再投', '現物売却', '現物買取', '現物募集', '強制償還（売）'].includes(tx)) {
+    if (isRakutenUsStockRecord && acquisitionCostUnknownForRow) {
+      symbolBalance = '';
+    } else if (['現物買付', '現物再投', '現物売却', '現物買取', '現物募集', '強制償還（売）'].includes(tx)) {
       symbolBalance = prevBalance + (bookValue === '' ? 0 : bookValue);
     } else if (tx === '償還') {
       symbolBalance = prevHolding === 0 ? prevBalance : prevBalance + (bookValue === '' ? 0 : bookValue);
@@ -183,7 +199,7 @@ function buildTradeRows_(records, alerts) {
 
     symbolBalance = normalizeZero_(symbolBalance);
 
-    if (holding > 0 && !rakutenUsFeeTaxUnavailable) {
+    if (holding > 0 && !acquisitionCostUnknownForRow) {
       if (product === '投信' && ['現物買付', '現物再投', '現物募集'].includes(tx)) {
         const balanceBase = prevBalance > 0
           ? (prevBalance + (bookValue === '' ? 0 : bookValue))
@@ -201,9 +217,9 @@ function buildTradeRows_(records, alerts) {
 
     avgUnitPrice = normalizeZero_(avgUnitPrice);
 
-    if (['現物売却', '現物買取', '強制償還（売）'].includes(tx) && sellNet !== '' && acquisitionPrice !== '') {
+    if (!acquisitionCostUnknownForRow && ['現物売却', '現物買取', '強制償還（売）'].includes(tx) && sellNet !== '' && acquisitionPrice !== '') {
       realizedGain = sellNet - acquisitionPrice;
-    } else if (tx === '償還' && prevHolding !== 0 && sellNet !== '' && acquisitionPrice !== '') {
+    } else if (!acquisitionCostUnknownForRow && tx === '償還' && prevHolding !== 0 && sellNet !== '' && acquisitionPrice !== '') {
       realizedGain = sellNet - acquisitionPrice;
     }
 
@@ -251,10 +267,15 @@ function buildTradeRows_(records, alerts) {
       lastTradeOfSymbol && holding > 0 ? 'YES' : ''
     ]);
 
+    const nextAcquisitionCostUnknown = isRakutenUsStockRecord &&
+      acquisitionCostUnknownForRow && holding !== 0;
     stateBySymbol[symbol] = {
       holding: holding,
-      balance: symbolBalance,
-      avgUnitPrice: avgUnitPrice !== '' ? avgUnitPrice : prevAvgUnitPrice
+      balance: nextAcquisitionCostUnknown ? '' : symbolBalance,
+      avgUnitPrice: nextAcquisitionCostUnknown
+        ? ''
+        : (avgUnitPrice !== '' ? avgUnitPrice : prevAvgUnitPrice),
+      acquisitionCostUnknown: nextAcquisitionCostUnknown
     };
   });
 
@@ -403,12 +424,19 @@ function prepareRakutenUsStockRecordsForTradeCalculation_(records) {
 
     const explicitTaxJpy = toOptionalNumber_(record['国内消費税等（円）']);
     const sourceTaxUsd = getRakutenSourceNumber_(sourceDb, 'tax');
-    prepared['国内消費税等（円）'] = explicitTaxJpy !== ''
+    const resolvedTaxJpy = explicitTaxJpy !== ''
       ? explicitTaxJpy
-      : sourceTaxUsd === 0
-        ? 0
-        : multiplyOptionalNumbers_(sourceTaxUsd, record['レート']);
+        : sourceTaxUsd === 0
+          ? 0
+          : multiplyOptionalNumbers_(sourceTaxUsd, record['レート']);
+    const rate = toOptionalNumber_(record['レート']);
+    const settlementCurrency = normalizeCurrency_(record['決済通貨']);
+    prepared['国内消費税等（円）'] = resolvedTaxJpy;
     prepared.__rakutenUsStockFeeTaxRequired = true;
+    prepared.__rakutenUsStockFeeTaxUnavailable = explicitTaxJpy === '' && sourceTaxUsd === '';
+    prepared.__rakutenUsStockBookValueUnavailable =
+      resolvedTaxJpy === '' ||
+      (settlementCurrency === 'USD' && (rate === '' || rate === 0));
     return prepared;
   });
 }
