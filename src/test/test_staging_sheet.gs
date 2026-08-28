@@ -103,8 +103,73 @@ function test_createStagingSpreadsheetFromSourceSpreadsheet_createsSingleSheet_(
     try {
       assertEquals_('spreadsheet', res.inputType, '入力方式');
       assertEquals_('入力候補', res.sourceSheetName, '自動判定した元シート名');
-      assertEquals_(1, created.getSheets().length, '一次受け枠は1シートだけ作成');
+      assertEquals_(2, created.getSheets().length, '一次受け枠データと内部メタデータを作成');
       assertEquals_('取引履歴_一次受け枠', created.getSheets()[0].getName(), 'シート名');
+      const metadataSheet = created.getSheetByName('__TRADE_SOURCE_METADATA__');
+      assertTrue_(!!metadataSheet, '証券会社メタデータシートを作成');
+      assertTrue_(metadataSheet.isSheetHidden(), '証券会社メタデータシートは非表示');
+
+      const metadata = readStagingSourceMetadata_(created);
+      assertEquals_('nomura', metadata.broker, '野村の証券会社メタデータ');
+      assertEquals_('nomura_common', metadata.sourceType, '野村のsourceTypeメタデータ');
+
+      const stagedNormalized = normalizeRowsForImport_(
+        created.getSheets()[0].getDataRange().getValues(),
+        metadata
+      );
+      assertEquals_('nomura', stagedNormalized.broker, '一次受け枠再取込時も野村を維持');
+      assertEquals_('nomura_corp_a', routeTargetDbKeyBySource_('nomura_corp_a', stagedNormalized.sourceType), '野村投信・配当のDB routing');
+
+      [
+        'rakuten_jp_stock',
+        'rakuten_us_stock',
+        'rakuten_fund',
+        'rakuten_dividend'
+      ].forEach(function(sourceType) {
+        const rakutenMetadata = createStagingSourceMetadata_({
+          sourceType: sourceType,
+          sourceRecords: [{ __rakutenSource: { grossAmount: 123 } }]
+        });
+        const rakutenRows = [
+          BASE_HEADERS.slice(),
+          BASE_HEADERS.map(function(header) {
+            if (header === '約定日') return '2026/05/01';
+            if (header === '受渡日') return '2026/05/02';
+            if (header === '商品') return sourceType === 'rakuten_fund' ? '投信' : '外株';
+            if (header === '銘柄名') return '楽天テスト';
+            if (header === '取引区分') return sourceType === 'rakuten_dividend' ? '入金（配当金）' : '現物買付';
+            return '';
+          })
+        ];
+        const restored = normalizeRowsForImport_(rakutenRows, rakutenMetadata);
+        assertEquals_('rakuten', restored.broker, sourceType + 'の証券会社メタデータ');
+        assertEquals_(sourceType, restored.sourceType, sourceType + 'のsourceTypeメタデータ');
+        assertEquals_('rakuten_corp_a', routeTargetDbKeyBySource_('nomura_corp_a', restored.sourceType), sourceType + 'のDB routing');
+
+        const stagingRecord = {};
+        stagingRecord[STAGING_SOURCE_ID_HEADER_] = restored.stagingSourceFields[0].stagingSourceId;
+        const records = restoreStagingSourceFields_([stagingRecord], restored.stagingSourceFields);
+        assertEquals_(123, records[0].__rakutenSource.grossAmount, sourceType + 'の楽天固有情報を復元');
+      });
+
+      assertThrowsContains_(function() {
+        validateStagingSourceMetadata_({
+          version: '1',
+          format: 'base_records',
+          broker: '',
+          sourceType: 'nomura_common',
+          sourceFields: []
+        });
+      }, '証券会社を判定できません', '判定不能な証券会社は野村へfallbackしない');
+      assertThrowsContains_(function() {
+        validateStagingSourceMetadata_({
+          version: '1',
+          format: 'base_records',
+          broker: 'rakuten',
+          sourceType: 'rakuten_unknown',
+          sourceFields: []
+        });
+      }, '楽天メタデータが不正', '未知の楽天sourceTypeは受け付けない');
 
       const createdHeaders = created.getSheets()[0].getRange(1, 1, 1, 23).getValues()[0];
       assertEquals_('国内手数料（円）', createdHeaders[20], '追加列順5');
@@ -116,3 +181,21 @@ function test_createStagingSpreadsheetFromSourceSpreadsheet_createsSingleSheet_(
   });
 }
 
+function test_restoreStagingSourceFields_matchesRowsByStableId_20260828_() {
+  const sourceFields = [
+    { stagingSourceId: 'source-a', grossAmount: 100 },
+    { stagingSourceId: 'source-b', grossAmount: 200 }
+  ];
+  const records = [
+    { [STAGING_SOURCE_ID_HEADER_]: 'source-b' },
+    { [STAGING_SOURCE_ID_HEADER_]: 'source-a' }
+  ];
+
+  restoreStagingSourceFields_(records, sourceFields);
+
+  assertEquals_(200, records[0].__rakutenSource.grossAmount, '並べ替え後も行IDで楽天固有情報を対応');
+  assertEquals_(100, records[1].__rakutenSource.grossAmount, '並べ替え後も別行の情報を混同しない');
+  assertThrowsContains_(function() {
+    restoreStagingSourceFields_([{}], sourceFields.slice(0, 1));
+  }, '行識別情報が一致しません', '行IDなしの明細はfail closed');
+}

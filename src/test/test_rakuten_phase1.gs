@@ -94,6 +94,15 @@ function test_normalizeRakutenFundRowsToRecords_buyAndSell_20260616_() {
   assertEquals_('投信', records[1]['商品'], '解約の商品');
   assertEquals_('現物買取', records[1]['取引区分'], '解約の取引区分');
   assertEquals_(3000000, records[1]['受渡金額/決済損益'], '解約の受渡金額');
+
+  const normalized = normalizeRowsForImport_(rows);
+  const staged = normalizeRowsForImport_(
+    buildRowsWithAdditionalManualHeaders_(normalized.normalizedRows),
+    createStagingSourceMetadata_(normalized)
+  );
+  assertEquals_('rakuten', staged.broker, '楽天投信の一次受け枠broker');
+  assertEquals_('rakuten_fund', staged.sourceType, '楽天投信の一次受け枠sourceType');
+  assertEquals_('rakuten_corp_a', routeTargetDbKeyBySource_('nomura_corp_a', staged.sourceType), '楽天投信の一次受け枠routing');
 }
 
 function test_detectInputSourceTypeFromRows_rakutenDividend_20260616_() {
@@ -122,6 +131,15 @@ function test_normalizeRakutenDividendRowsToRecords_usStockDividend_20260616_() 
   assertEquals_(150, record['レート'], '手入力レート');
   assertEquals_(123, record['現地源泉税（円）'], '手入力現地源泉税');
   assertEquals_(45, record['国内源泉所得税（円）'], '手入力国内源泉税');
+
+  const normalized = normalizeRowsForImport_(rows);
+  const staged = normalizeRowsForImport_(
+    buildRowsWithAdditionalManualHeaders_(normalized.normalizedRows),
+    createStagingSourceMetadata_(normalized)
+  );
+  assertEquals_('rakuten', staged.broker, '楽天配当金の一次受け枠broker');
+  assertEquals_('rakuten_dividend', staged.sourceType, '楽天配当金の一次受け枠sourceType');
+  assertEquals_('rakuten_corp_a', routeTargetDbKeyBySource_('nomura_corp_a', staged.sourceType), '楽天配当金の一次受け枠routing');
 }
 
 function test_normalizeRowsForImport_rakutenDividend_preservesSourceColumns_20260709_() {
@@ -192,6 +210,31 @@ function test_normalizeRowsForImport_rakutenDividend_warnsBlankManualTaxes_20260
   assertEquals_(2, normalized.alerts.length, '税2列の空欄は警告');
   assertTrue_(normalized.alerts[0].indexOf('現地源泉税［円］が未入力') >= 0, '現地源泉税の警告');
   assertTrue_(normalized.alerts[1].indexOf('国内源泉税［円］が未入力') >= 0, '国内源泉税の警告');
+}
+
+function test_normalizeRowsForImport_rakutenDividend_stagingPreservesAlerts_20260828_() {
+  const rows = [
+    ['入金日', '商品', '口座', '銘柄コード', '銘柄', '受取通貨', '単価[円/現地通貨]', '数量[株/口]', '配当・分配金合計（税引前）[円/現地通貨]', '税額合計[円/現地通貨]', '受取金額[円/現地通貨]', 'レート', '現地源泉税［円］', '国内源泉税［円］'],
+    ['2026/08/04', '投資信託', '一般', '', '楽天テスト分配金', '円', 0, 0, 500, 0, 500, 1, '', '']
+  ];
+  const direct = normalizeRowsForImport_(rows);
+  const metadata = createStagingSourceMetadata_(direct);
+  const stagingRows = addStagingSourceIds_(
+    buildRowsWithAdditionalManualHeaders_(direct.normalizedRows),
+    metadata.sourceFields
+  );
+  const staged = normalizeRowsForImport_(stagingRows, metadata);
+  const stagedRecord = {};
+  stagingRows[0].forEach(function(header, index) {
+    stagedRecord[header] = stagingRows[1][index];
+  });
+  restoreStagingSourceFields_([stagedRecord], staged.stagingSourceFields);
+  const stagedAlerts = collectImportAlerts_(staged, [stagedRecord]);
+
+  assertEquals_(direct.alerts.length, stagedAlerts.length, '直接取込と一次受け枠経由のalert件数が一致');
+  direct.alerts.forEach(function(alert) {
+    assertTrue_(stagedAlerts.indexOf(alert) >= 0, '直接取込と同じ未入力警告を維持');
+  });
 }
 
 function test_normalizeRowsForImport_rakutenDividend_allowsZeroManualTaxes_20260618_() {
