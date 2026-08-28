@@ -59,13 +59,17 @@ function createStagingSpreadsheetFromCsvText_(csvText, sourceName, normalizedUrl
   }
 
   const normalizedInput = normalizeRowsForImport_(rows);
-  const outputRows = buildRowsWithAdditionalManualHeaders_(normalizedInput.normalizedRows);
+  const stagingMetadata = createStagingSourceMetadata_(normalizedInput);
+  const outputRows = addStagingSourceIds_(
+    buildRowsWithAdditionalManualHeaders_(normalizedInput.normalizedRows),
+    stagingMetadata.sourceFields
+  );
 
   const ss = SpreadsheetApp.create(buildSpreadsheetName_((sourceName || 'CSV') + '_一次受け'));
   const sheet = ss.getSheets()[0];
   sheet.setName('取引履歴_一次受け枠');
   sheet.getRange(1, 1, outputRows.length, outputRows[0].length).setValues(outputRows);
-  const stagingMetadata = createStagingSourceMetadata_(normalizedInput);
+  hideStagingSourceIdColumn_(sheet);
   writeStagingSourceMetadata_(ss, stagingMetadata);
 
   applyStagingManualHighlights_(sheet);
@@ -98,13 +102,17 @@ function createStagingSpreadsheetFromSourceSpreadsheet_(spreadsheetUrlOrId) {
   }
 
   const normalizedInput = normalizeRowsForImport_(sourceValues, readStagingSourceMetadata_(sourceSs));
-  const outputRows = buildRowsWithAdditionalManualHeaders_(normalizedInput.normalizedRows);
+  const stagingMetadata = createStagingSourceMetadata_(normalizedInput);
+  const outputRows = addStagingSourceIds_(
+    buildRowsWithAdditionalManualHeaders_(normalizedInput.normalizedRows),
+    stagingMetadata.sourceFields
+  );
 
   const ss = SpreadsheetApp.create(buildSpreadsheetName_(sourceSs.getName() + '_一次受け'));
   const sheet = ss.getSheets()[0];
   sheet.setName('取引履歴_一次受け枠');
   sheet.getRange(1, 1, outputRows.length, outputRows[0].length).setValues(outputRows);
-  const stagingMetadata = createStagingSourceMetadata_(normalizedInput);
+  hideStagingSourceIdColumn_(sheet);
   writeStagingSourceMetadata_(ss, stagingMetadata);
 
   applyStagingManualHighlights_(sheet);
@@ -123,6 +131,74 @@ function createStagingSpreadsheetFromSourceSpreadsheet_(spreadsheetUrlOrId) {
     detectedSourceType: normalizedInput.sourceType,
     detectedBroker: normalizedInput.broker
   };
+}
+
+function addStagingSourceIds_(rows, sourceFields) {
+  if (!sourceFields || sourceFields.length === 0) return rows;
+
+  const paddedRows = padRows_(rows);
+  const headerRowIndex = findHeaderRowIndex_(paddedRows);
+  if (headerRowIndex < 0) {
+    throw new Error('一次受け枠のヘッダー行が見つかりません。');
+  }
+
+  const headers = paddedRows[headerRowIndex].map(function(value) {
+    return String(value).trim();
+  });
+  const idColumnIndex = headers.indexOf(STAGING_SOURCE_ID_HEADER_);
+  const ids = sourceFields.map(function(fields) {
+    return text_(fields && fields.stagingSourceId);
+  });
+  if (ids.some(function(id) { return !id; })) {
+    throw new Error('一次受け枠の行識別情報がありません。一次受け枠を再作成してください。');
+  }
+
+  if (idColumnIndex >= 0) {
+    let dataIndex = 0;
+    const seenIds = {};
+    paddedRows.forEach(function(row, index) {
+      if (index <= headerRowIndex || isEmptyRow_(row)) return;
+      const id = text_(row[idColumnIndex]);
+      if (!id || seenIds[id] || ids.indexOf(id) < 0) {
+        throw new Error('一次受け枠の行識別情報が一致しません。一次受け枠を再作成してください。');
+      }
+      seenIds[id] = true;
+      dataIndex++;
+    });
+    if (dataIndex !== ids.length) {
+      throw new Error('一次受け枠の明細数が一致しません。一次受け枠を再作成してください。');
+    }
+    return paddedRows;
+  }
+
+  let dataIndex = 0;
+  const output = paddedRows.map(function(row, index) {
+    const newRow = row.slice();
+    if (index === headerRowIndex) {
+      newRow.push(STAGING_SOURCE_ID_HEADER_);
+    } else if (index > headerRowIndex && !isEmptyRow_(row)) {
+      const id = ids[dataIndex++];
+      newRow.push(id || '');
+    } else {
+      newRow.push('');
+    }
+    return newRow;
+  });
+  if (dataIndex !== ids.length) {
+    throw new Error('一次受け枠の明細数が一致しません。一次受け枠を再作成してください。');
+  }
+  return output;
+}
+
+function hideStagingSourceIdColumn_(sheet) {
+  const values = sheet.getDataRange().getValues();
+  const headerRowIndex = findHeaderRowIndex_(values);
+  if (headerRowIndex < 0) return;
+
+  const columnIndex = values[headerRowIndex].map(function(value) {
+    return String(value).trim();
+  }).indexOf(STAGING_SOURCE_ID_HEADER_);
+  if (columnIndex >= 0) sheet.hideColumns(columnIndex + 1);
 }
 
 function buildRowsWithAdditionalManualHeaders_(rows) {
@@ -476,12 +552,12 @@ function createSpreadsheetFromCsvTextUsingDb_(csvText, sourceName, normalizedUrl
   sourceSheet
     .getRange(1, 1, normalizedInput.normalizedRows.length, normalizedInput.normalizedRows[0].length)
     .setValues(normalizedInput.normalizedRows);
+  hideStagingSourceIdColumn_(sourceSheet);
 
   const records = readInputRecords_(sourceSheet);
   const recordsForDb = normalizedInput.sourceRecords || records;
 
-  const inputAlerts = (normalizedInput.alerts || []).slice();
-  collectInputAlerts_(recordsForDb, inputAlerts);
+  const inputAlerts = collectImportAlerts_(normalizedInput, recordsForDb);
 
   const dbAppendResult = appendRecordsToDb_(recordsForDb, {
     sourceName: sourceName || '',
@@ -556,6 +632,7 @@ function createSpreadsheetFromSourceSpreadsheetUsingDb_(spreadsheetUrlOrId, opti
   outputSourceSheet
     .getRange(1, 1, normalizedInput.normalizedRows.length, normalizedInput.normalizedRows[0].length)
     .setValues(normalizedInput.normalizedRows);
+  hideStagingSourceIdColumn_(outputSourceSheet);
 
   const validationBypassed = shouldSkipRequiredManualValidationForTarget_(targetDbKey);
   if (!validationBypassed && normalizedInput.hasManualColumns) {
@@ -567,8 +644,7 @@ function createSpreadsheetFromSourceSpreadsheetUsingDb_(spreadsheetUrlOrId, opti
     ? restoreStagingSourceFields_(records, normalizedInput.stagingSourceFields)
     : (normalizedInput.sourceRecords || records);
 
-  const inputAlerts = (normalizedInput.alerts || []).slice();
-  collectInputAlerts_(recordsForDb, inputAlerts);
+  const inputAlerts = collectImportAlerts_(normalizedInput, recordsForDb);
 
   const dbAppendResult = appendRecordsToDb_(recordsForDb, {
     sourceName: sourceSs.getName() + ' / ' + sourceSheet.getName(),
@@ -916,6 +992,15 @@ function collectInputAlerts_(records, alerts) {
       );
     }
   });
+}
+
+function collectImportAlerts_(normalizedInput, records) {
+  const alerts = (normalizedInput.alerts || []).slice();
+  if (normalizedInput.stagingSourceFields && normalizedInput.sourceType === 'rakuten_dividend') {
+    alerts.push.apply(alerts, collectRakutenDividendManualInputAlerts_(records));
+  }
+  collectInputAlerts_(records, alerts);
+  return alerts;
 }
 
 function normalizeCsvUrl_(url) {

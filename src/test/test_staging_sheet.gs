@@ -146,7 +146,9 @@ function test_createStagingSpreadsheetFromSourceSpreadsheet_createsSingleSheet_(
         assertEquals_(sourceType, restored.sourceType, sourceType + 'のsourceTypeメタデータ');
         assertEquals_('rakuten_corp_a', routeTargetDbKeyBySource_('nomura_corp_a', restored.sourceType), sourceType + 'のDB routing');
 
-        const records = restoreStagingSourceFields_([{}], restored.stagingSourceFields);
+        const stagingRecord = {};
+        stagingRecord[STAGING_SOURCE_ID_HEADER_] = restored.stagingSourceFields[0].stagingSourceId;
+        const records = restoreStagingSourceFields_([stagingRecord], restored.stagingSourceFields);
         assertEquals_(123, records[0].__rakutenSource.grossAmount, sourceType + 'の楽天固有情報を復元');
       });
 
@@ -177,4 +179,23 @@ function test_createStagingSpreadsheetFromSourceSpreadsheet_createsSingleSheet_(
       trashFileWithRetry_(created.getId(), 'generated staging spreadsheet cleanup failed');
     }
   });
+}
+
+function test_restoreStagingSourceFields_matchesRowsByStableId_20260828_() {
+  const sourceFields = [
+    { stagingSourceId: 'source-a', grossAmount: 100 },
+    { stagingSourceId: 'source-b', grossAmount: 200 }
+  ];
+  const records = [
+    { [STAGING_SOURCE_ID_HEADER_]: 'source-b' },
+    { [STAGING_SOURCE_ID_HEADER_]: 'source-a' }
+  ];
+
+  restoreStagingSourceFields_(records, sourceFields);
+
+  assertEquals_(200, records[0].__rakutenSource.grossAmount, '並べ替え後も行IDで楽天固有情報を対応');
+  assertEquals_(100, records[1].__rakutenSource.grossAmount, '並べ替え後も別行の情報を混同しない');
+  assertThrowsContains_(function() {
+    restoreStagingSourceFields_([{}], sourceFields.slice(0, 1));
+  }, '行識別情報が一致しません', '行IDなしの明細はfail closed');
 }

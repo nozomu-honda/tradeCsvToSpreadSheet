@@ -212,6 +212,31 @@ function test_normalizeRowsForImport_rakutenDividend_warnsBlankManualTaxes_20260
   assertTrue_(normalized.alerts[1].indexOf('国内源泉税［円］が未入力') >= 0, '国内源泉税の警告');
 }
 
+function test_normalizeRowsForImport_rakutenDividend_stagingPreservesAlerts_20260828_() {
+  const rows = [
+    ['入金日', '商品', '口座', '銘柄コード', '銘柄', '受取通貨', '単価[円/現地通貨]', '数量[株/口]', '配当・分配金合計（税引前）[円/現地通貨]', '税額合計[円/現地通貨]', '受取金額[円/現地通貨]', 'レート', '現地源泉税［円］', '国内源泉税［円］'],
+    ['2026/08/04', '投資信託', '一般', '', '楽天テスト分配金', '円', 0, 0, 500, 0, 500, 1, '', '']
+  ];
+  const direct = normalizeRowsForImport_(rows);
+  const metadata = createStagingSourceMetadata_(direct);
+  const stagingRows = addStagingSourceIds_(
+    buildRowsWithAdditionalManualHeaders_(direct.normalizedRows),
+    metadata.sourceFields
+  );
+  const staged = normalizeRowsForImport_(stagingRows, metadata);
+  const stagedRecord = {};
+  stagingRows[0].forEach(function(header, index) {
+    stagedRecord[header] = stagingRows[1][index];
+  });
+  restoreStagingSourceFields_([stagedRecord], staged.stagingSourceFields);
+  const stagedAlerts = collectImportAlerts_(staged, [stagedRecord]);
+
+  assertEquals_(direct.alerts.length, stagedAlerts.length, '直接取込と一次受け枠経由のalert件数が一致');
+  direct.alerts.forEach(function(alert) {
+    assertTrue_(stagedAlerts.indexOf(alert) >= 0, '直接取込と同じ未入力警告を維持');
+  });
+}
+
 function test_normalizeRowsForImport_rakutenDividend_allowsZeroManualTaxes_20260618_() {
   const rows = [
     ['入金日', '商品', '口座', '銘柄コード', '銘柄', '受取通貨', '単価[円/現地通貨]', '数量[株/口]', '配当・分配金合計（税引前）[円/現地通貨]', '税額合計[円/現地通貨]', '受取金額[円/現地通貨]', 'レート', '現地源泉税［円］', '国内源泉税［円］'],
@@ -256,6 +281,7 @@ function test_rakutenDbHeaders_includeDividendManualColumns_20260617_() {
   assertTrue_(RAKUTEN_DB_HEADERS.indexOf('manualRate') >= 0, '楽天配当金の手入力レート列');
   assertTrue_(RAKUTEN_DB_HEADERS.indexOf('manualForeignWithholdingTaxJpy') >= 0, '楽天配当金の現地源泉税列');
   assertTrue_(RAKUTEN_DB_HEADERS.indexOf('manualDomesticWithholdingTaxJpy') >= 0, '楽天配当金の国内源泉税列');
+  assertTrue_(RAKUTEN_DB_HEADERS.indexOf('manualDomesticLocalTaxJpy') >= 0, '楽天配当金の国内源泉地方税列');
   assertTrue_(RAKUTEN_DB_HEADERS.indexOf('normalizedTradeType') >= 0, '共通計算モデルへ渡す取引区分列');
   assertTrue_(RAKUTEN_DB_HEADERS.indexOf('isActive') > RAKUTEN_DB_HEADERS.indexOf('recordId'), '論理削除列');
 }

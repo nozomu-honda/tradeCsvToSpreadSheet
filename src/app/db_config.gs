@@ -118,6 +118,7 @@ const RAKUTEN_DB_HEADERS = [
   'manualRate', // 楽天配当金CSV手入力: レート
   'manualForeignWithholdingTaxJpy', // 楽天配当金CSV手入力: 現地源泉税［円］
   'manualDomesticWithholdingTaxJpy', // 楽天配当金CSV手入力: 国内源泉税［円］
+  'manualDomesticLocalTaxJpy', // 楽天配当金CSV手入力: 国内源泉地方税［円］
   'description', // 内容 / 出金先 / 買付方法 / 商品補足
   'createdAt', // CSV由来なし: 作成日時
   'updatedAt', // CSV由来なし: 更新日時

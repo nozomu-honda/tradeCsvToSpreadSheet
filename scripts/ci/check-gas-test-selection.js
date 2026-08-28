@@ -67,7 +67,7 @@ function assertFull(changedFiles, reasonPattern, options) {
   assert.strictEqual(selection.mode, 'full');
   assert.deepStrictEqual(selection.suites, FULL_SUITE_DEFINITIONS.map((definition) => definition.name));
   assert.match(selection.fullFallbackReason, reasonPattern);
-  assert.strictEqual(selection.testCount, 113);
+  assert.strictEqual(selection.testCount, 117);
   return selection;
 }
 
@@ -111,7 +111,7 @@ function checkSelectionRules() {
   assertFull([null], /classification failed/);
 
   const selectedTestCount = SELECTED_SUITE_DEFINITIONS.reduce((total, suite) => total + suite.testCount, 0);
-  assert.strictEqual(selectedTestCount, 113, 'selected suites must cover every full GAS test exactly once');
+  assert.strictEqual(selectedTestCount, 117, 'selected suites must cover every full GAS test exactly once');
   assert.deepStrictEqual(
     [...new Set(SELECTED_SUITE_DEFINITIONS.map((suite) => suite.area))],
     ALL_IMPACT_AREAS,
@@ -769,7 +769,7 @@ function checkRemovedLegacyTestsStayRemoved(runnerSource, sourceDefinitions) {
     );
     assert.throws(
       () => assertGasRunnerMatchesManifest(runnerOnly),
-      /GAS_TEST_METRICS testCount=113|runAllTests order must match the canonical manifest/,
+      /GAS_TEST_METRICS testCount=117|runAllTests order must match the canonical manifest/,
       `${legacyTest} reintroduced only in the runner must fail manifest sync`,
     );
 
@@ -804,12 +804,12 @@ function checkGasRunnerContract() {
     sourceDefinedTests,
     'the canonical manifest must include every source-controlled GAS test exactly once',
   );
-  assert.strictEqual(sourceTestCount, 113, 'the repository must define exactly 113 canonical GAS tests');
-  assert.strictEqual(GAS_TEST_MANIFEST.length, 113, 'the canonical manifest test count must remain explicit');
+  assert.strictEqual(sourceTestCount, 117, 'the repository must define exactly 117 canonical GAS tests');
+  assert.strictEqual(GAS_TEST_MANIFEST.length, 117, 'the canonical manifest test count must remain explicit');
   assert.deepStrictEqual(
     FULL_SUITE_DEFINITIONS.map((definition) => definition.testCount),
-    [13, 13, 13, 13, 13, 13, 13, 13, 9],
-    'the 113 canonical tests must remain split into nine non-empty full batches without reordering',
+    [13, 13, 13, 13, 13, 13, 13, 13, 13],
+    'the 117 canonical tests must remain split into nine non-empty full batches without reordering',
   );
   assert.throws(
     () => context.runGasTestSuiteByName('unknown-suite'),
@@ -1041,7 +1041,7 @@ function checkShellSelectionValidation() {
     selected.suites,
     ['parser-input-01', 'parser-input-02', 'database-01', 'database-02', 'database-03', 'staging-import'],
   );
-  assert.strictEqual(selected.testCount, 48, 'parser.gs must select 15 parser, 27 database, and 6 staging tests');
+  assert.strictEqual(selected.testCount, 51, 'parser.gs must select 15 parser, 29 database, and 7 staging tests');
   assert.ok(!selected.impactAreas.includes('output'));
   assert.ok(!selected.impactAreas.includes('broker-import'));
   assert.ok(!selected.impactAreas.includes('e2e-support'));
@@ -1092,7 +1092,7 @@ function checkShellSelectionValidation() {
     validationBypassSelection.suites,
     ['database-01', 'database-02', 'database-03'],
   );
-  assert.strictEqual(validationBypassSelection.testCount, 27);
+  assert.strictEqual(validationBypassSelection.testCount, 29);
   assert.ok(!validationBypassSelection.suites.includes('staging-import'));
   const validationBypassSelectedTests = SELECTED_SUITE_DEFINITIONS
     .filter((definition) => validationBypassSelection.suites.includes(definition.name))
@@ -1170,8 +1170,8 @@ function checkShellSelectionValidation() {
     'full execution must run only canonical full batch entry points in order',
   );
   assert.match(fullResult.summary, /Mode: `full`/);
-  assert.match(fullResult.summary, /Expected tests: `113`/);
-  assert.match(fullResult.summary, /All selected GAS test functions passed \(113 tests/);
+  assert.match(fullResult.summary, /Expected tests: `117`/);
+  assert.match(fullResult.summary, /All selected GAS test functions passed \(117 tests/);
   assert.strictEqual(FULL_SUITE_DEFINITIONS.length, 9, 'full mode must retain nine batches');
 
   const legacySourceResult = runGasShellSelectionFixture(selected, {

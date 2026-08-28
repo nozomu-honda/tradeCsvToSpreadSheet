@@ -180,6 +180,96 @@ function test_normalizeRakutenRecordForDb_preservesDividendPrincipalReturnViaDes
   assertEquals_(true, baseRecord['元本払戻金'], '楽天DBから共通レコードへ元本払戻金を復元');
 }
 
+function test_normalizeRakutenRecordForDb_usesEditedStagingValues_20260828_() {
+  const rows = [
+    ['約定日', '受渡日', '銘柄コード', '銘柄名', '取引区分', '売買区分', '約定代金[USドル]', '税金[USドル]', '為替レート', '決済通貨', '数量[株]', '単価[USドル]', '受渡金額[USドル]', '手数料[USドル]'],
+    ['2026/08/01', '2026/08/03', 'AAPL', 'Apple Inc.', '現物買付', '買付', 100, 2, 150, 'USD', 1, 100, 100, 1]
+  ];
+  const sourceRecord = normalizeRakutenUsStockRowsToRecords_(rows, 0)[0];
+  const metadata = createStagingSourceMetadata_({
+    sourceType: 'rakuten_us_stock',
+    sourceRecords: [sourceRecord]
+  });
+  assertTrue_(metadata.sourceFields[0].exchangeRate === undefined, '編集可能なレートをmetadataに重複保存しない');
+  assertTrue_(metadata.sourceFields[0].manualRate === undefined, '編集可能な手入力レートをmetadataに保存しない');
+  const stagingRows = addStagingSourceIds_(
+    buildRowsWithAdditionalManualHeaders_(buildRowsFromRecords_([sourceRecord])),
+    metadata.sourceFields
+  );
+  const stagedRecord = {};
+  stagingRows[0].forEach(function(header, index) {
+    stagedRecord[header] = stagingRows[1][index];
+  });
+  stagedRecord['レート'] = 151;
+  stagedRecord['手数料（税込）'] = 9;
+  restoreStagingSourceFields_([stagedRecord], metadata.sourceFields);
+
+  const dbRecord = normalizeRakutenRecordForDb_(stagedRecord, {
+    importId: 'import_rakuten_staging_edit',
+    sourceName: 'rakuten_us_stock.csv',
+    sourceRowNo: 2,
+    sourceType: 'rakuten_us_stock',
+    now: new Date('2026-08-28T00:00:00Z')
+  });
+
+  assertEquals_(151, dbRecord.exchangeRate, '楽天米国株の編集後レートを採用');
+  assertEquals_(9, dbRecord.fee, '一次受け枠の編集後手数料を採用');
+  assertEquals_(100, dbRecord.grossAmount, 'BASEで保持できない約定代金はmetadataから復元');
+  assertEquals_('現物買付', dbRecord.rawTradeType, 'raw取引区分はmetadataから復元');
+  assertEquals_(2, dbRecord.tax, 'raw税額はmetadataから復元');
+}
+
+function test_normalizeRakutenDividendRecordForDb_usesEditedStagingValues_20260828_() {
+  const rows = [
+    ['入金日', '商品', '口座', '銘柄コード', '銘柄', '受取通貨', '単価[円/現地通貨]', '数量[株/口]', '配当・分配金合計（税引前）[円/現地通貨]', '税額合計[円/現地通貨]', '受取金額[円/現地通貨]', 'レート', '現地源泉税［円］', '国内源泉税［円］', '国内源泉地方税（円）', '備考'],
+    ['2026/08/04', '投資信託', '一般', '', '楽天テスト投信', '円', 0, 0, 500, 12, 488, 150, 10, 20, 3, '作成時メモ']
+  ];
+  const sourceRecord = normalizeRakutenDividendRowsToRecords_(rows, 0)[0];
+  const metadata = createStagingSourceMetadata_({
+    sourceType: 'rakuten_dividend',
+    sourceRecords: [sourceRecord]
+  });
+  assertTrue_(metadata.sourceFields[0].exchangeRate === undefined, '編集可能な配当レートをmetadataに重複保存しない');
+  assertTrue_(metadata.sourceFields[0].manualForeignWithholdingTaxJpy === undefined, '編集可能な現地源泉税をmetadataに保存しない');
+  assertTrue_(metadata.sourceFields[0].manualDomesticWithholdingTaxJpy === undefined, '編集可能な国内源泉税をmetadataに保存しない');
+  const stagingRows = addStagingSourceIds_(
+    buildRowsWithAdditionalManualHeaders_(buildRowsFromRecords_([sourceRecord])),
+    metadata.sourceFields
+  );
+  const stagedRecord = {};
+  stagingRows[0].forEach(function(header, index) {
+    stagedRecord[header] = stagingRows[1][index];
+  });
+  stagedRecord['レート'] = 155;
+  stagedRecord['現地源泉税（円）'] = 11;
+  stagedRecord['国内源泉所得税（円）'] = 21;
+  stagedRecord['国内源泉地方税（円）'] = 4;
+  stagedRecord['手数料（税込）'] = 7;
+  stagedRecord['摘要'] = '編集後メモ';
+  stagedRecord['元本払戻金'] = true;
+  restoreStagingSourceFields_([stagedRecord], metadata.sourceFields);
+
+  const dbRecord = normalizeRakutenRecordForDb_(stagedRecord, {
+    importId: 'import_rakuten_dividend_staging_edit',
+    sourceName: 'rakuten_dividend.csv',
+    sourceRowNo: 2,
+    sourceType: 'rakuten_dividend',
+    now: new Date('2026-08-28T00:00:00Z')
+  });
+  const baseRecord = rakutenDbRecordToBaseRecord_(dbRecord);
+
+  assertEquals_(155, dbRecord.manualRate, '楽天配当金の編集後レートを採用');
+  assertEquals_(11, dbRecord.manualForeignWithholdingTaxJpy, '編集後の現地源泉税を採用');
+  assertEquals_(21, dbRecord.manualDomesticWithholdingTaxJpy, '編集後の国内源泉所得税を採用');
+  assertEquals_(4, dbRecord.manualDomesticLocalTaxJpy, '編集後の国内源泉地方税を採用');
+  assertEquals_(7, dbRecord.fee, '編集後の手数料を採用');
+  assertEquals_(500, dbRecord.grossAmount, '配当金の税引前金額はmetadataから復元');
+  assertEquals_(12, dbRecord.tax, 'raw税額はmetadataから復元');
+  assertEquals_('投資信託', dbRecord.rawProduct, 'raw商品はmetadataから復元');
+  assertTrue_(dbRecord.description.indexOf('編集後メモ') >= 0, '摘要は最終シート値を採用');
+  assertEquals_(4, baseRecord['国内源泉地方税（円）'], '楽天DBから国内源泉地方税を復元');
+}
+
 function test_getDbSpreadsheetPropertyKey_skipsFixedSpreadsheetId_20260618_() {
   assertEquals_(
     'DB_SPREADSHEET_ID_RAKUTEN_CORP_A',

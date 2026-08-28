@@ -24,6 +24,7 @@ function isSupportedRakutenSourceType_(sourceType) {
 }
 
 const STAGING_SOURCE_METADATA_SHEET_NAME_ = '__TRADE_SOURCE_METADATA__';
+const STAGING_SOURCE_ID_HEADER_ = '__TRADE_STAGING_SOURCE_ID__';
 const STAGING_SOURCE_METADATA_VERSION_ = '1';
 
 function createStagingSourceMetadata_(normalizedInput) {
@@ -38,10 +39,31 @@ function createStagingSourceMetadata_(normalizedInput) {
   let sourceFields = [];
   if (normalizedInput.sourceRecords) {
     sourceFields = normalizedInput.sourceRecords.map(function(record) {
-      return record && record.__rakutenSource ? record.__rakutenSource : null;
+      const source = record && record.__rakutenSource ? record.__rakutenSource : {};
+      if (broker !== 'rakuten') return null;
+
+      // BASE_HEADERS values are read from the final staging sheet. Keep only
+      // Rakuten source values that BASE_HEADERS cannot represent.
+      const fields = {};
+      [
+        'grossAmount',
+        'rawProduct',
+        'rawTradeType',
+        'rawSellBuyType',
+        'tax',
+        'market'
+      ].forEach(function(key) {
+        if (source.hasOwnProperty(key)) fields[key] = source[key];
+      });
+      fields.stagingSourceId = Utilities.getUuid();
+      return fields;
     });
   } else if (normalizedInput.stagingSourceFields) {
-    sourceFields = normalizedInput.stagingSourceFields;
+    sourceFields = normalizedInput.stagingSourceFields.map(function(fields) {
+      return fields && typeof fields === 'object' && !Array.isArray(fields)
+        ? Object.assign({}, fields)
+        : fields;
+    });
   }
 
   return {
@@ -138,12 +160,26 @@ function restoreStagingSourceFields_(records, sourceFields) {
   if (records.length !== sourceFields.length) {
     throw new Error('一次受け枠の証券会社メタデータと明細数が一致しません。');
   }
-  records.forEach(function(record, index) {
-    const fields = sourceFields[index];
-    if (fields && typeof fields === 'object' && !Array.isArray(fields)) {
-      setRakutenSourceFields_(record, fields);
+
+  const fieldsById = {};
+  sourceFields.forEach(function(fields) {
+    const id = text_(fields && fields.stagingSourceId);
+    if (!id || fieldsById[id]) {
+      throw new Error('一次受け枠の行識別情報が不正です。一次受け枠を再作成してください。');
     }
+    fieldsById[id] = fields;
   });
+
+  const recordIds = {};
+  records.forEach(function(record) {
+    const id = text_(record && record[STAGING_SOURCE_ID_HEADER_]);
+    if (!id || recordIds[id] || !fieldsById[id]) {
+      throw new Error('一次受け枠の行識別情報が一致しません。行の追加・削除・変更後は一次受け枠を再作成してください。');
+    }
+    recordIds[id] = true;
+    setRakutenSourceFields_(record, fieldsById[id]);
+  });
+
   return records;
 }
 
@@ -168,7 +204,6 @@ function routeTargetDbKeyBySource_(selectedTargetDbKey, sourceType) {
 
 function normalizeRowsForImport_(rows, stagingMetadata) {
   const paddedRows = padRows_(rows || []);
-  const detected = detectInputSourceTypeFromRows_(paddedRows);
 
   if (stagingMetadata) {
     const declared = validateStagingSourceMetadata_(stagingMetadata);
@@ -189,6 +224,8 @@ function normalizeRowsForImport_(rows, stagingMetadata) {
       };
     }
   }
+
+  const detected = detectInputSourceTypeFromRows_(paddedRows);
 
   if (!detected || !detected.sourceType) {
     throw new Error('入力フォーマットを判定できませんでした。野村共通形式または楽天日本株/楽天米国株のヘッダーを確認してください。');
