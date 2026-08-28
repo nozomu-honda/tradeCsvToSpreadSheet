@@ -373,7 +373,7 @@ function buildRakutenUsStockRows_(records, alerts) {
     const rate = get('レート');
     const amount = get('受渡金額/決済損益');
     const settlementCurrency = normalizeCurrency_(get('決済通貨'));
-    const allowLegacyUsdToJpyFallback = !sourceRecord.__rakutenDb;
+    const allowLegacyUsdToJpyFallback = !sourceRecord || !sourceRecord.__rakutenDb;
     const settlementAmounts = getRakutenUsOutputSettlementAmounts_(
       amount,
       rate,
