@@ -57,6 +57,7 @@ function test_normalizeRakutenUsStockRowsToRecords_yenSettlement_20260615_() {
   assertEquals_('AAPL', record['銘柄コード'], '銘柄コード');
   assertEquals_('JPY', normalizeCurrency_(record['決済通貨']), '決済通貨');
   assertEquals_(30225, record['受渡金額/決済損益'], '円決済なら円の受渡金額を使う');
+  assertEquals_(30225, record.__rakutenSource.settlementAmountJpy, '元CSVの受渡円額を楽天固有情報として保持');
   assertEquals_(150, record['レート'], '為替レート');
 }
 

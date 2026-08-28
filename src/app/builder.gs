@@ -28,6 +28,7 @@ function buildTradeRows_(records, alerts) {
     const settlementCurrency = normalizeCurrency_(r['決済通貨']);
     const isPrincipalReturn = r['元本払戻金'] === true;
     const isRakutenUsStockRecord = r.__rakutenUsStockFeeTaxRequired === true;
+    const rakutenUsSettlementAmountJpy = toOptionalNumber_(r.__rakutenUsStockSettlementAmountJpy);
     const priorAcquisitionCostUnknown = isRakutenUsStockRecord && st.acquisitionCostUnknown === true;
 
     const prevHolding = st.holding;
@@ -61,13 +62,16 @@ function buildTradeRows_(records, alerts) {
     }
     const rakutenUsFeeTaxUnavailable = r.__rakutenUsStockFeeTaxUnavailable === true;
     const rakutenUsBookValueUnavailable = r.__rakutenUsStockBookValueUnavailable === true;
+    const rakutenUsSettlementAmountJpyUnavailable = r.__rakutenUsStockSettlementAmountJpyUnavailable === true;
     const currentAcquisitionCostUnknown = isRakutenUsStockRecord &&
       tx === '現物買付' && rakutenUsBookValueUnavailable;
     const acquisitionCostUnknownForRow = priorAcquisitionCostUnknown || currentAcquisitionCostUnknown;
     if (rakutenUsFeeTaxUnavailable && tx === '現物買付') {
       alerts.push(`簿価: 楽天米国株の手数料の消費税額が取得できません: ${symbol || '(空欄)'} / 受渡日: ${formatDateForAlert_(r['受渡日'])}`);
-    } else if (rakutenUsBookValueUnavailable && tx === '現物買付') {
+    } else if (settlementCurrency === 'USD' && (rate === '' || rate === 0) && tx === '現物買付') {
       alerts.push(`簿価: 楽天米国株の円換算レートが取得できません: ${symbol || '(空欄)'} / 受渡日: ${formatDateForAlert_(r['受渡日'])}`);
+    } else if (rakutenUsSettlementAmountJpyUnavailable && tx === '現物買付') {
+      alerts.push(`簿価: 楽天米国株の受渡金額［円］が取得できません: ${symbol || '(空欄)'} / 受渡日: ${formatDateForAlert_(r['受渡日'])}`);
     }
     if (priorAcquisitionCostUnknown && ['現物買付', '現物売却'].includes(tx)) {
       alerts.push(`取得原価: 楽天米国株の取得原価が不明なため計算できません: ${symbol || '(空欄)'} / 受渡日: ${formatDateForAlert_(r['受渡日'])}`);
@@ -129,7 +133,11 @@ function buildTradeRows_(records, alerts) {
     } else if (['現物買付', '現物再投', '現物募集'].includes(tx)) {
       const tax = feeTax === '' ? 0 : feeTax;
 
-      if (settlementCurrency && settlementCurrency !== 'JPY') {
+      if (isRakutenUsStockRecord) {
+        bookValue = rakutenUsSettlementAmountJpy === ''
+          ? ''
+          : rakutenUsSettlementAmountJpy - tax;
+      } else if (settlementCurrency && settlementCurrency !== 'JPY') {
         if (rate && rate !== 0) {
           bookValue = amount * rate - tax;
         } else {
@@ -364,7 +372,12 @@ function buildRakutenUsStockRows_(records, alerts) {
     const rate = get('レート');
     const amount = get('受渡金額/決済損益');
     const settlementCurrency = normalizeCurrency_(get('決済通貨'));
-    const settlementAmounts = getRakutenUsOutputSettlementAmounts_(amount, rate, settlementCurrency);
+    const settlementAmounts = getRakutenUsOutputSettlementAmounts_(
+      amount,
+      rate,
+      settlementCurrency,
+      sourceDb.netAmount
+    );
     const feeUsd = get('現地手数料（円）');
     const domesticFeeJpy = multiplyOptionalNumbers_(feeUsd, rate);
     const domesticTaxJpy = get('国内消費税等（円）');
@@ -431,11 +444,20 @@ function prepareRakutenUsStockRecordsForTradeCalculation_(records) {
           : multiplyOptionalNumbers_(sourceTaxUsd, record['レート']);
     const rate = toOptionalNumber_(record['レート']);
     const settlementCurrency = normalizeCurrency_(record['決済通貨']);
+    const sourceSettlementAmountJpy = toOptionalNumber_(sourceDb.netAmount);
+    const settlementAmountJpy = sourceSettlementAmountJpy !== ''
+      ? sourceSettlementAmountJpy
+      : (settlementCurrency === 'JPY'
+        ? toOptionalNumber_(record['受渡金額/決済損益'])
+        : '');
     prepared['国内消費税等（円）'] = resolvedTaxJpy;
+    prepared.__rakutenUsStockSettlementAmountJpy = settlementAmountJpy;
+    prepared.__rakutenUsStockSettlementAmountJpyUnavailable = settlementAmountJpy === '';
     prepared.__rakutenUsStockFeeTaxRequired = true;
     prepared.__rakutenUsStockFeeTaxUnavailable = explicitTaxJpy === '' && sourceTaxUsd === '';
     prepared.__rakutenUsStockBookValueUnavailable =
       resolvedTaxJpy === '' ||
+      settlementAmountJpy === '' ||
       (settlementCurrency === 'USD' && (rate === '' || rate === 0));
     return prepared;
   });
@@ -452,7 +474,7 @@ function mapRakutenUsOutputSellBuy_(tx) {
   return tx || '';
 }
 
-function getRakutenUsOutputSettlementAmounts_(amount, rate, settlementCurrency) {
+function getRakutenUsOutputSettlementAmounts_(amount, rate, settlementCurrency, settlementAmountJpy) {
   const amountNumber = toOptionalNumber_(amount);
   const rateNumber = toOptionalNumber_(rate);
   const currency = normalizeCurrency_(settlementCurrency);
@@ -471,8 +493,9 @@ function getRakutenUsOutputSettlementAmounts_(amount, rate, settlementCurrency) 
   }
 
   result.usd = amountNumber;
-  if (rateNumber !== '' && rateNumber !== 0) {
-    result.jpy = normalizeZero_(amountNumber * rateNumber);
+  const originalSettlementAmountJpy = toOptionalNumber_(settlementAmountJpy);
+  if (originalSettlementAmountJpy !== '') {
+    result.jpy = originalSettlementAmountJpy;
   }
   return result;
 }

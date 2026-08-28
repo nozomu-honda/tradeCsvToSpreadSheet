@@ -594,10 +594,11 @@ function test_buildRakutenOutputSheetsFromRecordsForTarget_reflectsUsStockTaxSou
     const now = new Date('2026-07-09T00:00:00Z');
     const rows = [
       ['約定日', '受渡日', 'ティッカー', '銘柄名', '口座', '売買区分', '決済通貨', '数量［株］', '単価［USドル］', '約定代金［USドル］', '為替レート', '手数料［USドル］', '税金［USドル］', '受渡金額［USドル］', '受渡金額［円］'],
-      ['2026/06/01', '2026/06/03', 'AAPL', 'Apple Inc.', '特定', '買付', 'USドル', 1, 200, 200, 150, 1.5, 0.2, 201.7, 30255],
+      ['2026/06/01', '2026/06/03', 'AAPL', 'Apple Inc.', '特定', '買付', 'USドル', 1, 200, 200, 150, 1.5, 0.2, 201.697333333333, 30255],
       ['2026/06/02', '2026/06/04', 'AAPL', 'Apple Inc.', '特定', '買付', 'USドル', 1, 100, 100, 150, 1.5, '', 101.5, 15225],
       ['2026/06/03', '2026/06/05', 'AAPL', 'Apple Inc.', '特定', '売付', 'USドル', 2, 100, 200, 150, 1.5, 0, 198.5, 29775],
       ['2026/06/02', '2026/06/04', 'MSFT', 'Microsoft Corp.', '特定', '買付', 'USドル', 1, 100, 100, 150, 1.5, 0, 101.5, 15225],
+      ['2026/06/02', '2026/06/04', 'AMZN', 'Amazon.com Inc.', '特定', '買付', 'USドル', 1, 100, 100, 150, 1.5, 0, 101.5, ''],
       ['2026/06/03', '2026/06/05', 'TSLA', 'Tesla Inc.', '特定', '買付', 'USドル', 1, 100, 100, 150, 1.5, '', 101.5, 15225],
       ['2026/06/04', '2026/06/06', 'TSLA', 'Tesla Inc.', '特定', '買付', 'USドル', 1, 120, 120, 150, 1.5, 0, 121.5, 18225],
       ['2026/06/05', '2026/06/07', 'TSLA', 'Tesla Inc.', '特定', '売付', 'USドル', 2, 110, 220, 150, 1.5, 0, 218.5, 32775],
@@ -626,6 +627,7 @@ function test_buildRakutenOutputSheetsFromRecordsForTarget_reflectsUsStockTaxSou
 
     assertEquals_(200, getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, 2, '約定代金［USドル］'), '米国株CSVの約定代金を反映');
     assertEquals_(0.2, getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, 2, '税金［USドル］'), '米国株CSVの税金を反映');
+    assertEquals_(30255, getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, 2, '受渡金額［円］'), '元CSVの受渡円額を正本にする');
     assertEquals_(30, getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, 2, '手数料の消費税額（円）'), '米国株CSVの税金を円換算');
     assertEquals_(30225, getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, 2, '簿価'), '米国株CSVの簿価から円建て税額を控除');
 
@@ -640,7 +642,13 @@ function test_buildRakutenOutputSheetsFromRecordsForTarget_reflectsUsStockTaxSou
 
     const zeroTaxRow = findSheetRowByHeaderValues_(usSheet, RAKUTEN_US_STOCK_HEADERS, { 'ティッカー': 'MSFT', '売買区分': '買付' });
     assertEquals_(0, getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, zeroTaxRow, '手数料の消費税額（円）'), '税額0は0円として扱う');
-    assertEquals_(15000, getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, zeroTaxRow, '簿価'), '税額0の簿価');
+    assertEquals_(15225, getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, zeroTaxRow, '簿価'), '税額0の簿価');
+
+    const jpyAmountMissingRow = findSheetRowByHeaderValues_(usSheet, RAKUTEN_US_STOCK_HEADERS, { 'ティッカー': 'AMZN', '売買区分': '買付' });
+    assertEquals_('', getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, jpyAmountMissingRow, '簿価'), '元CSVの受渡円額欠落時はUSD換算せず簿価を空欄');
+    assertTrue_(result.alerts.some(function(alert) {
+      return alert.indexOf('受渡金額［円］が取得できません') >= 0;
+    }), '元CSVの受渡円額欠落時はalertを出す');
 
     const missingTaxRow = findSheetRowByHeaderValues_(usSheet, RAKUTEN_US_STOCK_HEADERS, { 'ティッカー': 'TSLA', '売買区分': '買付', '受渡日': '2026/06/05' });
     assertEquals_('', getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, missingTaxRow, '手数料の消費税額（円）'), '税額取得不能時は出力を空欄');
@@ -665,8 +673,8 @@ function test_buildRakutenOutputSheetsFromRecordsForTarget_reflectsUsStockTaxSou
     assertEquals_('', getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, rateMissingRow, '平均取得単価'), 'USDレート欠落時は平均取得単価を空欄');
 
     const recoveredBuyRow = findSheetRowByHeaderValues_(usSheet, RAKUTEN_US_STOCK_HEADERS, { 'ティッカー': 'NFLX', '売買区分': '買付', '受渡日': '2026/06/10' });
-    assertEquals_(15000, getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, recoveredBuyRow, '簿価'), '全保有解消後の正常買付で簿価stateを再開');
-    assertEquals_(15000, getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, recoveredBuyRow, '平均取得単価'), '全保有解消後の正常買付で平均取得単価stateを再開');
+    assertEquals_(15225, getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, recoveredBuyRow, '簿価'), '全保有解消後の正常買付で簿価stateを再開');
+    assertEquals_(15225, getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, recoveredBuyRow, '平均取得単価'), '全保有解消後の正常買付で平均取得単価stateを再開');
   });
 }
 

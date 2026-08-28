@@ -182,8 +182,8 @@ function test_normalizeRakutenRecordForDb_preservesDividendPrincipalReturnViaDes
 
 function test_normalizeRakutenRecordForDb_usesEditedStagingValues_20260828_() {
   const rows = [
-    ['約定日', '受渡日', '銘柄コード', '銘柄名', '取引区分', '売買区分', '約定代金[USドル]', '税金[USドル]', '為替レート', '決済通貨', '数量[株]', '単価[USドル]', '受渡金額[USドル]', '手数料[USドル]'],
-    ['2026/08/01', '2026/08/03', 'AAPL', 'Apple Inc.', '現物買付', '買付', 100, 2, 150, 'USD', 1, 100, 100, 1]
+    ['約定日', '受渡日', '銘柄コード', '銘柄名', '取引区分', '売買区分', '約定代金[USドル]', '税金[USドル]', '為替レート', '決済通貨', '数量[株]', '単価[USドル]', '受渡金額[USドル]', '受渡金額[円]', '手数料[USドル]'],
+    ['2026/08/01', '2026/08/03', 'AAPL', 'Apple Inc.', '現物買付', '買付', 100, 2, 150, 'USD', 1, 100, 100, 15000, 1]
   ];
   const sourceRecord = normalizeRakutenUsStockRowsToRecords_(rows, 0)[0];
   const metadata = createStagingSourceMetadata_({
@@ -215,6 +215,7 @@ function test_normalizeRakutenRecordForDb_usesEditedStagingValues_20260828_() {
   assertEquals_(151, dbRecord.exchangeRate, '楽天米国株の編集後レートを採用');
   assertEquals_(9, dbRecord.fee, '一次受け枠の編集後手数料を採用');
   assertEquals_(100, dbRecord.grossAmount, 'BASEで保持できない約定代金はmetadataから復元');
+  assertEquals_(15000, dbRecord.netAmount, '元CSVの受渡円額を既存DB列へ保持');
   assertEquals_('現物買付', dbRecord.rawTradeType, 'raw取引区分はmetadataから復元');
   assertEquals_(2, dbRecord.tax, 'raw税額はmetadataから復元');
 }
