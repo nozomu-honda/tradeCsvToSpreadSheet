@@ -47,14 +47,16 @@ function buildTradeRows_(records, alerts) {
     const holding = prevHolding + holdingDelta;
 
     const manualDomesticTax = r['国内消費税等（円）'];
+    const rakutenUsFeeTaxRequired = r.__rakutenUsStockFeeTaxRequired === true;
     let feeTax = '';
     if (manualDomesticTax !== '' && manualDomesticTax !== null && manualDomesticTax !== undefined) {
       feeTax = manualDomesticTax;
-    } else if (tx === '現物買付') {
+    } else if (tx === '現物買付' && !rakutenUsFeeTaxRequired) {
       feeTax = Math.floor((fee / 1.1) * 0.1);
     } else if (tx === '現物再投') {
       feeTax = 0;
     }
+    const rakutenUsFeeTaxUnavailable = rakutenUsFeeTaxRequired && tx === '現物買付' && feeTax === '';
 
     let avgUnitPrice = '';
     let sellNet = '';
@@ -106,17 +108,22 @@ function buildTradeRows_(records, alerts) {
     if (isPrincipalReturn) {
       bookValue = '';
     } else if (['現物買付', '現物再投', '現物募集'].includes(tx)) {
-      const tax = feeTax === '' ? 0 : feeTax;
+      if (rakutenUsFeeTaxUnavailable) {
+        bookValue = '';
+        alerts.push(`簿価: 楽天米国株の手数料の消費税額が取得できません: ${symbol || '(空欄)'} / 受渡日: ${formatDateForAlert_(r['受渡日'])}`);
+      } else {
+        const tax = feeTax === '' ? 0 : feeTax;
 
-      if (settlementCurrency && settlementCurrency !== 'JPY') {
-        if (rate && rate !== 0) {
-          bookValue = amount * rate - tax;
+        if (settlementCurrency && settlementCurrency !== 'JPY') {
+          if (rate && rate !== 0) {
+            bookValue = amount * rate - tax;
+          } else {
+            alerts.push(`簿価: レート未入力: ${symbol || '(空欄)'} / 受渡日: ${formatDateForAlert_(r['受渡日'])} / 決済通貨: ${settlementCurrency}`);
+            bookValue = amount - tax;
+          }
         } else {
-          alerts.push(`簿価: レート未入力: ${symbol || '(空欄)'} / 受渡日: ${formatDateForAlert_(r['受渡日'])} / 決済通貨: ${settlementCurrency}`);
           bookValue = amount - tax;
         }
-      } else {
-        bookValue = amount - tax;
       }
 
     } else if (tx === '株転換取得（買）') {
@@ -176,7 +183,7 @@ function buildTradeRows_(records, alerts) {
 
     symbolBalance = normalizeZero_(symbolBalance);
 
-    if (holding > 0) {
+    if (holding > 0 && !rakutenUsFeeTaxUnavailable) {
       if (product === '投信' && ['現物買付', '現物再投', '現物募集'].includes(tx)) {
         const balanceBase = prevBalance > 0
           ? (prevBalance + (bookValue === '' ? 0 : bookValue))
@@ -320,8 +327,9 @@ function mapRakutenJapanOutputSellBuy_(tx) {
 }
 
 function buildRakutenUsStockRows_(records, alerts) {
+  const calculationRecords = prepareRakutenUsStockRecordsForTradeCalculation_(records);
   const state = { index: 0 };
-  return buildTradeRows_(records, alerts).map(function(tradeRow) {
+  return buildTradeRows_(calculationRecords, alerts).map(function(tradeRow) {
     const sourceRecord = takeSourceRecordForOutputRow_(records, tradeRow, state);
     const sourceDb = getRakutenDbSource_(sourceRecord);
     const get = function(header) {
@@ -378,6 +386,30 @@ function buildRakutenUsStockRows_(records, alerts) {
     ];
 
     return row.concat([tradeRow[TRADE_HEADERS.length] || '']);
+  });
+}
+
+function prepareRakutenUsStockRecordsForTradeCalculation_(records) {
+  return records.map(function(record) {
+    const sourceDb = getRakutenDbSource_(record);
+    if (text_(sourceDb.sourceType) !== 'rakuten_us_stock') {
+      return record;
+    }
+
+    const prepared = {};
+    Object.keys(record).forEach(function(key) {
+      prepared[key] = record[key];
+    });
+
+    const explicitTaxJpy = toOptionalNumber_(record['国内消費税等（円）']);
+    const sourceTaxUsd = getRakutenSourceNumber_(sourceDb, 'tax');
+    prepared['国内消費税等（円）'] = explicitTaxJpy !== ''
+      ? explicitTaxJpy
+      : sourceTaxUsd === 0
+        ? 0
+        : multiplyOptionalNumbers_(sourceTaxUsd, record['レート']);
+    prepared.__rakutenUsStockFeeTaxRequired = true;
+    return prepared;
   });
 }
 

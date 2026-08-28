@@ -594,7 +594,9 @@ function test_buildRakutenOutputSheetsFromRecordsForTarget_reflectsUsStockTaxSou
     const now = new Date('2026-07-09T00:00:00Z');
     const rows = [
       ['約定日', '受渡日', 'ティッカー', '銘柄名', '口座', '売買区分', '決済通貨', '数量［株］', '単価［USドル］', '約定代金［USドル］', '為替レート', '手数料［USドル］', '税金［USドル］', '受渡金額［USドル］', '受渡金額［円］'],
-      ['2026/06/01', '2026/06/03', 'AAPL', 'Apple Inc.', '特定', '買付', 'USドル', 1, 200, 200, 150, 1.5, 0.2, 201.7, 30255]
+      ['2026/06/01', '2026/06/03', 'AAPL', 'Apple Inc.', '特定', '買付', 'USドル', 1, 200, 200, 150, 1.5, 0.2, 201.7, 30255],
+      ['2026/06/02', '2026/06/04', 'MSFT', 'Microsoft Corp.', '特定', '買付', 'USドル', 1, 100, 100, 150, 1.5, 0, 101.5, 15225],
+      ['2026/06/03', '2026/06/05', 'TSLA', 'Tesla Inc.', '特定', '買付', 'USドル', 1, 100, 100, 150, 1.5, '', 101.5, 15225]
     ];
     const dbRecords = normalizeRakutenUsStockRowsToRecords_(rows, 0).map(function(record, index) {
       return normalizeRakutenRecordForDb_(record, {
@@ -612,6 +614,16 @@ function test_buildRakutenOutputSheetsFromRecordsForTarget_reflectsUsStockTaxSou
     assertEquals_(200, getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, 2, '約定代金［USドル］'), '米国株CSVの約定代金を反映');
     assertEquals_(0.2, getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, 2, '税金［USドル］'), '米国株CSVの税金を反映');
     assertEquals_(30, getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, 2, '手数料の消費税額（円）'), '米国株CSVの税金を円換算');
+    assertEquals_(30225, getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, 2, '簿価'), '米国株CSVの簿価から円建て税額を控除');
+
+    const zeroTaxRow = findSheetRowByHeaderValues_(usSheet, RAKUTEN_US_STOCK_HEADERS, { 'ティッカー': 'MSFT', '売買区分': '買付' });
+    assertEquals_(0, getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, zeroTaxRow, '手数料の消費税額（円）'), '税額0は0円として扱う');
+    assertEquals_(15000, getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, zeroTaxRow, '簿価'), '税額0の簿価');
+
+    const missingTaxRow = findSheetRowByHeaderValues_(usSheet, RAKUTEN_US_STOCK_HEADERS, { 'ティッカー': 'TSLA', '売買区分': '買付' });
+    assertEquals_('', getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, missingTaxRow, '手数料の消費税額（円）'), '税額取得不能時は出力を空欄');
+    assertEquals_('', getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, missingTaxRow, '簿価'), '税額取得不能時は簿価を推測しない');
+    assertEquals_('', getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, missingTaxRow, '平均取得単価'), '税額取得不能時は平均取得単価も未計算');
   });
 }
 
