@@ -461,9 +461,12 @@ function normalizeRakutenRecordForDb_(record, options) {
   const isCash = product === '現金';
   const sourceGrossAmount = source.hasOwnProperty('grossAmount') ? toOptionalNumber_(source.grossAmount) : '';
   const sourceTax = source.hasOwnProperty('tax') ? toOptionalNumber_(source.tax) : '';
-  const description = base['元本払戻金'] === true && !isRakutenPrincipalReturnText_(text_(base['摘要']))
-    ? (text_(base['摘要']) ? text_(base['摘要']) + ' / 元本払戻金' : '元本払戻金')
-    : text_(base['摘要']);
+  const sourceDescription = text_(source.description);
+  const baseDescription = text_(base['摘要']);
+  const descriptionBase = sourceDescription || baseDescription;
+  const description = base['元本払戻金'] === true && !isRakutenPrincipalReturnText_(descriptionBase)
+    ? (descriptionBase ? descriptionBase + ' / 元本払戻金' : '元本払戻金')
+    : descriptionBase;
 
   return {
     recordId: base.recordId,
@@ -499,7 +502,6 @@ function normalizeRakutenRecordForDb_(record, options) {
     manualRate: isDividend ? base['レート'] : '',
     manualForeignWithholdingTaxJpy: isDividend ? base['現地源泉税（円）'] : '',
     manualDomesticWithholdingTaxJpy: isDividend ? base['国内源泉所得税（円）'] : '',
-    manualDomesticLocalTaxJpy: isDividend ? base['国内源泉地方税（円）'] : '',
     description: description,
     createdAt: base.createdAt,
     updatedAt: base.updatedAt,
@@ -545,7 +547,7 @@ function rakutenDbRecordToBaseRecord_(obj) {
     '国内消費税等（円）': commonDomesticTax,
     '現地源泉税（円）': toOptionalNumber_(obj.manualForeignWithholdingTaxJpy),
     '国内源泉所得税（円）': toOptionalNumber_(obj.manualDomesticWithholdingTaxJpy),
-    '国内源泉地方税（円）': toOptionalNumber_(obj.manualDomesticLocalTaxJpy),
+    '国内源泉地方税（円）': '',
     '元本払戻金': isPrincipalReturn ? true : '',
     '国内手数料（円）': domesticFee,
     '現地手数料（円）': toOptionalNumber_(obj.miscFee),
