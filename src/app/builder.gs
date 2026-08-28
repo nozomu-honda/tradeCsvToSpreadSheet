@@ -373,11 +373,13 @@ function buildRakutenUsStockRows_(records, alerts) {
     const rate = get('レート');
     const amount = get('受渡金額/決済損益');
     const settlementCurrency = normalizeCurrency_(get('決済通貨'));
+    const allowLegacyUsdToJpyFallback = !sourceRecord.__rakutenDb;
     const settlementAmounts = getRakutenUsOutputSettlementAmounts_(
       amount,
       rate,
       settlementCurrency,
-      sourceDb.netAmount
+      sourceDb.netAmount,
+      allowLegacyUsdToJpyFallback
     );
     const feeUsd = get('現地手数料（円）');
     const domesticFeeJpy = multiplyOptionalNumbers_(feeUsd, rate);
@@ -479,7 +481,7 @@ function mapRakutenUsOutputSellBuy_(tx) {
   return tx || '';
 }
 
-function getRakutenUsOutputSettlementAmounts_(amount, rate, settlementCurrency, settlementAmountJpy) {
+function getRakutenUsOutputSettlementAmounts_(amount, rate, settlementCurrency, settlementAmountJpy, allowLegacyUsdToJpyFallback) {
   const amountNumber = toOptionalNumber_(amount);
   const rateNumber = toOptionalNumber_(rate);
   const currency = normalizeCurrency_(settlementCurrency);
@@ -501,6 +503,9 @@ function getRakutenUsOutputSettlementAmounts_(amount, rate, settlementCurrency, 
   const originalSettlementAmountJpy = toOptionalNumber_(settlementAmountJpy);
   if (originalSettlementAmountJpy !== '') {
     result.jpy = originalSettlementAmountJpy;
+  } else if (allowLegacyUsdToJpyFallback && rateNumber !== '' && rateNumber !== 0) {
+    // Metadataなしの旧base record出力だけは、従来の表示互換を維持する。
+    result.jpy = normalizeZero_(amountNumber * rateNumber);
   }
   return result;
 }

@@ -83,7 +83,7 @@ function buildRakutenOutputCellComparisonFixtures_() {
       importId: 'import_rakuten_cell_us',
       rows: [
         ['約定日', '受渡日', 'ティッカー', '銘柄名', '口座', '取引区分', '売買区分', '信用区分', '弁済期限', '決済通貨', '数量［株］', '単価［USドル］', '約定代金［USドル］', '為替レート', '手数料［USドル］', '税金［USドル］', '受渡金額［USドル］', '受渡金額［円］'],
-        ['2026/01/06', '2026/01/08', 'AAPL', 'APPLE INC', '特定', '現物', '買付', '', '', 'USドル', 1, 200, 200, 150, 1.5, 0.2, 201.697333333333, 30255],
+        ['2026/01/06', '2026/01/08', 'AAPL', 'APPLE INC', '特定', '現物', '買付', '', '', 'USドル', 1, 200, 200, 150, 1.5, 0.2, 201.7, 30255],
         ['2026/01/18', '2026/01/20', 'AAPL', 'APPLE INC', '特定', '現物', '売付', '', '', 'USドル', 1, 250, 250, 150, 0.8, 0.1, 250.8, 37620],
         ['2026/01/09', '2026/01/11', 'MSFT', 'MICROSOFT CORP', '特定', '現物', '買付', '', '', '円', 1, 200, 200, 150, 1.5, 0.2, 201.5, 30225],
       ],
@@ -162,7 +162,7 @@ function assertRakutenOutputCellComparisonUsStock_(sheet) {
   const buyRow = findSheetRowByHeaderValues_(sheet, RAKUTEN_US_STOCK_HEADERS, { 'ティッカー': 'AAPL', '売買区分': '買付' });
   assertEquals_(200, getSheetValueByHeader_(sheet, RAKUTEN_US_STOCK_HEADERS, buyRow, '約定代金［USドル］'), '米国株買付 約定代金');
   assertEquals_(0.2, getSheetValueByHeader_(sheet, RAKUTEN_US_STOCK_HEADERS, buyRow, '税金［USドル］'), '米国株買付 税金USD');
-  assertEquals_(201.697333333333, getSheetValueByHeader_(sheet, RAKUTEN_US_STOCK_HEADERS, buyRow, '受渡金額［USドル］'), '米国株買付 受渡USD');
+  assertEquals_(201.7, getSheetValueByHeader_(sheet, RAKUTEN_US_STOCK_HEADERS, buyRow, '受渡金額［USドル］'), '米国株買付 受渡USD');
   assertEquals_(30255, getSheetValueByHeader_(sheet, RAKUTEN_US_STOCK_HEADERS, buyRow, '受渡金額［円］'), '米国株買付 受渡円');
   assertEquals_(225, getSheetValueByHeader_(sheet, RAKUTEN_US_STOCK_HEADERS, buyRow, '国内手数料（円）'), '米国株買付 国内手数料');
   assertEquals_(30, getSheetValueByHeader_(sheet, RAKUTEN_US_STOCK_HEADERS, buyRow, '手数料の消費税額（円）'), '米国株買付 手数料消費税');
