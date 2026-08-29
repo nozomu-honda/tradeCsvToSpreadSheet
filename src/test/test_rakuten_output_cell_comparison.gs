@@ -166,15 +166,15 @@ function assertRakutenOutputCellComparisonUsStock_(sheet) {
   assertEquals_(30255, getSheetValueByHeader_(sheet, RAKUTEN_US_STOCK_HEADERS, buyRow, '受渡金額［円］'), '米国株買付 受渡円');
   assertEquals_(225, getSheetValueByHeader_(sheet, RAKUTEN_US_STOCK_HEADERS, buyRow, '国内手数料（円）'), '米国株買付 国内手数料');
   assertEquals_(30, getSheetValueByHeader_(sheet, RAKUTEN_US_STOCK_HEADERS, buyRow, '手数料の消費税額（円）'), '米国株買付 手数料消費税');
-  assertEquals_(30255, getSheetValueByHeader_(sheet, RAKUTEN_US_STOCK_HEADERS, buyRow, '平均取得単価'), '米国株買付 平均取得単価');
-  assertEquals_(30255, getSheetValueByHeader_(sheet, RAKUTEN_US_STOCK_HEADERS, buyRow, '簿価'), '米国株買付 簿価');
+  assertEquals_(30225, getSheetValueByHeader_(sheet, RAKUTEN_US_STOCK_HEADERS, buyRow, '平均取得単価'), '米国株買付 平均取得単価');
+  assertEquals_(30225, getSheetValueByHeader_(sheet, RAKUTEN_US_STOCK_HEADERS, buyRow, '簿価'), '米国株買付 簿価は円建て税額を控除');
 
   const sellRow = findSheetRowByHeaderValues_(sheet, RAKUTEN_US_STOCK_HEADERS, { 'ティッカー': 'AAPL', '売買区分': '売付' });
   assertEquals_(0, getSheetValueByHeader_(sheet, RAKUTEN_US_STOCK_HEADERS, sellRow, '保有数'), '米国株売却 保有数');
   assertEquals_(37500, getSheetValueByHeader_(sheet, RAKUTEN_US_STOCK_HEADERS, sellRow, '手数料抜き売値'), '米国株売却 手数料抜き売値');
-  assertEquals_(30255, getSheetValueByHeader_(sheet, RAKUTEN_US_STOCK_HEADERS, sellRow, '取得価格'), '米国株売却 取得価格');
-  assertEquals_(7245, getSheetValueByHeader_(sheet, RAKUTEN_US_STOCK_HEADERS, sellRow, '売却損益'), '米国株売却 売却損益');
-  assertEquals_(-30255, getSheetValueByHeader_(sheet, RAKUTEN_US_STOCK_HEADERS, sellRow, '簿価'), '米国株売却 簿価');
+  assertEquals_(30225, getSheetValueByHeader_(sheet, RAKUTEN_US_STOCK_HEADERS, sellRow, '取得価格'), '米国株売却 取得価格');
+  assertEquals_(7275, getSheetValueByHeader_(sheet, RAKUTEN_US_STOCK_HEADERS, sellRow, '売却損益'), '米国株売却 売却損益');
+  assertEquals_(-30225, getSheetValueByHeader_(sheet, RAKUTEN_US_STOCK_HEADERS, sellRow, '簿価'), '米国株売却 簿価');
   assertEquals_(0, getSheetValueByHeader_(sheet, RAKUTEN_US_STOCK_HEADERS, sellRow, '銘柄ごとの残高'), '米国株売却 銘柄ごとの残高');
   assertEquals_(15, getSheetValueByHeader_(sheet, RAKUTEN_US_STOCK_HEADERS, sellRow, '手数料の消費税額（円）'), '米国株売却 税金USD円換算');
 
