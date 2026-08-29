@@ -623,7 +623,7 @@ function test_buildRakutenOutputSheetsFromRecordsForTarget_reflectsUsStockTaxSou
       return alert.indexOf('手数料の消費税額が取得できません') >= 0;
     }), '税額取得不能時はalertを出す');
     assertTrue_(result.alerts.some(function(alert) {
-      return alert.indexOf('META') >= 0 && alert.indexOf('円換算レートが取得できません') >= 0;
+      return alert.indexOf('Meta Platforms Inc.') >= 0 && alert.indexOf('円換算レートが取得できません') >= 0;
     }), '非ゼロUSD税額の円換算レート欠落時はalertを出す');
     assertFalse_(result.alerts.some(function(alert) {
       return alert.indexOf('NFLX') >= 0 && alert.indexOf('円換算レートが取得できません') >= 0;
