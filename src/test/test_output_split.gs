@@ -632,7 +632,7 @@ function test_buildRakutenOutputSheetsFromRecordsForTarget_reflectsUsStockTaxSou
     const aaplBuyRow = findSheetRowByHeaderValues_(usSheet, RAKUTEN_US_STOCK_HEADERS, {
       'ティッカー': 'AAPL',
       '売買区分': '買付',
-      '受渡日': '2026/06/03'
+      '単価［USドル］': 200
     });
     assertEquals_(200, getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, aaplBuyRow, '約定代金［USドル］'), '米国株CSVの約定代金を反映');
     assertEquals_(0.2, getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, aaplBuyRow, '税金［USドル］'), '米国株CSVの税金を反映');
@@ -640,11 +640,11 @@ function test_buildRakutenOutputSheetsFromRecordsForTarget_reflectsUsStockTaxSou
     assertEquals_(30, getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, aaplBuyRow, '手数料の消費税額（円）'), '米国株CSVの税金を円換算');
     assertEquals_(30225, getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, aaplBuyRow, '簿価'), '米国株CSVの簿価から円建て税額を控除');
 
-    const aaplUnknownBuyRow = findSheetRowByHeaderValues_(usSheet, RAKUTEN_US_STOCK_HEADERS, { 'ティッカー': 'AAPL', '売買区分': '買付', '受渡日': '2026/06/04' });
+    const aaplUnknownBuyRow = findSheetRowByHeaderValues_(usSheet, RAKUTEN_US_STOCK_HEADERS, { 'ティッカー': 'AAPL', '売買区分': '買付', '単価［USドル］': 100 });
     assertEquals_('', getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, aaplUnknownBuyRow, '簿価'), '正常買付後の税額取得不能買付は簿価を空欄');
     assertEquals_('', getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, aaplUnknownBuyRow, '平均取得単価'), '正常買付後の税額取得不能買付は平均取得単価を空欄');
 
-    const aaplUnknownSellRow = findSheetRowByHeaderValues_(usSheet, RAKUTEN_US_STOCK_HEADERS, { 'ティッカー': 'AAPL', '売買区分': '売付', '受渡日': '2026/06/05' });
+    const aaplUnknownSellRow = findSheetRowByHeaderValues_(usSheet, RAKUTEN_US_STOCK_HEADERS, { 'ティッカー': 'AAPL', '売買区分': '売付' });
     assertEquals_('', getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, aaplUnknownSellRow, '取得価格'), '取得原価unknown中の売却は取得価格を空欄');
     assertEquals_('', getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, aaplUnknownSellRow, '売却損益'), '取得原価unknown中の売却は売却損益を空欄');
     assertEquals_('', getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, aaplUnknownSellRow, '簿価'), '取得原価unknown中の売却は簿価を空欄');
@@ -678,29 +678,29 @@ function test_buildRakutenOutputSheetsFromRecordsForTarget_reflectsUsStockTaxSou
       return alert.indexOf('受渡金額［円］が取得できません') >= 0;
     }), '元CSVの受渡円額欠落時はalertを出す');
 
-    const missingTaxRow = findSheetRowByHeaderValues_(usSheet, RAKUTEN_US_STOCK_HEADERS, { 'ティッカー': 'TSLA', '売買区分': '買付', '受渡日': '2026/06/05' });
+    const missingTaxRow = findSheetRowByHeaderValues_(usSheet, RAKUTEN_US_STOCK_HEADERS, { 'ティッカー': 'TSLA', '売買区分': '買付', '単価［USドル］': 100 });
     assertEquals_('', getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, missingTaxRow, '手数料の消費税額（円）'), '税額取得不能時は出力を空欄');
     assertEquals_('', getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, missingTaxRow, '簿価'), '税額取得不能時は簿価を推測しない');
     assertEquals_('', getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, missingTaxRow, '平均取得単価'), '税額取得不能時は平均取得単価も未計算');
 
-    const followingNormalBuyRow = findSheetRowByHeaderValues_(usSheet, RAKUTEN_US_STOCK_HEADERS, { 'ティッカー': 'TSLA', '売買区分': '買付', '受渡日': '2026/06/06' });
+    const followingNormalBuyRow = findSheetRowByHeaderValues_(usSheet, RAKUTEN_US_STOCK_HEADERS, { 'ティッカー': 'TSLA', '売買区分': '買付', '単価［USドル］': 120 });
     assertEquals_(0, getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, followingNormalBuyRow, '手数料の消費税額（円）'), 'unknown後の正常買付の税額');
     assertEquals_('', getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, followingNormalBuyRow, '簿価'), 'unknown中は後続買付の簿価を推測しない');
     assertEquals_('', getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, followingNormalBuyRow, '平均取得単価'), 'unknown中は後続買付の平均取得単価を推測しない');
     assertEquals_('', getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, followingNormalBuyRow, '銘柄ごとの残高'), 'unknown中は後続買付の残高を推測しない');
 
-    const unknownSellRow = findSheetRowByHeaderValues_(usSheet, RAKUTEN_US_STOCK_HEADERS, { 'ティッカー': 'TSLA', '売買区分': '売付', '受渡日': '2026/06/07' });
+    const unknownSellRow = findSheetRowByHeaderValues_(usSheet, RAKUTEN_US_STOCK_HEADERS, { 'ティッカー': 'TSLA', '売買区分': '売付', '単価［USドル］': 110 });
     assertEquals_('', getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, unknownSellRow, '取得価格'), 'unknown中の売却で取得価格を推測しない');
     assertEquals_('', getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, unknownSellRow, '売却損益'), 'unknown中の売却で売却損益を推測しない');
     assertEquals_('', getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, unknownSellRow, '簿価'), 'unknown中の売却で簿価を推測しない');
     assertEquals_('', getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, unknownSellRow, '銘柄ごとの残高'), 'unknown中の売却で残高を推測しない');
 
-    const rateMissingRow = findSheetRowByHeaderValues_(usSheet, RAKUTEN_US_STOCK_HEADERS, { 'ティッカー': 'NFLX', '売買区分': '買付', '受渡日': '2026/06/08' });
+    const rateMissingRow = findSheetRowByHeaderValues_(usSheet, RAKUTEN_US_STOCK_HEADERS, { 'ティッカー': 'NFLX', '売買区分': '買付', '単価［USドル］': 100, '為替レート': '' });
     assertEquals_(0, getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, rateMissingRow, '手数料の消費税額（円）'), '税額0はレート欠落でも0円');
     assertEquals_('', getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, rateMissingRow, '簿価'), 'USDレート欠落時は簿価を空欄');
     assertEquals_('', getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, rateMissingRow, '平均取得単価'), 'USDレート欠落時は平均取得単価を空欄');
 
-    const recoveredBuyRow = findSheetRowByHeaderValues_(usSheet, RAKUTEN_US_STOCK_HEADERS, { 'ティッカー': 'NFLX', '売買区分': '買付', '受渡日': '2026/06/10' });
+    const recoveredBuyRow = findSheetRowByHeaderValues_(usSheet, RAKUTEN_US_STOCK_HEADERS, { 'ティッカー': 'NFLX', '売買区分': '買付', '単価［USドル］': 100, '受渡金額［円］': 15225 });
     assertEquals_(15225, getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, recoveredBuyRow, '簿価'), '全保有解消後の正常買付で簿価stateを再開');
     assertEquals_(15225, getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, recoveredBuyRow, '平均取得単価'), '全保有解消後の正常買付で平均取得単価stateを再開');
   });
