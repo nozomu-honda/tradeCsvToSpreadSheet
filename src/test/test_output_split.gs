@@ -629,11 +629,16 @@ function test_buildRakutenOutputSheetsFromRecordsForTarget_reflectsUsStockTaxSou
       return alert.indexOf('NFLX') >= 0 && alert.indexOf('円換算レートが取得できません') >= 0;
     }), '税額0では不要な円換算レートalertを出さない');
 
-    assertEquals_(200, getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, 2, '約定代金［USドル］'), '米国株CSVの約定代金を反映');
-    assertEquals_(0.2, getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, 2, '税金［USドル］'), '米国株CSVの税金を反映');
-    assertEquals_(30255, getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, 2, '受渡金額［円］'), '元CSVの受渡円額を正本にする');
-    assertEquals_(30, getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, 2, '手数料の消費税額（円）'), '米国株CSVの税金を円換算');
-    assertEquals_(30225, getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, 2, '簿価'), '米国株CSVの簿価から円建て税額を控除');
+    const aaplBuyRow = findSheetRowByHeaderValues_(usSheet, RAKUTEN_US_STOCK_HEADERS, {
+      'ティッカー': 'AAPL',
+      '売買区分': '買付',
+      '受渡日': '2026/06/03'
+    });
+    assertEquals_(200, getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, aaplBuyRow, '約定代金［USドル］'), '米国株CSVの約定代金を反映');
+    assertEquals_(0.2, getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, aaplBuyRow, '税金［USドル］'), '米国株CSVの税金を反映');
+    assertEquals_(30255, getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, aaplBuyRow, '受渡金額［円］'), '元CSVの受渡円額を正本にする');
+    assertEquals_(30, getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, aaplBuyRow, '手数料の消費税額（円）'), '米国株CSVの税金を円換算');
+    assertEquals_(30225, getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, aaplBuyRow, '簿価'), '米国株CSVの簿価から円建て税額を控除');
 
     const aaplUnknownBuyRow = findSheetRowByHeaderValues_(usSheet, RAKUTEN_US_STOCK_HEADERS, { 'ティッカー': 'AAPL', '売買区分': '買付', '受渡日': '2026/06/04' });
     assertEquals_('', getSheetValueByHeader_(usSheet, RAKUTEN_US_STOCK_HEADERS, aaplUnknownBuyRow, '簿価'), '正常買付後の税額取得不能買付は簿価を空欄');
