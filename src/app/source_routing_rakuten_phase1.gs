@@ -47,6 +47,7 @@ function createStagingSourceMetadata_(normalizedInput) {
       const fields = {};
       [
         'grossAmount',
+        'settlementAmountJpy',
         'rawProduct',
         'rawTradeType',
         'rawSellBuyType',
@@ -551,6 +552,7 @@ function normalizeRakutenUsStockRowsToRecords_(rows, headerRowIndex) {
 
     setRakutenSourceFields_(record, {
       grossAmount: getByHeaderCandidates_(row, headerIndexMap, ['約定代金[USドル]', '約定代金［USドル］']),
+      settlementAmountJpy: getByHeaderCandidates_(row, headerIndexMap, ['受渡金額[円]', '受渡金額［円］']),
       tax: getByHeaderCandidates_(row, headerIndexMap, ['税金[USドル]', '税金［USドル］']),
       exchangeRate: record['レート'],
       rawTradeType: text_(getByHeaderCandidates_(row, headerIndexMap, ['取引区分'])),

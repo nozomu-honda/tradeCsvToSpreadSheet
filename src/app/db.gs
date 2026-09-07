@@ -459,8 +459,12 @@ function normalizeRakutenRecordForDb_(record, options) {
   const product = text_(base['商品']);
   const isDividend = tx === '入金（配当金）' || tx === '入金（分配金）';
   const isCash = product === '現金';
+  const isRakutenUsStock = text_(options && options.sourceType) === 'rakuten_us_stock';
   const sourceGrossAmount = source.hasOwnProperty('grossAmount') ? toOptionalNumber_(source.grossAmount) : '';
   const sourceTax = source.hasOwnProperty('tax') ? toOptionalNumber_(source.tax) : '';
+  const sourceSettlementAmountJpy = source.hasOwnProperty('settlementAmountJpy')
+    ? toOptionalNumber_(source.settlementAmountJpy)
+    : '';
   const sourceDescription = text_(source.description);
   const baseDescription = text_(base['摘要']);
   const descriptionBase = sourceDescription || baseDescription;
@@ -493,7 +497,9 @@ function normalizeRakutenRecordForDb_(record, options) {
     quantity: base['数量'],
     unitPrice: base['単価'],
     grossAmount: sourceGrossAmount,
-    netAmount: isDividend ? base['受渡金額/決済損益'] : '',
+    netAmount: isDividend
+      ? base['受渡金額/決済損益']
+      : (isRakutenUsStock ? sourceSettlementAmountJpy : ''),
     settlementAmount: base['受渡金額/決済損益'],
     fee: base['手数料（税込）'],
     tax: sourceTax !== '' ? sourceTax : base['国内消費税等（円）'],
@@ -519,6 +525,7 @@ function rakutenDbRecordToBaseRecord_(obj) {
     tx === '入金（分配金）' &&
     isRakutenPrincipalReturnText_([obj.rawProduct, obj.description].join(' '));
   const commonDomesticTax = product === '株式' ? toOptionalNumber_(obj.tax) : '';
+  const isRakutenUsStock = text_(obj.sourceType) === 'rakuten_us_stock';
   const fee = toNumber_(obj.fee);
   let domesticFee = '';
   if (product === '株式' && fee !== 0) {
@@ -539,7 +546,9 @@ function rakutenDbRecordToBaseRecord_(obj) {
     発行通貨: normalizeCurrency_(obj.currency),
     数量: toNumber_(obj.quantity),
     単価: toNumber_(obj.unitPrice),
-    '受渡金額/決済損益': toNumber_(obj.settlementAmount || obj.netAmount),
+    '受渡金額/決済損益': isRakutenUsStock
+      ? toNumber_(obj.settlementAmount)
+      : toNumber_(obj.settlementAmount || obj.netAmount),
     '手数料（税込）': fee,
     レート: toNumber_(obj.exchangeRate || obj.manualRate),
     決済通貨: normalizeCurrency_(obj.settlementCurrency || obj.currency),
